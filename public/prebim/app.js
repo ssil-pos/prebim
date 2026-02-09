@@ -15,7 +15,7 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0152'),
+    import('/prebim/engine.js?v=20260209-0202'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -332,12 +332,35 @@ function renderEditor(projectId){
           <div class="acc">
             <button class="acc-btn" type="button" data-acc="grid">Grid <span class="chev" id="chevGrid">▾</span></button>
             <div class="acc-panel open" id="panelGrid">
-              <div class="row" style="margin-top:0">
-                <input id="spansX" class="input" placeholder="spansX (mm) e.g. 6000,8000,6000" />
+              <div class="grid2">
+                <div>
+                  <label class="label">Grid X (count)</label>
+                  <input id="nx" class="input" type="number" min="1" step="1" placeholder="4" />
+                </div>
+                <div>
+                  <label class="label">Grid Y (count)</label>
+                  <input id="ny" class="input" type="number" min="1" step="1" placeholder="3" />
+                </div>
               </div>
-              <div class="row" style="margin-top:8px">
-                <input id="spansY" class="input" placeholder="spansY (mm) e.g. 6000,6000" />
+
+              <div class="grid2">
+                <div>
+                  <label class="label">X base spacing (mm)</label>
+                  <input id="sx" class="input" type="number" min="1" step="100" placeholder="6000" />
+                </div>
+                <div>
+                  <label class="label">Y base spacing (mm)</label>
+                  <input id="sy" class="input" type="number" min="1" step="100" placeholder="6000" />
+                </div>
               </div>
+
+              <label class="label">X custom spans (mm, comma)</label>
+              <input id="spansX" class="input" placeholder="e.g. 6000,6000,8000" />
+
+              <label class="label">Y custom spans (mm, comma)</label>
+              <input id="spansY" class="input" placeholder="e.g. 6000,6000" />
+
+              <div class="note">If custom spans are provided, grid count will follow spans+1.</div>
               <div class="row" style="margin-top:10px">
                 <button class="btn primary" id="btnApplyGrid" type="button">Apply</button>
               </div>
@@ -345,13 +368,12 @@ function renderEditor(projectId){
 
             <button class="acc-btn" type="button" data-acc="levels">Level <span class="chev" id="chevLevels">▾</span></button>
             <div class="acc-panel" id="panelLevels">
-              <div class="row" style="margin-top:0">
-                <input id="levels" class="input" placeholder="e.g. 0, 6000, 12000" />
-              </div>
+              <div id="levelsList"></div>
               <div class="row" style="margin-top:10px">
+                <button class="btn" id="btnAddLevel" type="button">Add level</button>
                 <button class="btn primary" id="btnApplyLevels" type="button">Apply</button>
               </div>
-              <div class="note">Comma-separated elevations (mm).</div>
+              <div class="note">Levels are absolute elevations (mm). Example: 4200, 8400</div>
             </div>
 
             <button class="acc-btn" type="button" data-acc="sub">Sub-beam <span class="chev" id="chevSub">▾</span></button>
@@ -378,14 +400,14 @@ function renderEditor(projectId){
             <button class="acc-btn" type="button" data-acc="brace">Bracing <span class="chev" id="chevBrace">▾</span></button>
             <div class="acc-panel" id="panelBrace">
               <div class="row" style="margin-top:0">
-                <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> enable</label>
+                <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
                 <select id="braceType" class="input" style="max-width:110px">
                   <option value="X">X</option>
                   <option value="S">S</option>
                 </select>
               </div>
               <div class="row" style="margin-top:8px">
-                <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> face-select in 3D</label>
+                <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Select face in 3D</label>
                 <select id="braceFace" class="input" style="max-width:110px">
                   <option value="Y0">Y0</option>
                   <option value="Y1">Y1</option>
@@ -396,7 +418,58 @@ function renderEditor(projectId){
               <div class="row" style="margin-top:10px">
                 <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
               </div>
-              <div class="note">In brace mode: click an outer face in the 3D view.</div>
+              <div class="note">Brace mode: click an outer face in the 3D view.</div>
+            </div>
+
+            <button class="acc-btn" type="button" data-acc="profile">Profile <span class="chev" id="chevProfile">▾</span></button>
+            <div class="acc-panel" id="panelProfile">
+              <label class="label">Standard (all)</label>
+              <select id="stdAll" class="input">
+                <option value="KS">KR - KS</option>
+                <option value="AISC">US - AISC (stub)</option>
+              </select>
+
+              <div class="grid2">
+                <div>
+                  <label class="label">Column (common) shape</label>
+                  <select id="colShape" class="input">
+                    <option>H</option><option>I</option><option>RHS</option><option>CHS</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="label">Beam (common) shape</label>
+                  <select id="beamShape" class="input">
+                    <option>H</option><option>I</option><option>RHS</option><option>CHS</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid2">
+                <div>
+                  <label class="label">Column profile</label>
+                  <input id="colSize" class="input" placeholder="e.g. H 150x150x10x7" />
+                </div>
+                <div>
+                  <label class="label">Beam profile</label>
+                  <input id="beamSize" class="input" placeholder="e.g. H 150x150x10x7" />
+                </div>
+              </div>
+
+              <div class="grid2">
+                <div>
+                  <label class="label">Sub-beam profile</label>
+                  <input id="subSize" class="input" placeholder="e.g. H 150x150x10x7" />
+                </div>
+                <div>
+                  <label class="label">Brace profile</label>
+                  <input id="braceSize" class="input" placeholder="e.g. L 75x75x6" />
+                </div>
+              </div>
+
+              <div class="note">Profiles are stored in the project. Full catalog hookup will follow the old draft engine.</div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="btnApplyProfile" type="button">Apply</button>
+              </div>
             </div>
           </div>
         </div>
@@ -435,10 +508,29 @@ function renderEditor(projectId){
     await loadDeps();
     const engineModel = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || __engine.defaultModel());
 
+    const renderLevelsList = (levelsMm) => {
+      const host = document.getElementById('levelsList');
+      if(!host) return;
+      host.innerHTML = (levelsMm||[]).map((lv, idx) => {
+        const label = `Level ${idx+1} height (mm)`;
+        return `
+          <div class="row" style="margin-top:${idx===0?0:8}px">
+            <input class="input" data-level-idx="${idx}" value="${escapeHtml(String(lv))}" placeholder="${label}" />
+            <button class="btn smallbtn" data-del-level="${idx}" type="button">Delete</button>
+          </div>
+        `;
+      }).join('');
+    };
+
     const setForm = (m) => {
+      document.getElementById('nx').value = String(m.grid.nx || ((m.grid.spansXmm?.length||0)+1) || 1);
+      document.getElementById('ny').value = String(m.grid.ny || ((m.grid.spansYmm?.length||0)+1) || 1);
+      document.getElementById('sx').value = String(m.grid.spacingXmm || 6000);
+      document.getElementById('sy').value = String(m.grid.spacingYmm || 6000);
       document.getElementById('spansX').value = (m.grid.spansXmm||[]).join(', ');
       document.getElementById('spansY').value = (m.grid.spansYmm||[]).join(', ');
-      document.getElementById('levels').value = (m.levels||[]).join(', ');
+
+      renderLevelsList(m.levels||[]);
 
       document.getElementById('optSub').checked = !!m.options.subBeams.enabled;
       document.getElementById('subCount').value = String(m.options.subBeams.countPerBay||0);
@@ -449,14 +541,21 @@ function renderEditor(projectId){
       document.getElementById('braceType').value = m.options.bracing.type || 'X';
       document.getElementById('braceFace').value = m.options.bracing.face || 'Y0';
       document.getElementById('braceMode').checked = false;
+
+      // profiles (stored only for now)
+      document.getElementById('stdAll').value = m.profiles?.stdAll || 'KS';
+      document.getElementById('colShape').value = m.profiles?.colShape || 'H';
+      document.getElementById('beamShape').value = m.profiles?.beamShape || 'H';
+      document.getElementById('colSize').value = m.profiles?.colSize || '';
+      document.getElementById('beamSize').value = m.profiles?.beamSize || '';
+      document.getElementById('subSize').value = m.profiles?.subSize || '';
+      document.getElementById('braceSize').value = m.profiles?.braceSize || '';
     };
 
     const getForm = () => {
-      const levels = String(document.getElementById('levels').value||'')
-        .split(',')
-        .map(s=>s.trim())
-        .filter(Boolean)
-        .map(x=>parseFloat(x));
+      const levels = Array.from(document.querySelectorAll('#levelsList [data-level-idx]'))
+        .map(el => parseFloat(el.value||'0'))
+        .filter(n => Number.isFinite(n));
 
       const parseSpans = (s) => String(s||'')
         .split(',')
@@ -468,6 +567,10 @@ function renderEditor(projectId){
       const next = {
         v: 1,
         grid: {
+          nx: parseInt(document.getElementById('nx').value||'1',10),
+          ny: parseInt(document.getElementById('ny').value||'1',10),
+          spacingXmm: parseFloat(document.getElementById('sx').value||'6000'),
+          spacingYmm: parseFloat(document.getElementById('sy').value||'6000'),
           spansXmm: parseSpans(document.getElementById('spansX').value),
           spansYmm: parseSpans(document.getElementById('spansY').value),
         },
@@ -483,12 +586,43 @@ function renderEditor(projectId){
             type: document.getElementById('braceType').value || 'X',
             face: document.getElementById('braceFace').value || 'Y0',
           },
+        },
+        profiles: {
+          stdAll: document.getElementById('stdAll').value || 'KS',
+          colShape: document.getElementById('colShape').value || 'H',
+          colSize: document.getElementById('colSize').value || '',
+          beamShape: document.getElementById('beamShape').value || 'H',
+          beamSize: document.getElementById('beamSize').value || '',
+          subShape: 'H',
+          subSize: document.getElementById('subSize').value || '',
+          braceShape: 'L',
+          braceSize: document.getElementById('braceSize').value || '',
         }
       };
       return __engine.normalizeModel(next);
     };
 
     setForm(engineModel);
+
+    // Level list handlers
+    document.getElementById('btnAddLevel')?.addEventListener('click', () => {
+      const m = getForm();
+      const last = m.levels[m.levels.length-1] ?? 0;
+      m.levels.push(last + 4200);
+      setForm(m);
+    });
+
+    document.getElementById('levelsList')?.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('button[data-del-level]');
+      if(!btn) return;
+      const idx = parseInt(btn.getAttribute('data-del-level')||'-1',10);
+      const m = getForm();
+      if(idx >= 0){
+        m.levels.splice(idx, 1);
+        if(m.levels.length < 2) m.levels = [0, 6000];
+        setForm(m);
+      }
+    });
 
     const view3dEl = document.getElementById('view3d');
     const qtyEl = document.getElementById('qty');
@@ -533,6 +667,7 @@ function renderEditor(projectId){
     document.getElementById('btnApplySub')?.addEventListener('click', () => apply(getForm()));
     document.getElementById('btnApplyJoist')?.addEventListener('click', () => apply(getForm()));
     document.getElementById('btnApplyBrace')?.addEventListener('click', () => { updateBraceMode(); apply(getForm()); });
+    document.getElementById('btnApplyProfile')?.addEventListener('click', () => apply(getForm()));
 
 
     // accordion toggles
@@ -543,6 +678,7 @@ function renderEditor(projectId){
         sub: document.getElementById('panelSub'),
         joist: document.getElementById('panelJoist'),
         brace: document.getElementById('panelBrace'),
+        profile: document.getElementById('panelProfile'),
       };
       const chevs = {
         grid: document.getElementById('chevGrid'),
@@ -550,6 +686,7 @@ function renderEditor(projectId){
         sub: document.getElementById('chevSub'),
         joist: document.getElementById('chevJoist'),
         brace: document.getElementById('chevBrace'),
+        profile: document.getElementById('chevProfile'),
       };
 
       for(const k of Object.keys(panels)){

@@ -266,6 +266,13 @@ h1{
 }
 .acc-panel.open{display:block;}
 
+.label{display:block; font-size:12px; font-weight:900; color: rgba(11,27,58,0.70); margin: 10px 0 6px}
+.grid2{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
+@media (max-width: 920px){
+  .grid2{grid-template-columns:1fr;}
+}
+.smallbtn{padding:7px 10px; font-size:12px}
+
 .right-split{display:grid; grid-template-rows: 1fr 220px; gap:10px}
 
 .placeholder{

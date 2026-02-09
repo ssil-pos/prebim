@@ -9,15 +9,26 @@ export function defaultModel(){
   return {
     v: 1,
     grid: {
-      // Final UX: spans lists (mm)
-      spansXmm: [6000, 6000, 6000],
-      spansYmm: [6000, 6000],
+      // Reference UI supports both base spacing and custom spans.
+      nx: 4,
+      ny: 3,
+      spacingXmm: 6000,
+      spacingYmm: 6000,
+      spansXmm: [],
+      spansYmm: [],
     },
-    levels: [0, 6000], // elevations in mm
+    levels: [0, 6000], // elevations in mm (absolute)
     options: {
       subBeams: { enabled: true, countPerBay: 2 },
       joists: { enabled: true },
       bracing: { enabled: true, type: 'X', face: 'Y0' },
+    },
+    profiles: {
+      stdAll: 'KS',
+      colShape: 'H', colSize: '',
+      beamShape: 'H', beamSize: '',
+      subShape: 'H', subSize: '',
+      braceShape: 'L', braceSize: '',
     }
   };
 }
@@ -33,17 +44,27 @@ export function normalizeModel(m){
     if(m.options?.joists) out.options.joists = { ...out.options.joists, ...m.options.joists };
     if(m.options?.bracing) out.options.bracing = { ...out.options.bracing, ...m.options.bracing };
   }
-  // spans (mm)
-  const toNumArr = (v, fallback) => {
-    if(Array.isArray(v)){
-      const a = v.map(x => Math.max(1, parseFloat(x)||0)).filter(Boolean);
-      return a.length ? a : fallback;
-    }
-    return fallback;
+  // grid base
+  out.grid.nx = Math.max(1, parseInt(out.grid.nx,10) || d.grid.nx);
+  out.grid.ny = Math.max(1, parseInt(out.grid.ny,10) || d.grid.ny);
+  out.grid.spacingXmm = Math.max(1, parseFloat(out.grid.spacingXmm) || d.grid.spacingXmm);
+  out.grid.spacingYmm = Math.max(1, parseFloat(out.grid.spacingYmm) || d.grid.spacingYmm);
+
+  // spans (mm). If provided, they override nx/ny+spacing.
+  const toNumArr = (v) => {
+    if(!Array.isArray(v)) return [];
+    return v.map(x => Math.max(1, parseFloat(x)||0)).filter(Boolean);
   };
 
-  out.grid.spansXmm = toNumArr(out.grid.spansXmm, d.grid.spansXmm);
-  out.grid.spansYmm = toNumArr(out.grid.spansYmm, d.grid.spansYmm);
+  const sx = toNumArr(out.grid.spansXmm);
+  const sy = toNumArr(out.grid.spansYmm);
+
+  out.grid.spansXmm = sx.length ? sx : Array.from({length: Math.max(1,out.grid.nx-1)}, () => out.grid.spacingXmm);
+  out.grid.spansYmm = sy.length ? sy : Array.from({length: Math.max(1,out.grid.ny-1)}, () => out.grid.spacingYmm);
+
+  // when custom spans present, derive nx/ny
+  out.grid.nx = out.grid.spansXmm.length + 1;
+  out.grid.ny = out.grid.spansYmm.length + 1;
   out.levels = out.levels.map(x => Math.max(0, parseFloat(x)||0)).sort((a,b)=>a-b);
   if(out.levels.length < 2) out.levels = [0, 6000];
   out.options.subBeams.countPerBay = Math.max(0, parseInt(out.options.subBeams.countPerBay,10)||0);
@@ -58,8 +79,8 @@ export function normalizeModel(m){
 
 export function generateMembers(model){
   const m = normalizeModel(model);
-  const spansX = m.grid.spansXmm;
-  const spansY = m.grid.spansYmm;
+  const spansX = (m.grid.spansXmm && m.grid.spansXmm.length) ? m.grid.spansXmm : Array.from({length: Math.max(1,(m.grid.nx||2)-1)}, () => m.grid.spacingXmm||6000);
+  const spansY = (m.grid.spansYmm && m.grid.spansYmm.length) ? m.grid.spansYmm : Array.from({length: Math.max(1,(m.grid.ny||2)-1)}, () => m.grid.spacingYmm||6000);
 
   const xs = [0];
   const ys = [0];
