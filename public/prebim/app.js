@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0220'),
-    import('/prebim/app_profiles.js?v=20260209-0220'),
+    import('/prebim/engine.js?v=20260209-0230'),
+    import('/prebim/app_profiles.js?v=20260209-0230'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -515,19 +515,37 @@ function renderEditor(projectId){
           </div>
 
           <div class="row" style="margin-top:8px">
-            <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Select face in 3D</label>
-            <select id="braceFace" class="input" style="max-width:110px">
-              <option value="Y0">Y0</option>
-              <option value="Y1">Y1</option>
-              <option value="X0">X0</option>
-              <option value="X1">X1</option>
-            </select>
+            <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Panel-select in 3D</label>
+            <select id="braceStory" class="input" style="max-width:140px"></select>
           </div>
 
           <div class="row" style="margin-top:10px">
             <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
           </div>
           <div class="note">Brace mode: click an outer face in the 3D view.</div>
+
+          <hr style="border:none; border-top:1px solid var(--stroke); margin:12px 0"/>
+
+          <div style="font-weight:1000; font-size:12px; margin:0 0 8px">Override</div>
+          <div class="note" id="ovInfo" style="margin-top:0">Selected: -</div>
+          <div class="grid2">
+            <div>
+              <label class="label">Shape</label>
+              <select id="ovShape" class="input"></select>
+            </div>
+            <div>
+              <label class="label">Profile</label>
+              <select id="ovSize" class="input"></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary" id="btnOvApply" type="button">Apply to selection</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn" id="btnOvClear" type="button">Clear selection</button>
+            <button class="btn danger" id="btnOvReset" type="button">Reset overrides</button>
+          </div>
+          <div class="note">Applies to Column / Beam / Sub-beam members.</div>
 
           <hr style="border:none; border-top:1px solid var(--stroke); margin:12px 0"/>
           <div class="note" style="margin-top:0">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
@@ -540,6 +558,10 @@ function renderEditor(projectId){
   (async () => {
     await loadDeps();
     const engineModel = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || __engine.defaultModel());
+
+    // globals (so getForm can read them without threading)
+    window.__prebimBraces = Array.isArray(engineModel.braces) ? engineModel.braces.slice() : [];
+    window.__prebimOverrides = (engineModel.overrides && typeof engineModel.overrides === 'object') ? structuredClone(engineModel.overrides) : {};
 
     const renderLevelsList = (levelsMm) => {
       const host = document.getElementById('levelsList');
@@ -572,7 +594,14 @@ function renderEditor(projectId){
 
       document.getElementById('optBrace').checked = !!m.options.bracing.enabled;
       document.getElementById('braceType').value = m.options.bracing.type || 'X';
-      document.getElementById('braceFace').value = m.options.bracing.face || 'Y0';
+      document.getElementById('braceStory').innerHTML = '';
+      const storyCount = Math.max(1, (m.levels?.length||2) - 1);
+      for(let i=0;i<storyCount;i++){
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = `Story ${i+1}`;
+        document.getElementById('braceStory').appendChild(opt);
+      }
       document.getElementById('braceMode').checked = false;
 
       // profiles (stored only for now)
@@ -631,9 +660,11 @@ function renderEditor(projectId){
           bracing: {
             enabled: document.getElementById('optBrace').checked,
             type: document.getElementById('braceType').value || 'X',
-            face: document.getElementById('braceFace').value || 'Y0',
           },
         },
+        // panel braces + overrides
+        braces: (window.__prebimBraces || []),
+        overrides: (window.__prebimOverrides || {}),
         profiles: {
           stdAll: document.getElementById('stdAll').value || 'KS',
           colShape: document.getElementById('colShape').value || 'H',
@@ -717,8 +748,10 @@ function renderEditor(projectId){
 
     const apply = (m) => {
       const members = __engine.generateMembers(m);
+      // attach member metadata for selection/overrides
+      members.forEach(mem => { /* no-op placeholder */ });
       view.setMembers(members, m);
-      const q = summarizeMembers(members);
+      const q = summarizeMembers(members, m);
       if(qtyEl) qtyEl.innerHTML = renderQtyTable(q, m);
 
       // persist into project
@@ -733,26 +766,104 @@ function renderEditor(projectId){
 
     apply(engineModel);
 
-    // bracing face selection mode (3D)
+    // bracing panel selection mode (3D)
     const braceModeEl = document.getElementById('braceMode');
-    const braceFaceEl = document.getElementById('braceFace');
+    const braceStoryEl = document.getElementById('braceStory');
+
+    const toggleBrace = (pick) => {
+      const braces = Array.isArray(window.__prebimBraces) ? window.__prebimBraces : [];
+      const idx = braces.findIndex(b => b.faceKey===pick.faceKey && b.story===pick.story && b.bay===pick.bay);
+      if(idx >= 0) braces.splice(idx,1);
+      else braces.push({ faceKey: pick.faceKey, story: pick.story, bay: pick.bay, kind: (document.getElementById('braceType').value||'X') === 'S' ? 'S' : 'X' });
+      window.__prebimBraces = braces;
+    };
+
     const updateBraceMode = () => {
       const on = !!braceModeEl?.checked;
       const m = getForm();
-      view.setBraceMode?.(on, m, (faceKey) => {
-        if(braceFaceEl) braceFaceEl.value = faceKey;
+      const story = parseInt(braceStoryEl?.value||'0',10) || 0;
+      view.setBraceMode?.(on, { ...m, braceStory: story }, (pick) => {
+        toggleBrace(pick);
         const next = getForm();
         apply(next);
       });
+      apply(getForm());
     };
+
     braceModeEl?.addEventListener('change', updateBraceMode);
-    braceFaceEl?.addEventListener('change', () => apply(getForm()));
+    braceStoryEl?.addEventListener('change', updateBraceMode);
 
     document.getElementById('btnApplyGrid')?.addEventListener('click', () => apply(getForm()));
     document.getElementById('btnApplyLevels')?.addEventListener('click', () => apply(getForm()));
     document.getElementById('btnApplySub')?.addEventListener('click', () => apply(getForm()));
     document.getElementById('btnApplyJoist')?.addEventListener('click', () => apply(getForm()));
     document.getElementById('btnApplyBrace')?.addEventListener('click', () => { updateBraceMode(); apply(getForm()); });
+
+    // override UI wiring (columns/beams/sub-beams)
+    const ovInfo = document.getElementById('ovInfo');
+    const ovShape = document.getElementById('ovShape');
+    const ovSize = document.getElementById('ovSize');
+    const btnOvApply = document.getElementById('btnOvApply');
+    const btnOvClear = document.getElementById('btnOvClear');
+    const btnOvReset = document.getElementById('btnOvReset');
+
+    const rebuildOv = () => {
+      const stdKey = document.getElementById('stdAll').value || 'KS';
+      const data = (window.CIVILARCHI_STEEL_DATA && window.CIVILARCHI_STEEL_DATA.standards) || {};
+      const SHAPE_KEYS = ['H','C','L','LC','Rect','I','T'];
+      const shapes = data[stdKey]?.shapes || {};
+      const keys = SHAPE_KEYS.filter(k=>shapes[k]);
+      if(ovShape && ovShape.options.length===0){
+        ovShape.innerHTML='';
+        keys.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=k; ovShape.appendChild(o); });
+        if(keys.includes('H')) ovShape.value='H';
+      }
+      const items = data[stdKey]?.shapes?.[ovShape?.value||'H']?.items || [];
+      if(ovSize){
+        const prev=ovSize.value;
+        ovSize.innerHTML='';
+        items.forEach(it=>{
+          const o=document.createElement('option');
+          o.value=it.key;
+          o.textContent = `${it.name}${(it.kgm!=null && Number.isFinite(it.kgm)) ? ` · ${it.kgm} kg/m` : ''}`;
+          ovSize.appendChild(o);
+        });
+        if(items.some(it=>it.key===prev)) ovSize.value=prev;
+      }
+    };
+
+    const updateOvInfo = () => {
+      const sel = view.getSelection?.() || [];
+      if(ovInfo) ovInfo.textContent = sel.length ? `Selected: ${sel.length}` : 'Selected: -';
+    };
+
+    rebuildOv();
+    ovShape?.addEventListener('change', rebuildOv);
+    document.getElementById('stdAll')?.addEventListener('change', rebuildOv);
+
+    btnOvApply?.addEventListener('click', () => {
+      const sel = view.getSelection?.() || [];
+      const stdKey = document.getElementById('stdAll').value || 'KS';
+      const overrides = window.__prebimOverrides || {};
+      for(const id of sel){
+        overrides[id] = { stdKey, shapeKey: ovShape.value, sizeKey: ovSize.value };
+      }
+      window.__prebimOverrides = overrides;
+      apply(getForm());
+      updateOvInfo();
+    });
+
+    btnOvClear?.addEventListener('click', () => {
+      view.clearSelection?.();
+      updateOvInfo();
+    });
+
+    btnOvReset?.addEventListener('click', () => {
+      if(!confirm('Reset all overrides?')) return;
+      window.__prebimOverrides = {};
+      apply(getForm());
+      updateOvInfo();
+    });
     document.getElementById('btnApplyProfile')?.addEventListener('click', () => apply(getForm()));
 
 
@@ -872,6 +983,11 @@ async function createThreeView(container){
   let onFaceSelect = null;
   let hot = null;
 
+  // member selection
+  const selectRay = new THREE.Raycaster();
+  selectRay.params.Line.threshold = 0.15;
+  const selected = new Set();
+
   const matByKind = {
     column: new THREE.LineBasicMaterial({ color: 0x0b1b3a, transparent:true, opacity:0.9 }),
     beamX: new THREE.LineBasicMaterial({ color: 0x2563eb, transparent:true, opacity:0.85 }),
@@ -894,39 +1010,51 @@ async function createThreeView(container){
     const nx = xs.length;
     const ny = ys.length;
 
-    const z0 = ((model.levels?.[0] ?? 0)/1000);
-    const z1 = ((model.levels?.[1] ?? 6000)/1000);
+    const story = model.braceStory || 0;
+    const z0 = ((model.levels?.[story] ?? 0)/1000);
+    const z1 = ((model.levels?.[story+1] ?? (z0*1000 + 6000))/1000);
 
-    const makePlane = (key, w, h) => {
+    const addPanel = (faceKey, bay, w, h) => {
       const g = new THREE.PlaneGeometry(w, h);
       const mesh = new THREE.Mesh(g, faceMat.clone());
-      mesh.userData.faceKey = key;
+      mesh.userData.faceKey = faceKey;
+      mesh.userData.bay = bay;
+      mesh.userData.story = story;
       return mesh;
     };
 
-    // Y0 / Y1 (planes normal +/-Z)
-    const wX = xs[nx-1] - xs[0];
     const hZ = z1 - z0;
-    const pY0 = makePlane('Y0', wX, hZ);
-    pY0.position.set(wX/2, z0 + hZ/2, ys[0]);
-    pY0.rotation.x = Math.PI; // face up
-    faceGroup.add(pY0);
 
-    const pY1 = makePlane('Y1', wX, hZ);
-    pY1.position.set(wX/2, z0 + hZ/2, ys[ny-1]);
-    faceGroup.add(pY1);
+    // Y0 / Y1: panels per X bay
+    const y0 = ys[0];
+    const y1 = ys[ny-1];
+    for(let ix=0; ix<nx-1; ix++){
+      const wX = xs[ix+1]-xs[ix];
+      const p0 = addPanel('Y0', ix, wX, hZ);
+      p0.position.set(xs[ix] + wX/2, z0 + hZ/2, y0);
+      p0.rotation.x = Math.PI;
+      faceGroup.add(p0);
 
-    // X0 / X1 (planes normal +/-X)
-    const wY = ys[ny-1] - ys[0];
-    const pX0 = makePlane('X0', wY, hZ);
-    pX0.position.set(xs[0], z0 + hZ/2, wY/2);
-    pX0.rotation.y = Math.PI/2;
-    faceGroup.add(pX0);
+      const p1 = addPanel('Y1', ix, wX, hZ);
+      p1.position.set(xs[ix] + wX/2, z0 + hZ/2, y1);
+      faceGroup.add(p1);
+    }
 
-    const pX1 = makePlane('X1', wY, hZ);
-    pX1.position.set(xs[nx-1], z0 + hZ/2, wY/2);
-    pX1.rotation.y = -Math.PI/2;
-    faceGroup.add(pX1);
+    // X0 / X1: panels per Y bay
+    const x0 = xs[0];
+    const x1 = xs[nx-1];
+    for(let iy=0; iy<ny-1; iy++){
+      const wY = ys[iy+1]-ys[iy];
+      const p0 = addPanel('X0', iy, wY, hZ);
+      p0.position.set(x0, z0 + hZ/2, ys[iy] + wY/2);
+      p0.rotation.y = Math.PI/2;
+      faceGroup.add(p0);
+
+      const p1 = addPanel('X1', iy, wY, hZ);
+      p1.position.set(x1, z0 + hZ/2, ys[iy] + wY/2);
+      p1.rotation.y = -Math.PI/2;
+      faceGroup.add(p1);
+    }
   }
 
   function setMembers(members, model){
@@ -939,6 +1067,8 @@ async function createThreeView(container){
       ]);
       const mat = matByKind[mem.kind] || matByKind.beamX;
       const line = new THREE.Line(geom, mat);
+      line.userData.memberId = mem.id;
+      line.userData.kind = mem.kind;
       group.add(line);
     }
 
@@ -968,20 +1098,53 @@ async function createThreeView(container){
   }
 
   function pick(ev){
-    if(!braceMode) return;
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
-    raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObjects(faceGroup.children, false);
-    if(hits.length){
-      const obj = hits[0].object;
-      if(hot && hot.material) hot.material = faceMat.clone();
-      hot = obj;
-      if(hot.material) hot.material = faceMatHot.clone();
-      const key = obj.userData.faceKey;
-      if(key && onFaceSelect) onFaceSelect(String(key));
+
+    if(braceMode){
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(faceGroup.children, false);
+      if(hits.length){
+        const obj = hits[0].object;
+        if(hot && hot.material) hot.material = faceMat.clone();
+        hot = obj;
+        if(hot.material) hot.material = faceMatHot.clone();
+        const faceKey = obj.userData.faceKey;
+        const bay = obj.userData.bay;
+        const story = obj.userData.story;
+        if(faceKey != null && bay != null && story != null && onFaceSelect){
+          onFaceSelect({ faceKey: String(faceKey), bay: Number(bay), story: Number(story) });
+        }
+      }
+      return;
     }
+
+    // member selection
+    selectRay.setFromCamera(pointer, camera);
+    const hits = selectRay.intersectObjects(group.children, false);
+    if(!hits.length) return;
+    const obj = hits[0].object;
+    const id = obj.userData.memberId;
+    const kind = obj.userData.kind;
+    if(!id) return;
+    // only allow overrides for these
+    if(!['column','beamX','beamY','subBeam'].includes(kind)) return;
+
+    // toggle selection
+    if(selected.has(id)) selected.delete(id);
+    else {
+      selected.clear();
+      selected.add(id);
+    }
+
+    // visual highlight: increase opacity
+    group.children.forEach(ch => {
+      const sel = selected.has(ch.userData.memberId);
+      const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
+      ch.material = baseMat.clone();
+      ch.material.opacity = sel ? 1.0 : baseMat.opacity;
+    });
   }
 
   renderer.domElement.addEventListener('pointerdown', pick);
@@ -1005,10 +1168,15 @@ async function createThreeView(container){
   const ro = new ResizeObserver(doResize);
   ro.observe(container);
 
+  function getSelection(){ return Array.from(selected); }
+  function clearSelection(){ selected.clear(); }
+
   return {
     setMembers,
     setBraceMode,
     resize: doResize,
+    getSelection,
+    clearSelection,
     dispose(){
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -1019,10 +1187,12 @@ async function createThreeView(container){
   };
 }
 
-function summarizeMembers(members){
+function summarizeMembers(members, model){
   const byKind = {};
   let totalLen = 0;
   let totalCount = 0;
+
+  const overrides = model?.overrides || window.__prebimOverrides || {};
   for(const mem of members){
     const dx = mem.a[0]-mem.b[0];
     const dy = mem.a[1]-mem.b[1];
@@ -1030,10 +1200,39 @@ function summarizeMembers(members){
     const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
     totalLen += len;
     totalCount += 1;
-    const cur = byKind[mem.kind] || { len:0, count:0 };
+
+    // apply overrides by member id for column/beam/sub
+    const ov = overrides[mem.id];
+    const prof = model?.profiles || {};
+    let key = mem.kind;
+    let p = null;
+
+    if(mem.kind === 'column'){
+      p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')
+             : __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'');
+    } else if(mem.kind === 'beamX' || mem.kind === 'beamY'){
+      key = 'beam';
+      p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')
+             : __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
+    } else if(mem.kind === 'subBeam'){
+      key = 'subBeam';
+      p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')
+             : __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'');
+    } else if(mem.kind === 'brace'){
+      key = 'brace';
+      p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'');
+    } else if(mem.kind === 'joist'){
+      key = 'joist';
+      p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
+    }
+
+    const cur = byKind[key] || { len:0, count:0, kgm: p?.kgm ?? null, name: p?.name ?? null };
     cur.len += len;
     cur.count += 1;
-    byKind[mem.kind] = cur;
+    // keep kgm/name if present
+    if(cur.kgm == null && p?.kgm != null) cur.kgm = p.kgm;
+    if(!cur.name && p?.name) cur.name = p.name;
+    byKind[key] = cur;
   }
   return { byKind, totalLen, totalCount };
 }
@@ -1058,13 +1257,14 @@ function renderQtyTable(q, model){
     .map(([kind, v]) => ({ kind, ...v }))
     .sort((a,b)=>b.len-a.len)
     .map(r => {
-      const meta = kindLabel[r.kind] || { cat:r.kind, prof:'-' };
-      const loadKg = (meta.kgm!=null) ? (meta.kgm * r.len) : null;
+      const meta = kindLabel[r.kind] || { cat:r.kind, prof:r.name || '-' , kgm: r.kgm ?? null };
+      const kgm = (r.kgm != null) ? r.kgm : meta.kgm;
+      const loadKg = (kgm!=null) ? (kgm * r.len) : null;
       const loadCell = (loadKg==null) ? '-' : `${loadKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(loadKg/1000).toFixed(3)} t)`;
       return `
         <tr>
           <td>${escapeHtml(meta.cat)}</td>
-          <td>${escapeHtml(String(meta.prof))}</td>
+          <td>${escapeHtml(String(r.name || meta.prof))}</td>
           <td class="num">${r.len.toFixed(3)}</td>
           <td class="num">${r.count}</td>
           <td class="num">${loadCell}</td>

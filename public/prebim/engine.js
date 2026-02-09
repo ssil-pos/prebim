@@ -21,8 +21,11 @@ export function defaultModel(){
     options: {
       subBeams: { enabled: true, countPerBay: 2 },
       joists: { enabled: true },
-      bracing: { enabled: true, type: 'X', face: 'Y0' },
+      bracing: { enabled: true, type: 'X' },
     },
+    // explicit braces (panel-based) + per-member overrides
+    braces: [],
+    overrides: {},
     profiles: {
       stdAll: 'KS',
       colShape: 'H', colSize: '',
@@ -43,6 +46,8 @@ export function normalizeModel(m){
     if(m.options?.subBeams) out.options.subBeams = { ...out.options.subBeams, ...m.options.subBeams };
     if(m.options?.joists) out.options.joists = { ...out.options.joists, ...m.options.joists };
     if(m.options?.bracing) out.options.bracing = { ...out.options.bracing, ...m.options.bracing };
+    if(Array.isArray(m.braces)) out.braces = m.braces.slice();
+    if(m.overrides && typeof m.overrides === 'object') out.overrides = structuredClone(m.overrides);
   }
   // grid base
   out.grid.nx = Math.max(1, parseInt(out.grid.nx,10) || d.grid.nx);
@@ -69,7 +74,20 @@ export function normalizeModel(m){
   if(out.levels.length < 2) out.levels = [0, 6000];
   out.options.subBeams.countPerBay = Math.max(0, parseInt(out.options.subBeams.countPerBay,10)||0);
   out.options.bracing.type = (out.options.bracing.type === 'S') ? 'S' : 'X';
-  out.options.bracing.face = ['Y0','Y1','X0','X1'].includes(out.options.bracing.face) ? out.options.bracing.face : 'Y0';
+
+  // braces normalization (panel-based)
+  if(!Array.isArray(out.braces)) out.braces = [];
+  out.braces = out.braces
+    .filter(b => b && typeof b === 'object')
+    .map(b => ({
+      faceKey: ['Y0','Y1','X0','X1'].includes(b.faceKey) ? b.faceKey : 'Y0',
+      story: Math.max(0, parseInt(b.story,10)||0),
+      bay: Math.max(0, parseInt(b.bay,10)||0),
+      kind: (b.kind === 'S') ? 'S' : 'X',
+    }));
+
+  // overrides normalization (kept as-is; validated in UI)
+  if(!out.overrides || typeof out.overrides !== 'object') out.overrides = {};
   return out;
 }
 
@@ -164,48 +182,48 @@ export function generateMembers(model){
     }
   }
 
-  // bracing (on side faces, simplest: one X per bay on first story)
-  if(m.options.bracing.enabled){
-    const iz = 0;
-    const z0 = levelsM[iz];
-    const z1 = levelsM[iz+1] ?? (z0 + 6);
-    // brace on selected outer face (first story)
-    const face = m.options.bracing.face || 'Y0';
-    const zFace0 = z0;
-    const zFace1 = z1;
+  // bracing (panel-based, per story)
+  if(m.options.bracing.enabled && Array.isArray(m.braces) && m.braces.length){
+    for(const br of m.braces){
+      const iz = br.story;
+      if(iz < 0 || iz >= levelsM.length-1) continue;
+      const z0 = levelsM[iz];
+      const z1 = levelsM[iz+1];
 
-    const addXBrace = (a,b,c,d, key) => {
-      if(m.options.bracing.type === 'S'){
-        members.push({ id:`braceS:${key}`, kind:'brace', a, b });
-      } else {
-        members.push({ id:`braceX1:${key}`, kind:'brace', a, b });
-        members.push({ id:`braceX2:${key}`, kind:'brace', a: c, b: d });
+      const addXBrace = (a,b,c,d, key) => {
+        const kind = br.kind || m.options.bracing.type;
+        if(kind === 'S'){
+          members.push({ id:`braceS:${key}`, kind:'brace', a, b });
+        } else {
+          members.push({ id:`braceX1:${key}`, kind:'brace', a, b });
+          members.push({ id:`braceX2:${key}`, kind:'brace', a: c, b: d });
+        }
+      };
+
+      if(br.faceKey === 'Y0' || br.faceKey === 'Y1'){
+        const y = (br.faceKey === 'Y0') ? ys[0] : ys[ny-1];
+        const ix = br.bay;
+        if(ix >= 0 && ix < nx-1){
+          const a = [xs[ix], z0, y];
+          const b = [xs[ix+1], z1, y];
+          const c = [xs[ix+1], z0, y];
+          const d = [xs[ix], z1, y];
+          addXBrace(a,b,c,d, `${br.faceKey}:${iz}:${ix}`);
+        }
       }
-    };
 
-    if(face === 'Y0' || face === 'Y1'){
-      const y = (face === 'Y0') ? ys[0] : ys[ny-1];
-      for(let ix=0; ix<nx-1; ix++){
-        const a = [xs[ix], zFace0, y];
-        const b = [xs[ix+1], zFace1, y];
-        const c = [xs[ix+1], zFace0, y];
-        const d = [xs[ix], zFace1, y];
-        addXBrace(a,b,c,d, `${face}:${ix}`);
+      if(br.faceKey === 'X0' || br.faceKey === 'X1'){
+        const x = (br.faceKey === 'X0') ? xs[0] : xs[nx-1];
+        const iy = br.bay;
+        if(iy >= 0 && iy < ny-1){
+          const a = [x, z0, ys[iy]];
+          const b = [x, z1, ys[iy+1]];
+          const c = [x, z0, ys[iy+1]];
+          const d = [x, z1, ys[iy]];
+          addXBrace(a,b,c,d, `${br.faceKey}:${iz}:${iy}`);
+        }
       }
     }
-
-    if(face === 'X0' || face === 'X1'){
-      const x = (face === 'X0') ? xs[0] : xs[nx-1];
-      for(let iy=0; iy<ny-1; iy++){
-        const a = [x, zFace0, ys[iy]];
-        const b = [x, zFace1, ys[iy+1]];
-        const c = [x, zFace0, ys[iy+1]];
-        const d = [x, zFace1, ys[iy]];
-        addXBrace(a,b,c,d, `${face}:${iy}`);
-      }
-    }
-
-    // (old bracing block removed)
   }
 
   return members;
