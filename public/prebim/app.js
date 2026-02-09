@@ -623,7 +623,8 @@ function renderAnalysis(projectId){
             <button class="pill" id="btn3dSection" type="button">Section Box</button>
           </div>
         </div>
-        <div class="pane-b" id="view3d">
+        <div class="pane-b" id="view3dWrap" style="position:relative">
+          <div id="view3d"></div>
           <div class="analysis-overlay" id="analysisOverlay" hidden>
             <div class="analysis-overlay-card">
               <div class="spinner"></div>
@@ -639,6 +640,10 @@ function renderAnalysis(projectId){
   (async () => {
     const view3dEl = document.getElementById('view3d');
     const view = await createThreeView(view3dEl);
+    __active3D?.dispose?.();
+    __active3D = view;
+    __active3D?.dispose?.();
+    __active3D = view;
 
     // Load model + show initial geometry
     const model = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || p.data);
@@ -882,7 +887,8 @@ function renderEditor(projectId){
             <button class="pill" id="btnPopOv" type="button">Override</button>
           </div>
         </div>
-        <div class="pane-b" id="view3d">
+        <div class="pane-b" id="view3dWrap" style="position:relative">
+          <div id="view3d"></div>
           <button class="pill" id="btnAnalysis" type="button" style="position:absolute; right:12px; bottom:12px; z-index:12">Analysis</button>
           <div class="analysis-overlay" id="analysisOverlay" hidden>
             <div class="analysis-overlay-card">
@@ -2558,7 +2564,7 @@ function renderEditor(projectId){
       toggleExportMenu();
     });
 
-    document.addEventListener('click', () => toggleExportMenu(false));
+    document.addEventListener('click', () => toggleExportMenu(false), { capture:true });
 
     document.getElementById('btnExportData')?.addEventListener('click', () => { toggleExportMenu(false); exportData(); });
     document.getElementById('btnExportStaad')?.addEventListener('click', () => { toggleExportMenu(false); exportStaad(); });
@@ -2762,13 +2768,17 @@ function renderEditor(projectId){
   })();
 }
 
+let __active3D = null;
+
 async function createThreeView(container){
   await loadDeps();
   const THREE = __three;
   const OrbitControls = __OrbitControls;
 
+  // Only clear previous canvas, keep any sibling overlay UI outside this container.
   container.innerHTML = '';
   container.style.padding = '0';
+  container.style.height = '100%';
 
   const w = container.clientWidth || 300;
   const h = container.clientHeight || 300;
@@ -3861,6 +3871,10 @@ function renderQtyTable(q, model){
 }
 
 function route(){
+  // Dispose any active 3D view to avoid accumulating WebGL contexts.
+  try{ __active3D?.dispose?.(); }catch{}
+  __active3D = null;
+
   const hash = location.hash || '#/';
 
   let m = hash.match(/^#\/editor\/([^/?#]+)/);
