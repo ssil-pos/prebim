@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0430';
+const BUILD = '20260209-0442';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0430'),
-    import('/prebim/app_profiles.js?v=20260209-0430'),
+    import('/prebim/engine.js?v=20260209-0442'),
+    import('/prebim/app_profiles.js?v=20260209-0442'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -331,6 +331,7 @@ function renderEditor(projectId){
     <button class="pill" id="btnExportStaad" type="button">STAAD Export</button>
     <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
     <button class="pill" id="btnExportData" type="button">DATA Export</button>
+    <button class="pill" id="btnExportDxf" type="button">DXF Export</button>
     <button class="pill" id="btnSave" type="button">Save</button>
   `);
 
@@ -1278,6 +1279,120 @@ function renderEditor(projectId){
       download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-staad.std`, lines.join('\n'), 'text/plain');
     };
 
+    const dxfHeader = () => [
+      '0','SECTION','2','HEADER',
+      '9','$ACADVER','1','AC1009',
+      '9','$INSUNITS','70','4', // millimeters
+      '0','ENDSEC',
+      '0','SECTION','2','ENTITIES'
+    ];
+
+    const dxfFooter = () => ['0','ENDSEC','0','EOF'];
+
+    const dxfLine = (x1,y1,x2,y2, layer='0') => [
+      '0','LINE',
+      '8',layer,
+      '10',String(x1),'20',String(y1),'30','0',
+      '11',String(x2),'21',String(y2),'31','0'
+    ];
+
+    const dxfText = (x,y,h, text, layer='0') => [
+      '0','TEXT',
+      '8',layer,
+      '10',String(x),'20',String(y),'30','0',
+      '40',String(h),
+      '1',String(text)
+    ];
+
+    const exportDxf = () => {
+      const m = getForm();
+      const spansX = m.grid?.spansXmm || [];
+      const spansY = m.grid?.spansYmm || [];
+      const xs=[0], ys=[0];
+      for(const s of spansX) xs.push(xs[xs.length-1] + s);
+      for(const s of spansY) ys.push(ys[ys.length-1] + s);
+      const xMax = xs[xs.length-1] || 1;
+      const yMax = ys[ys.length-1] || 1;
+
+      const out = [];
+      out.push(...dxfHeader());
+
+      // Plan outer grid rectangle (layer GRID)
+      out.push(...dxfLine(0,0,xMax,0,'GRID'));
+      out.push(...dxfLine(xMax,0,xMax,yMax,'GRID'));
+      out.push(...dxfLine(xMax,yMax,0,yMax,'GRID'));
+      out.push(...dxfLine(0,yMax,0,0,'GRID'));
+
+      // Auto dimensions (numeric mm, outside only)
+      const off = 1200;   // offset outside
+      const ext = 400;    // extension beyond dim line
+      const txtH = 250;
+
+      // X chain dims at bottom
+      const dimY = -off;
+      for(let i=0;i<xs.length;i++){
+        out.push(...dxfLine(xs[i], 0, xs[i], dimY - ext, 'DIM'));
+      }
+      out.push(...dxfLine(0, dimY, xMax, dimY, 'DIM'));
+      for(let i=0;i<xs.length-1;i++){
+        const v = xs[i+1]-xs[i];
+        out.push(...dxfText((xs[i]+xs[i+1])/2 - (String(v).length*txtH*0.25), dimY + txtH*0.15, txtH, String(v), 'DIMTXT'));
+      }
+      // X overall dim
+      const dimY2 = -off*2;
+      out.push(...dxfLine(0, dimY2, xMax, dimY2, 'DIM'));
+      out.push(...dxfLine(0, dimY, 0, dimY2 - ext, 'DIM'));
+      out.push(...dxfLine(xMax, dimY, xMax, dimY2 - ext, 'DIM'));
+      out.push(...dxfText(xMax/2 - (String(xMax).length*txtH*0.25), dimY2 + txtH*0.15, txtH, String(xMax), 'DIMTXT'));
+
+      // Y chain dims at left
+      const dimX = -off;
+      for(let i=0;i<ys.length;i++){
+        out.push(...dxfLine(0, ys[i], dimX - ext, ys[i], 'DIM'));
+      }
+      out.push(...dxfLine(dimX, 0, dimX, yMax, 'DIM'));
+      for(let i=0;i<ys.length-1;i++){
+        const v = ys[i+1]-ys[i];
+        out.push(...dxfText(dimX + txtH*0.15, (ys[i]+ys[i+1])/2, txtH, String(v), 'DIMTXT'));
+      }
+      // Y overall dim
+      const dimX2 = -off*2;
+      out.push(...dxfLine(dimX2, 0, dimX2, yMax, 'DIM'));
+      out.push(...dxfLine(dimX, 0, dimX2 - ext, 0, 'DIM'));
+      out.push(...dxfLine(dimX, yMax, dimX2 - ext, yMax, 'DIM'));
+      out.push(...dxfText(dimX2 + txtH*0.15, yMax/2, txtH, String(yMax), 'DIMTXT'));
+
+      // Section level dims (right side), stacked to the right of plan
+      const secOffX = xMax + 4000;
+      const levels = (m.levels||[]);
+      if(levels.length >= 2){
+        const z0 = levels[0];
+        const zMax = levels[levels.length-1];
+        // baseline
+        out.push(...dxfLine(secOffX, 0, secOffX, zMax, 'GRID'));
+        // overall height dim
+        const sDimX = secOffX + 2000;
+        out.push(...dxfLine(sDimX, z0, sDimX, zMax, 'DIM'));
+        out.push(...dxfLine(secOffX, z0, sDimX - ext, z0, 'DIM'));
+        out.push(...dxfLine(secOffX, zMax, sDimX - ext, zMax, 'DIM'));
+        out.push(...dxfText(sDimX + txtH*0.15, (z0+zMax)/2, txtH, String(zMax-z0), 'DIMTXT'));
+        // story heights
+        const sDimX2 = secOffX + 1200;
+        out.push(...dxfLine(sDimX2, z0, sDimX2, zMax, 'DIM'));
+        for(let i=0;i<levels.length;i++){
+          out.push(...dxfLine(secOffX, levels[i], sDimX2 - ext, levels[i], 'DIM'));
+          if(i<levels.length-1){
+            const v = levels[i+1]-levels[i];
+            out.push(...dxfText(sDimX2 + txtH*0.15, (levels[i]+levels[i+1])/2, txtH, String(v), 'DIMTXT'));
+          }
+        }
+      }
+
+      out.push(...dxfFooter());
+
+      download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-auto-dim.dxf`, out.join('\n'), 'application/dxf');
+    };
+
     const exportIfc = () => {
       // Placeholder IFC (proper IFC export is a larger task)
       const txt = [
@@ -1298,6 +1413,7 @@ function renderEditor(projectId){
     document.getElementById('btnExportData')?.addEventListener('click', exportData);
     document.getElementById('btnExportStaad')?.addEventListener('click', exportStaad);
     document.getElementById('btnExportIfc')?.addEventListener('click', exportIfc);
+    document.getElementById('btnExportDxf')?.addEventListener('click', exportDxf);
 
     // copy quantities to clipboard (Excel-friendly TSV)
     btnQtyCopy?.addEventListener('click', async () => {
@@ -1537,6 +1653,11 @@ async function createThreeView(container){
   // brace face selection overlays
   const faceGroup = new THREE.Group();
   scene.add(faceGroup);
+
+  // 3D guide lines (grid outline + level outlines)
+  const guideGroup = new THREE.Group();
+  scene.add(guideGroup);
+  const guideMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.55 });
   const faceMat = new THREE.MeshBasicMaterial({
     color: 0x38bdf8,
     transparent: true,
@@ -1702,6 +1823,7 @@ async function createThreeView(container){
 
   function setMembers(members, model){
     while(group.children.length) group.remove(group.children[0]);
+    while(guideGroup.children.length) guideGroup.remove(guideGroup.children[0]);
 
     const vA = new THREE.Vector3();
     const vB = new THREE.Vector3();
@@ -1889,6 +2011,33 @@ async function createThreeView(container){
     }
 
     if(braceMode) buildFacePlanes(model);
+
+    // guides: grid outline at base + level outlines (outer rectangle only)
+    try{
+      const spansX = model?.grid?.spansXmm || [];
+      const spansY = model?.grid?.spansYmm || [];
+      const xs=[0], ys=[0];
+      for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+      for(const s of spansY) ys.push(ys[ys.length-1] + (s/1000));
+      const xMax = xs[xs.length-1] || 1;
+      const yMax = ys[ys.length-1] || 1;
+      const addRect = (y) => {
+        const pts = [
+          new THREE.Vector3(0,y,0),
+          new THREE.Vector3(xMax,y,0),
+          new THREE.Vector3(xMax,y,yMax),
+          new THREE.Vector3(0,y,yMax),
+          new THREE.Vector3(0,y,0),
+        ];
+        const g = new THREE.BufferGeometry().setFromPoints(pts);
+        guideGroup.add(new THREE.Line(g, guideMat));
+      };
+      addRect(0);
+      const lv = Array.isArray(model?.levels) ? model.levels : [];
+      for(const mm of lv){
+        addRect((mm||0)/1000);
+      }
+    }catch{}
 
     // recenter only on first render (avoid resetting user's camera)
     if(!hasCentered && !userInteracted){
