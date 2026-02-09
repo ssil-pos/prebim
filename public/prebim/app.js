@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0420';
+const BUILD = '20260209-0423';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0420'),
-    import('/prebim/app_profiles.js?v=20260209-0420'),
+    import('/prebim/engine.js?v=20260209-0423'),
+    import('/prebim/app_profiles.js?v=20260209-0423'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -729,8 +729,10 @@ function renderEditor(projectId){
         const rect = svg.getBoundingClientRect();
         const dxPx = ev.clientX - start.x;
         const dyPx = ev.clientY - start.y;
-        const dx = (dxPx / rect.width) * start.vb.w;
-        const dy = (dyPx / rect.height) * start.vb.h;
+        // Pan sensitivity (higher = faster)
+        const PAN = 2.2;
+        const dx = (dxPx / rect.width) * start.vb.w * PAN;
+        const dy = (dyPx / rect.height) * start.vb.h * PAN;
         setVB({ x: start.vb.x - dx, y: start.vb.y - dy, w: start.vb.w, h: start.vb.h });
       });
 
