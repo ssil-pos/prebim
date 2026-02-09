@@ -20,7 +20,7 @@ export function defaultModel(){
     levels: [0, 6000], // elevations in mm (absolute)
     options: {
       subBeams: { enabled: true, countPerBay: 2 },
-      joists: { enabled: true },
+      joists: { enabled: false },
       bracing: { enabled: true, type: 'X' },
     },
     // explicit braces (panel-based) + per-member overrides
@@ -75,6 +75,8 @@ export function normalizeModel(m){
   if(out.levels.length < 2) out.levels = [0, 6000];
   out.options.subBeams.countPerBay = Math.max(0, parseInt(out.options.subBeams.countPerBay,10)||0);
   out.options.bracing.type = (out.options.bracing.type === 'S' || out.options.bracing.type === 'HAT') ? out.options.bracing.type : 'X';
+  // Joist is currently not used (disabled)
+  out.options.joists.enabled = false;
 
   // braces normalization (panel-based)
   if(!Array.isArray(out.braces)) out.braces = [];
