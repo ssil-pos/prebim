@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0338'),
-    import('/prebim/app_profiles.js?v=20260209-0338'),
+    import('/prebim/engine.js?v=20260209-0249'),
+    import('/prebim/app_profiles.js?v=20260209-0249'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -400,13 +400,7 @@ function renderEditor(projectId){
               <div class="note" style="margin-top:8px">Changes apply automatically.</div>
             </div>
 
-            <button class="acc-btn" type="button" data-acc="joist">Joist <span class="chev" id="chevJoist">▾</span></button>
-            <div class="acc-panel" id="panelJoist">
-              <div class="row" style="margin-top:0">
-                <label class="badge" style="cursor:pointer"><input id="optJoist" type="checkbox" style="margin:0 8px 0 0" /> enable</label>
-              </div>
-              <div class="note" style="margin-top:8px">Changes apply automatically.</div>
-            </div>
+            <!-- Joist menu removed for now -->
 
             <!-- Bracing controls moved out of Tools (see right Help/Notes pane) -->
 
@@ -587,7 +581,7 @@ function renderEditor(projectId){
       document.getElementById('optSub').checked = !!m.options.subBeams.enabled;
       document.getElementById('subCount').value = String(m.options.subBeams.countPerBay||0);
 
-      document.getElementById('optJoist').checked = !!m.options.joists.enabled;
+      // joist UI removed for now
 
       document.getElementById('optBrace').checked = !!m.options.bracing.enabled;
       document.getElementById('braceType').value = m.options.bracing.type || 'X';
@@ -653,7 +647,7 @@ function renderEditor(projectId){
             enabled: document.getElementById('optSub').checked,
             countPerBay: parseInt(document.getElementById('subCount').value||'0',10) || 0,
           },
-          joists: { enabled: document.getElementById('optJoist').checked },
+          joists: { enabled: true },
           bracing: {
             enabled: document.getElementById('optBrace').checked,
             type: document.getElementById('braceType').value || 'X',
@@ -685,6 +679,7 @@ function renderEditor(projectId){
       const last = m.levels[m.levels.length-1] ?? 0;
       m.levels.push(last + 4200);
       setForm(m);
+      scheduleApply(0);
     });
 
     document.getElementById('levelsList')?.addEventListener('click', (ev) => {
@@ -696,6 +691,7 @@ function renderEditor(projectId){
         m.levels.splice(idx, 1);
         if(m.levels.length < 2) m.levels = [0, 6000];
         setForm(m);
+        scheduleApply(0);
       }
     });
 
@@ -823,7 +819,7 @@ function renderEditor(projectId){
     // levels (list)
     document.getElementById('levelsList')?.addEventListener('input', () => scheduleApply());
     // toggles
-    ['optSub','subCount','optJoist','optBrace','braceType'].forEach(id => wireRealtime(id, 'change'));
+    ['optSub','subCount','optBrace','braceType'].forEach(id => wireRealtime(id, 'change'));
 
     // profiles
     ['stdAll','colShape','colSize','beamShape','beamSize','subShape','subSize','braceShape','braceSize'].forEach(id => wireRealtime(id, 'change'));
@@ -917,14 +913,14 @@ function renderEditor(projectId){
         grid: document.getElementById('panelGrid'),
         levels: document.getElementById('panelLevels'),
         sub: document.getElementById('panelSub'),
-        joist: document.getElementById('panelJoist'),
+        // joist: (removed)
         profile: document.getElementById('panelProfile'),
       };
       const chevs = {
         grid: document.getElementById('chevGrid'),
         levels: document.getElementById('chevLevels'),
         sub: document.getElementById('chevSub'),
-        joist: document.getElementById('chevJoist'),
+        // joist: (removed)
         profile: document.getElementById('chevProfile'),
       };
 
