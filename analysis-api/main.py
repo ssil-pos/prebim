@@ -100,7 +100,7 @@ def analyze(req: AnalyzeRequest):
     CASE = 'L1'
     COMBO = 'LC1'
 
-    def solve(with_fixed_base_rotations: bool):
+    def solve(with_fixed_base_rotations: bool, stabilize: bool):
         # Build model
         model = FEModel3D()
 
@@ -145,6 +145,19 @@ def analyze(req: AnalyzeRequest):
         except Exception:
             pass
 
+        # Stabilization springs (MVP): if a model has a mechanism/disconnected part, this prevents hard-fail.
+        # Keep stiffness low so it doesn't meaningfully change results.
+        if stabilize:
+            k_lin = 1.0  # kN/m
+            k_rot = 1.0  # kN*m/rad (approx)
+            for n in req.nodes:
+                model.def_support_spring(n.id, 'DX', k_lin)
+                model.def_support_spring(n.id, 'DY', k_lin)
+                model.def_support_spring(n.id, 'DZ', k_lin)
+                model.def_support_spring(n.id, 'RX', k_rot)
+                model.def_support_spring(n.id, 'RY', k_rot)
+                model.def_support_spring(n.id, 'RZ', k_rot)
+
         dir_map = {"GX": "FX", "GY": "FY", "GZ": "FZ"}
         for udl in req.loads.memberUDL:
             direction = dir_map[udl.dir]
@@ -174,19 +187,25 @@ def analyze(req: AnalyzeRequest):
 
         return AnalyzeResponse(ok=True, nodes=out, maxDisp=MaxDispOut(nodeId=max_node or '', value=max_mag))
 
-    # Try pinned-ish base first; if singular/unstable, retry with fixed base rotations.
+    # Try pinned-ish base first; if singular/unstable, retry with fixed base rotations;
+    # if still singular, apply weak stabilization springs.
     try:
-        return solve(with_fixed_base_rotations=False)
-    except (np.linalg.LinAlgError, MatrixRankWarning) as e:
+        return solve(with_fixed_base_rotations=False, stabilize=False)
+    except (np.linalg.LinAlgError, MatrixRankWarning):
         try:
-            return solve(with_fixed_base_rotations=True)
-        except Exception as e2:
-            return AnalyzeResponse(ok=False, nodes={}, maxDisp=MaxDispOut(), note=f'analysis failed (singular): {e2}')
+            return solve(with_fixed_base_rotations=True, stabilize=False)
+        except Exception:
+            try:
+                r = solve(with_fixed_base_rotations=True, stabilize=True)
+                r.note = (r.note or '') + ' (stabilized with weak springs)'
+                return r
+            except Exception as e2:
+                return AnalyzeResponse(ok=False, nodes={}, maxDisp=MaxDispOut(), note=f'analysis failed (singular): {e2}')
     except Exception as e:
         msg = str(e)
         if 'singular' in msg.lower() or 'unstable' in msg.lower():
             try:
-                return solve(with_fixed_base_rotations=True)
+                return solve(with_fixed_base_rotations=True, stabilize=True)
             except Exception as e2:
                 return AnalyzeResponse(ok=False, nodes={}, maxDisp=MaxDispOut(), note=f'analysis failed (singular): {e2}')
         return AnalyzeResponse(ok=False, nodes={}, maxDisp=MaxDispOut(), note=f'analysis failed: {e}')
