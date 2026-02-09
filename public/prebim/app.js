@@ -13,6 +13,19 @@ let __profiles = null;
 let __threeUtils = null;
 let __csg = null;
 
+function analysisSettingsKey(projectId){ return `prebim:analysisSettings:${projectId}`; }
+function loadAnalysisSettings(projectId){
+  try{ return JSON.parse(localStorage.getItem(analysisSettingsKey(projectId)) || 'null') || {}; }catch{ return {}; }
+}
+function saveAnalysisSettings(projectId, patch){
+  try{
+    const cur = loadAnalysisSettings(projectId);
+    const next = { ...cur, ...(patch||{}), updatedAt: Date.now() };
+    localStorage.setItem(analysisSettingsKey(projectId), JSON.stringify(next));
+    return next;
+  }catch{ return null; }
+}
+
 async function loadDeps(){
   if(__three && __OrbitControls && __engine) return;
   const [threeMod, controlsMod, utilsMod, csgMod, engineMod, profilesMod] = await Promise.all([
@@ -671,6 +684,15 @@ function renderAnalysis(projectId){
   `;
 
   (async () => {
+    // restore settings
+    const saved = loadAnalysisSettings(p.id);
+    const setIf = (id, v) => { const el=document.getElementById(id); if(el!=null && v!=null && v!=='') el.value = String(v); };
+    setIf('supportMode', saved.supportMode);
+    setIf('comboMode', saved.comboMode);
+    setIf('qLive', saved.qLive);
+    setIf('supportNodes', saved.supportNodes);
+    setIf('analysisScale2', saved.analysisScale);
+
     const view3dEl = document.getElementById('view3d');
     const view = await createThreeView(view3dEl);
     __active3D?.dispose?.();
@@ -734,7 +756,7 @@ function renderAnalysis(projectId){
             </tr></thead>
             <tbody>
               ${top.map(r => `
-                <tr>
+                <tr class="analysis-mem" data-mem="${escapeHtml(String(r.id))}" style="cursor:pointer">
                   <td class="mono">${escapeHtml(String(r.id))}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.N)||0).toFixed(3)}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.Vy)||0).toFixed(3)}</td>
@@ -747,6 +769,23 @@ function renderAnalysis(projectId){
           </table>
         </div>
       `;
+
+      // wire row click -> highlight member in 3D
+      host.querySelectorAll('.analysis-mem').forEach(tr => {
+        tr.addEventListener('click', () => {
+          const id = tr.getAttribute('data-mem');
+          if(!id) return;
+          view.setSelection?.([id]);
+          // persist selection
+          saveAnalysisSettings(p.id, { selectedMemberId: id });
+        });
+      });
+
+      // restore last selection
+      const saved = loadAnalysisSettings(p.id);
+      if(saved?.selectedMemberId){
+        try{ view.setSelection?.([String(saved.selectedMemberId)]); }catch{}
+      }
     };
 
     const run = async () => {
@@ -758,6 +797,10 @@ function renderAnalysis(projectId){
         const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
         const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
         const comboMode = (document.getElementById('comboMode')?.value || 'D+L').toString();
+        const supportNodesVal = (document.getElementById('supportNodes')?.value || '').toString();
+        const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
+
+        saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes: supportNodesVal, analysisScale });
 
         const payload = buildAnalysisPayload(model, qLive, supportMode);
 
@@ -811,9 +854,24 @@ function renderAnalysis(projectId){
 
     document.getElementById('btnRunAnalysis')?.addEventListener('click', run);
     document.getElementById('btnHudRun')?.addEventListener('click', run);
+    // persist setting changes
+    const persist = () => {
+      const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
+      const comboMode = (document.getElementById('comboMode')?.value || 'D+L').toString();
+      const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
+      const supportNodes = (document.getElementById('supportNodes')?.value || '').toString();
+      const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
+      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale });
+    };
+    ['supportMode','comboMode','qLive','supportNodes'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', persist);
+      document.getElementById(id)?.addEventListener('input', persist);
+    });
+
     document.getElementById('analysisScale2')?.addEventListener('input', (ev) => {
       const v = Number(ev.target?.value || 120);
       view.setAnalysisScale?.(v);
+      persist();
     });
 
     // support markers shown even before run (based on default base supports)
