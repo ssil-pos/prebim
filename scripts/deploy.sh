@@ -10,7 +10,8 @@ set -euo pipefail
 # to be safe, repeatable, and auditable.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KEY_PATH="$ROOT_DIR/.keys/prebim_deploy_ed25519"
+# Path to SSH deploy key (keep out of git). Override via env var.
+KEY_PATH="${DEPLOY_KEY_PATH:-$ROOT_DIR/.keys/prebim_deploy_ed25519}"
 DEST_DIR="/var/www/ssil_prebim"
 DEST_APP_DIR="/var/www/ssil_prebim/prebim"
 BACKUP_DIR="/root/clawd-dev/backups/prebim"

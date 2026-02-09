@@ -16,7 +16,9 @@ cd /root/clawd-dev/prebim
 ```
 
 ### Notes
-- The script uses the GitHub Deploy Key at: `./.keys/prebim_deploy_ed25519`
+- The deploy script uses an SSH deploy key.
+  - Recommended: set `DEPLOY_KEY_PATH` in your shell/environment (not committed to git).
+  - If unset, the script uses its default local path (see `scripts/deploy.sh`).
 - `.keys/` is excluded from deploy rsync.
 - Each deploy snapshots the deployed folder before/after as a `.tgz` archive.
 
