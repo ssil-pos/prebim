@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0534';
+const BUILD = '20260209-0540';
 
 // lazy-loaded deps
 let __three = null;
@@ -21,8 +21,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0534'),
-    import('/prebim/app_profiles.js?v=20260209-0534'),
+    import('/prebim/engine.js?v=20260209-0540'),
+    import('/prebim/app_profiles.js?v=20260209-0540'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -455,6 +455,7 @@ function renderEditor(projectId){
         <div class="pane-h">
           <b>3D View</b>
           <div class="row" style="margin-top:0; gap:6px">
+            <button class="pill" id="btn3dGuides" type="button">Guides</button>
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
           </div>
@@ -718,6 +719,12 @@ function renderEditor(projectId){
     const btnModeSec = document.getElementById('btnModeSec');
 
     const view = await createThreeView(view3dEl);
+
+    document.getElementById('btn3dGuides')?.addEventListener('click', () => {
+      const on = view.toggleGuides?.();
+      const btn = document.getElementById('btn3dGuides');
+      if(btn) btn.classList.toggle('active', !!on);
+    });
 
     // Plan/Section Three.js view (replaces SVG)
     // expose deps for ps_view.js
@@ -1691,6 +1698,8 @@ async function createThreeView(container){
   // 3D guide lines (grid outline + level outlines)
   const guideGroup = new THREE.Group();
   scene.add(guideGroup);
+  let guidesOn = true;
+  guideGroup.visible = guidesOn;
   const guideMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.55 });
   const guideMat2 = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.35 });
 
@@ -2276,9 +2285,16 @@ async function createThreeView(container){
   // Outlines are always on (per request)
   const outlines = true;
 
+  function toggleGuides(){
+    guidesOn = !guidesOn;
+    guideGroup.visible = guidesOn;
+    return guidesOn;
+  }
+
   return {
     setMembers,
     setBraceMode,
+    toggleGuides,
     resize: doResize,
     getSelection,
     setSelection,
