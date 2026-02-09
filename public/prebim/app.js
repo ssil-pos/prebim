@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0442';
+const BUILD = '20260209-0453';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0442'),
-    import('/prebim/app_profiles.js?v=20260209-0442'),
+    import('/prebim/engine.js?v=20260209-0453'),
+    import('/prebim/app_profiles.js?v=20260209-0453'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1658,6 +1658,58 @@ async function createThreeView(container){
   const guideGroup = new THREE.Group();
   scene.add(guideGroup);
   const guideMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.55 });
+  const guideMat2 = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.35 });
+
+  const makeTextSprite = (text, opts={}) => {
+    const fontSize = opts.fontSize || 48;
+    const pad = opts.pad || 18;
+    const fg = opts.fg || 'rgba(11,27,58,0.85)';
+    const bg = opts.bg || 'rgba(255,255,255,0.85)';
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto`;
+    const metrics = ctx.measureText(text);
+    const w = Math.ceil(metrics.width + pad*2);
+    const h = Math.ceil(fontSize + pad*2);
+    canvas.width = w;
+    canvas.height = h;
+
+    ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto`;
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = 'rgba(11,27,58,0.10)';
+    ctx.lineWidth = 4;
+    // rounded rect
+    const r = 18;
+    ctx.beginPath();
+    ctx.moveTo(r,0);
+    ctx.lineTo(w-r,0);
+    ctx.quadraticCurveTo(w,0,w,r);
+    ctx.lineTo(w,h-r);
+    ctx.quadraticCurveTo(w,h,w-r,h);
+    ctx.lineTo(r,h);
+    ctx.quadraticCurveTo(0,h,0,h-r);
+    ctx.lineTo(0,r);
+    ctx.quadraticCurveTo(0,0,r,0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = fg;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, pad, h/2);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const sp = new THREE.Sprite(mat);
+    // scale in world units (meters)
+    const scale = opts.scale || 0.018; // meters per pixel
+    sp.scale.set(w*scale, h*scale, 1);
+    sp.renderOrder = 10;
+    sp.userData.isGuide = true;
+    return sp;
+  };
   const faceMat = new THREE.MeshBasicMaterial({
     color: 0x38bdf8,
     transparent: true,
@@ -2012,30 +2064,51 @@ async function createThreeView(container){
 
     if(braceMode) buildFacePlanes(model);
 
-    // guides: grid outline at base + level outlines (outer rectangle only)
+    // guides: grid lines + labels at base, and level outlines + labels
     try{
       const spansX = model?.grid?.spansXmm || [];
       const spansY = model?.grid?.spansYmm || [];
-      const xs=[0], ys=[0];
+      const xs=[0], zs=[0];
       for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
-      for(const s of spansY) ys.push(ys[ys.length-1] + (s/1000));
+      for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
       const xMax = xs[xs.length-1] || 1;
-      const yMax = ys[ys.length-1] || 1;
-      const addRect = (y) => {
+      const zMax = zs[zs.length-1] || 1;
+
+      const offset = 2.5; // meters (≈ 2500mm)
+
+      // base grid lines
+      for(let i=0;i<xs.length;i++){
+        const x = xs[i];
+        const pts = [ new THREE.Vector3(x,0,0), new THREE.Vector3(x,0,zMax) ];
+        guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat2));
+        const lab = makeTextSprite(`X${i+1}`, { fontSize: 46, scale: 0.015 });
+        lab.position.set(x, 0.01, -offset);
+        guideGroup.add(lab);
+      }
+      for(let j=0;j<zs.length;j++){
+        const z = zs[j];
+        const pts = [ new THREE.Vector3(0,0,z), new THREE.Vector3(xMax,0,z) ];
+        guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat2));
+        const lab = makeTextSprite(`Y${j+1}`, { fontSize: 46, scale: 0.015 });
+        lab.position.set(-offset, 0.01, z);
+        guideGroup.add(lab);
+      }
+
+      // level outer rectangles + labels
+      const lv = Array.isArray(model?.levels) ? model.levels : [];
+      for(let k=0;k<lv.length;k++){
+        const y = (lv[k]||0)/1000;
         const pts = [
           new THREE.Vector3(0,y,0),
           new THREE.Vector3(xMax,y,0),
-          new THREE.Vector3(xMax,y,yMax),
-          new THREE.Vector3(0,y,yMax),
+          new THREE.Vector3(xMax,y,zMax),
+          new THREE.Vector3(0,y,zMax),
           new THREE.Vector3(0,y,0),
         ];
-        const g = new THREE.BufferGeometry().setFromPoints(pts);
-        guideGroup.add(new THREE.Line(g, guideMat));
-      };
-      addRect(0);
-      const lv = Array.isArray(model?.levels) ? model.levels : [];
-      for(const mm of lv){
-        addRect((mm||0)/1000);
+        guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat));
+        const lab = makeTextSprite(`L${k+1} ${Math.round(lv[k]||0)}`, { fontSize: 46, scale: 0.015 });
+        lab.position.set(xMax + offset, y, 0);
+        guideGroup.add(lab);
       }
     }catch{}
 
