@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0738';
+const BUILD = '20260209-0745';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0738'),
-    import('/prebim/app_profiles.js?v=20260209-0738'),
+    import('/prebim/engine.js?v=20260209-0745'),
+    import('/prebim/app_profiles.js?v=20260209-0745'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1586,11 +1586,73 @@ function renderEditor(projectId){
       }
 
       // MATERIAL/CONSTANTS (steel)
+      lines.push('DEFINE MATERIAL START');
+      lines.push('ISOTROPIC STEEL');
+      lines.push('E 2.05e8');
+      lines.push('POISSON 0.3');
+      lines.push('DENSITY 76.8');
+      lines.push('END DEFINE MATERIAL');
       lines.push('CONSTANTS');
-      lines.push('E 2.05e8 ALL');
-      lines.push('POISSON 0.3 ALL');
+      lines.push('MATERIAL STEEL ALL');
 
-      // MEMBER PROPERTY (approx PRISMATIC rectangles using profile b,d)
+      const rectPropsMm = (w, h) => {
+        const A = w*h;
+        // Iy about local y-axis (uses z^2): h*w^3/12
+        const Iy = h*Math.pow(w,3)/12;
+        // Iz about local z-axis (uses y^2): w*h^3/12
+        const Iz = w*Math.pow(h,3)/12;
+        // torsion constant J (rectangle approximation)
+        const a = Math.max(w,h);
+        const b = Math.min(w,h);
+        const J = (a*Math.pow(b,3))*(1/3 - 0.21*(b/a)*(1 - Math.pow(b,4)/(12*Math.pow(a,4))));
+        return { A, Iy, Iz, J };
+      };
+
+      const iSectionPropsMm = (b, d, tw, tf) => {
+        // symmetric I/H about both centroid axes
+        const webH = Math.max(0, d - 2*tf);
+        const Af = b*tf;
+        const Aw = tw*webH;
+        const A = 2*Af + Aw;
+
+        // Iy: about y-axis (weak, uses width)
+        const IyFlange = tf*Math.pow(b,3)/12;
+        const IyWeb = webH*Math.pow(tw,3)/12;
+        const Iy = 2*IyFlange + IyWeb;
+
+        // Iz: about z-axis (strong, uses depth) + parallel axis for flanges
+        const IzFlangeLocal = b*Math.pow(tf,3)/12;
+        const yOff = (d/2 - tf/2);
+        const IzFlange = IzFlangeLocal + Af*Math.pow(yOff,2);
+        const IzWeb = tw*Math.pow(webH,3)/12;
+        const Iz = 2*IzFlange + IzWeb;
+
+        // J thin-walled approx: sum (b*t^3)/3 over plates
+        const J = (2*b*Math.pow(tf,3) + webH*Math.pow(tw,3))/3;
+
+        return { A, Iy, Iz, J };
+      };
+
+      const sectionPropsMmFromMember = (kind, memObj) => {
+        let profName = memberProfileName(kind, m, memObj.id);
+        if(kind==='brace' && memObj.profile && typeof memObj.profile==='object'){
+          const pr = memObj.profile;
+          profName = __profiles?.getProfile?.(pr.stdKey||m.profiles?.stdAll||'KS', pr.shapeKey||m.profiles?.braceShape||'L', pr.sizeKey||m.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
+        }
+        const d = parseProfileDimsMm(profName);
+        const depth = Math.max(30, d.d||150);
+        const width = Math.max(30, d.b||150);
+        const tf = d.tf || d.t || 12;
+        const tw = d.tw || d.t || 8;
+
+        // Prefer I/H calc if we have tw/tf; else rectangle.
+        if((d.tf || d.tw) && depth > 2*tf + 1 && width > tw + 1){
+          return iSectionPropsMm(width, depth, tw, tf);
+        }
+        return rectPropsMm(width, depth);
+      };
+
+      // MEMBER PROPERTY using GENERAL (AX/IY/IZ/J) in METER units
       lines.push('MEMBER PROPERTY');
       for(const g of propGroups.values()){
         // Format member list as ranges
@@ -1604,8 +1666,18 @@ function renderEditor(projectId){
           s = v; prev = v;
         }
         const memSel = parts.join(' ');
-        // YD = depth, ZD = width (mm)
-        lines.push(`PRIS YD ${g.yd} ZD ${g.zd} ${memSel}`);
+
+        // Compute properties from the first member in this group (same dims key)
+        const mm0 = memList.find(x => x.id === ids[0]);
+        const Pmm = sectionPropsMmFromMember(mm0?.kind || g.kind, mm0?.mem || {});
+
+        // convert mm-based props -> meter
+        const AX = Pmm.A * 1e-6;   // mm^2 -> m^2
+        const IY = Pmm.Iy * 1e-12; // mm^4 -> m^4
+        const IZ = Pmm.Iz * 1e-12;
+        const J = Pmm.J * 1e-12;
+
+        lines.push(`PRIS GENERAL AX ${AX.toExponential(6)} IY ${IY.toExponential(6)} IZ ${IZ.toExponential(6)} J ${J.toExponential(6)} ${memSel}`);
       }
 
       // BRACE TRUSS
