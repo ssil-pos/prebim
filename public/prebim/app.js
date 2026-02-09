@@ -9,17 +9,20 @@ const STORAGE_KEY = 'prebim.projects.v1';
 let __three = null;
 let __OrbitControls = null;
 let __engine = null;
+let __profiles = null;
 
 async function loadDeps(){
   if(__three && __OrbitControls && __engine) return;
-  const [threeMod, controlsMod, engineMod] = await Promise.all([
+  const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0205'),
+    import('/prebim/engine.js?v=20260209-0210'),
+    import('/prebim/app_profiles.js?v=20260209-0210'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
   __engine = engineMod;
+  __profiles = profilesMod;
 }
 
 /** @typedef {{ id: string, name: string, createdAt: number, updatedAt: number, schemaVersion: 1, data: any }} PrebimProject */
@@ -96,6 +99,10 @@ function setMode(mode){
 function setTopbarSubtitle(text){
   const el = document.getElementById('topbarSub');
   if(el) el.textContent = text;
+}
+
+function fillProfileSelectors(){
+  try{ __profiles?.fillProfileSelectors?.(); } catch(e){ /* ignore */ }
 }
 
 function setTopbarActions(html){
@@ -379,8 +386,18 @@ function renderEditor(projectId){
             <button class="acc-btn" type="button" data-acc="sub">Sub-beam <span class="chev" id="chevSub">▾</span></button>
             <div class="acc-panel" id="panelSub">
               <div class="row" style="margin-top:0">
-                <label class="badge" style="cursor:pointer"><input id="optSub" type="checkbox" style="margin:0 8px 0 0" /> enable</label>
-                <input id="subCount" class="input" style="max-width:120px" type="number" min="0" step="1" placeholder="count" />
+                <label class="badge" style="cursor:pointer"><input id="optSub" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
+                <input id="subCount" class="input" style="max-width:120px" type="number" min="0" step="1" placeholder="Count / bay" />
+              </div>
+              <div class="grid2">
+                <div>
+                  <label class="label">Shape</label>
+                  <select id="subShape" class="input"></select>
+                </div>
+                <div>
+                  <label class="label">Profile</label>
+                  <select id="subSize" class="input"></select>
+                </div>
               </div>
               <div class="row" style="margin-top:10px">
                 <button class="btn primary" id="btnApplySub" type="button">Apply</button>
@@ -405,6 +422,16 @@ function renderEditor(projectId){
                   <option value="X">X</option>
                   <option value="S">S</option>
                 </select>
+              </div>
+              <div class="grid2">
+                <div>
+                  <label class="label">Shape</label>
+                  <select id="braceShape" class="input"></select>
+                </div>
+                <div>
+                  <label class="label">Profile</label>
+                  <select id="braceSize" class="input"></select>
+                </div>
               </div>
               <div class="row" style="margin-top:8px">
                 <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Select face in 3D</label>
@@ -447,22 +474,22 @@ function renderEditor(projectId){
               <div class="grid2">
                 <div>
                   <label class="label">Column profile</label>
-                  <input id="colSize" class="input" placeholder="e.g. H 150x150x10x7" />
+                  <select id="colSize" class="input"></select>
                 </div>
                 <div>
                   <label class="label">Beam profile</label>
-                  <input id="beamSize" class="input" placeholder="e.g. H 150x150x10x7" />
+                  <select id="beamSize" class="input"></select>
                 </div>
               </div>
 
               <div class="grid2">
                 <div>
                   <label class="label">Sub-beam profile</label>
-                  <input id="subSize" class="input" placeholder="e.g. H 150x150x10x7" />
+                  <select id="subSizeMirror" class="input" disabled></select>
                 </div>
                 <div>
-                  <label class="label">Brace profile</label>
-                  <input id="braceSize" class="input" placeholder="e.g. L 75x75x6" />
+                  <label class="label">(use Bracing menu)</label>
+                  <select class="input" disabled><option>—</option></select>
                 </div>
               </div>
 
@@ -545,13 +572,27 @@ function renderEditor(projectId){
       document.getElementById('braceMode').checked = false;
 
       // profiles (stored only for now)
+      // Note: profile selectors are populated by fillProfileSelectors() using steel_data.js
       document.getElementById('stdAll').value = m.profiles?.stdAll || 'KS';
+      // rebuild options before setting values
+      fillProfileSelectors();
+
       document.getElementById('colShape').value = m.profiles?.colShape || 'H';
       document.getElementById('beamShape').value = m.profiles?.beamShape || 'H';
-      document.getElementById('colSize').value = m.profiles?.colSize || '';
-      document.getElementById('beamSize').value = m.profiles?.beamSize || '';
-      document.getElementById('subSize').value = m.profiles?.subSize || '';
-      document.getElementById('braceSize').value = m.profiles?.braceSize || '';
+      document.getElementById('subShape').value = m.profiles?.subShape || 'H';
+      document.getElementById('braceShape').value = m.profiles?.braceShape || 'L';
+
+      // sizes
+      fillProfileSelectors();
+      if(m.profiles?.colSize) document.getElementById('colSize').value = m.profiles.colSize;
+      if(m.profiles?.beamSize) document.getElementById('beamSize').value = m.profiles.beamSize;
+      if(m.profiles?.subSize) document.getElementById('subSize').value = m.profiles.subSize;
+      if(m.profiles?.braceSize) document.getElementById('braceSize').value = m.profiles.braceSize;
+
+      // mirror
+      const mir = document.getElementById('subSizeMirror');
+      if(mir) mir.innerHTML = document.getElementById('subSize').innerHTML;
+      if(m.profiles?.subSize) mir.value = m.profiles.subSize;
     };
 
     const getForm = () => {
@@ -595,10 +636,10 @@ function renderEditor(projectId){
           colSize: document.getElementById('colSize').value || '',
           beamShape: document.getElementById('beamShape').value || 'H',
           beamSize: document.getElementById('beamSize').value || '',
-          subShape: 'H',
-          subSize: document.getElementById('subSize').value || '',
-          braceShape: 'L',
-          braceSize: document.getElementById('braceSize').value || '',
+          subShape: document.getElementById('subShape')?.value || 'H',
+          subSize: document.getElementById('subSize')?.value || '',
+          braceShape: document.getElementById('braceShape')?.value || 'L',
+          braceSize: document.getElementById('braceSize')?.value || '',
         }
       };
       return __engine.normalizeModel(next);
@@ -982,13 +1023,19 @@ function summarizeMembers(members){
 }
 
 function renderQtyTable(q, model){
+  const prof = model?.profiles || {};
+  const pCol = __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'') || null;
+  const pBeam = __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'') || null;
+  const pSub = __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'') || null;
+  const pBrace = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'') || null;
+
   const kindLabel = {
-    column: { cat:'Column', prof: model?.profiles?.colSize || model?.profiles?.colShape || '-' },
-    beamX: { cat:'Beam', prof: model?.profiles?.beamSize || model?.profiles?.beamShape || '-' },
-    beamY: { cat:'Beam', prof: model?.profiles?.beamSize || model?.profiles?.beamShape || '-' },
-    subBeam: { cat:'Sub beam', prof: model?.profiles?.subSize || model?.profiles?.subShape || '-' },
-    joist: { cat:'Joist', prof: model?.profiles?.beamSize || model?.profiles?.beamShape || '-' },
-    brace: { cat:'Brace', prof: model?.profiles?.braceSize || model?.profiles?.braceShape || '-' },
+    column: { cat:'Column', prof: pCol?.name || prof.colSize || '-' , kgm: pCol?.kgm ?? null },
+    beamX: { cat:'Beam', prof: pBeam?.name || prof.beamSize || '-' , kgm: pBeam?.kgm ?? null },
+    beamY: { cat:'Beam', prof: pBeam?.name || prof.beamSize || '-' , kgm: pBeam?.kgm ?? null },
+    subBeam: { cat:'Sub beam', prof: pSub?.name || prof.subSize || '-' , kgm: pSub?.kgm ?? null },
+    joist: { cat:'Joist', prof: pBeam?.name || prof.beamSize || '-' , kgm: pBeam?.kgm ?? null },
+    brace: { cat:'Brace', prof: pBrace?.name || prof.braceSize || '-' , kgm: pBrace?.kgm ?? null },
   };
 
   const rows = Object.entries(q.byKind)
@@ -996,13 +1043,15 @@ function renderQtyTable(q, model){
     .sort((a,b)=>b.len-a.len)
     .map(r => {
       const meta = kindLabel[r.kind] || { cat:r.kind, prof:'-' };
+      const loadKg = (meta.kgm!=null) ? (meta.kgm * r.len) : null;
+      const loadCell = (loadKg==null) ? '-' : `${loadKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(loadKg/1000).toFixed(3)} t)`;
       return `
         <tr>
           <td>${escapeHtml(meta.cat)}</td>
           <td>${escapeHtml(String(meta.prof))}</td>
           <td class="num">${r.len.toFixed(3)}</td>
           <td class="num">${r.count}</td>
-          <td class="num">-</td>
+          <td class="num">${loadCell}</td>
         </tr>
       `;
     }).join('');
