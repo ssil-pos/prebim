@@ -642,11 +642,9 @@ function renderAnalysis(projectId){
     const view = await createThreeView(view3dEl);
     __active3D?.dispose?.();
     __active3D = view;
-    __active3D?.dispose?.();
-    __active3D = view;
 
     // Load model + show initial geometry
-    const model = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || p.data);
+    const model = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || p.data || __engine.defaultModel());
     const members = __engine.generateMembers(model);
     view.setMembers(members, model);
 
@@ -2551,8 +2549,16 @@ async function createThreeView(container){
   container.style.padding = '0';
   container.style.height = '100%';
 
-  const w = container.clientWidth || 300;
-  const h = container.clientHeight || 300;
+  // Wait a moment for flex layout to settle; percent heights can be 0 on first tick.
+  let w = 0, h = 0;
+  for(let i=0;i<8;i++){
+    w = container.clientWidth;
+    h = container.clientHeight;
+    if(w > 20 && h > 20) break;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  w = w || 300;
+  h = h || 300;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xffffff);
