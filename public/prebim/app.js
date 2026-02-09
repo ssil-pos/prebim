@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0245'),
-    import('/prebim/app_profiles.js?v=20260209-0245'),
+    import('/prebim/engine.js?v=20260209-0246'),
+    import('/prebim/app_profiles.js?v=20260209-0246'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -989,9 +989,10 @@ async function createThreeView(container){
   scene.add(dir);
 
   // helpers
-  const grid = new THREE.GridHelper(30, 30, 0x8aa3c7, 0xd7e3f5);
-  grid.position.y = 0;
-  scene.add(grid);
+  // Ground grid (disabled by request)
+  // const grid = new THREE.GridHelper(30, 30, 0x8aa3c7, 0xd7e3f5);
+  // grid.position.y = 0;
+  // scene.add(grid);
 
   const group = new THREE.Group();
   scene.add(group);
