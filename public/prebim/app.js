@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0634';
+const BUILD = '20260209-0640';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0634'),
-    import('/prebim/app_profiles.js?v=20260209-0634'),
+    import('/prebim/engine.js?v=20260209-0640'),
+    import('/prebim/app_profiles.js?v=20260209-0640'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -191,14 +191,30 @@ function renderProjects(){
         </div>
       `;
     } else {
+      const summarizeProject = (proj) => {
+        try{
+          const m = __engine?.normalizeModel?.(proj.data?.engineModel || proj.data?.model || proj.data?.engine || proj.data) || null;
+          if(!m) return '';
+          const nx = (m.grid?.spansXmm?.length||0) + 1;
+          const ny = (m.grid?.spansYmm?.length||0) + 1;
+          const lv = m.levels?.length || 0;
+          const mems = __engine?.generateMembers?.(m) || [];
+          const q = __engine?.quantities?.(mems);
+          const len = q?.totalLen;
+          return `Grid ${nx}×${ny} · Levels ${lv} · Members ${mems.length}${(len!=null)?` · Len ${len.toFixed(1)} m`:''}`;
+        }catch{ return ''; }
+      };
+
       list.innerHTML = projects.map(p => `
         <div class="item" data-id="${escapeHtml(p.id)}">
           <div>
             <b>${escapeHtml(p.name || 'Untitled')}</b>
             <small>Updated ${formatTime(p.updatedAt || p.createdAt || 0)}</small>
+            <small>${escapeHtml(summarizeProject(p))}</small>
           </div>
           <div class="row" style="margin-top:0">
             <button class="btn" data-action="open">Open</button>
+            <button class="btn" data-action="duplicate">Duplicate</button>
             <button class="btn" data-action="export">Export</button>
             <button class="btn danger" data-action="delete">Delete</button>
           </div>
@@ -305,6 +321,18 @@ function renderProjects(){
         return;
       }
 
+      if(action === 'duplicate'){
+        const copy = structuredClone(p);
+        copy.id = uid();
+        copy.name = `${p.name || 'Untitled'} (copy)`;
+        copy.createdAt = now();
+        copy.updatedAt = now();
+        projects.push(copy);
+        saveProjects(projects);
+        renderProjects();
+        return;
+      }
+
       if(action === 'open'){
         go(`#/editor/${encodeURIComponent(p.id)}`);
         return;
@@ -334,6 +362,8 @@ function renderEditor(projectId){
   document.title = `PreBIM-SteelStructure — ${p.name || 'project'}`;
   setTopbarActions(`
     <a class="pill" href="#/">Back</a>
+    <button class="pill" id="btnUndo" type="button">Undo</button>
+    <button class="pill" id="btnRedo" type="button">Redo</button>
     <button class="pill" id="btnToggleQty" type="button">Quantities</button>
     <button class="pill" id="btnExportStaad" type="button">STAAD Export</button>
     <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
@@ -1494,11 +1524,9 @@ function renderEditor(projectId){
       const out = [];
       out.push(...dxfHeader());
 
-      // Plan outer grid rectangle (layer GRID)
-      out.push(...dxfLine(0,0,xMax,0,'GRID'));
-      out.push(...dxfLine(xMax,0,xMax,yMax,'GRID'));
-      out.push(...dxfLine(xMax,yMax,0,yMax,'GRID'));
-      out.push(...dxfLine(0,yMax,0,0,'GRID'));
+      // Full grid lines (layer GRID)
+      for(const x of xs) out.push(...dxfLine(x,0,x,yMax,'GRID'));
+      for(const y of ys) out.push(...dxfLine(0,y,xMax,y,'GRID'));
 
       // Auto dimensions (numeric mm, outside only)
       const off = 1200;   // offset outside
@@ -1507,9 +1535,7 @@ function renderEditor(projectId){
 
       // X chain dims at bottom
       const dimY = -off;
-      for(let i=0;i<xs.length;i++){
-        out.push(...dxfLine(xs[i], 0, xs[i], dimY - ext, 'DIM'));
-      }
+      for(let i=0;i<xs.length;i++) out.push(...dxfLine(xs[i], 0, xs[i], dimY - ext, 'DIM'));
       out.push(...dxfLine(0, dimY, xMax, dimY, 'DIM'));
       for(let i=0;i<xs.length-1;i++){
         const v = xs[i+1]-xs[i];
@@ -1524,9 +1550,7 @@ function renderEditor(projectId){
 
       // Y chain dims at left
       const dimX = -off;
-      for(let i=0;i<ys.length;i++){
-        out.push(...dxfLine(0, ys[i], dimX - ext, ys[i], 'DIM'));
-      }
+      for(let i=0;i<ys.length;i++) out.push(...dxfLine(0, ys[i], dimX - ext, ys[i], 'DIM'));
       out.push(...dxfLine(dimX, 0, dimX, yMax, 'DIM'));
       for(let i=0;i<ys.length-1;i++){
         const v = ys[i+1]-ys[i];
@@ -1539,23 +1563,35 @@ function renderEditor(projectId){
       out.push(...dxfLine(dimX, yMax, dimX2 - ext, yMax, 'DIM'));
       out.push(...dxfText(dimX2 + txtH*0.15, yMax/2, txtH, String(yMax), 'DIMTXT'));
 
-      // Section level dims (right side), stacked to the right of plan
+      // Member centerlines for Story 1 (layer MEMBER)
+      const members = __engine.generateMembers(m);
+      const yPlan = (m.levels?.[1] ?? 0);
+      for(const mem of members){
+        if(mem.kind === 'column') continue;
+        // use members that touch story1 level (simple filter)
+        const aYmm = mem.a[1]*1000;
+        const bYmm = mem.b[1]*1000;
+        if(Math.abs(aYmm - yPlan) > 1 && Math.abs(bYmm - yPlan) > 1) continue;
+        const x1 = mem.a[0]*1000, y1 = mem.a[2]*1000;
+        const x2 = mem.b[0]*1000, y2 = mem.b[2]*1000;
+        out.push(...dxfLine(x1,y1,x2,y2,'MEMBER'));
+      }
+
+      // Section level dims (right side)
       const secOffX = xMax + 4000;
       const levels = (m.levels||[]);
       if(levels.length >= 2){
         const z0 = levels[0];
-        const zMax = levels[levels.length-1];
-        // baseline
-        out.push(...dxfLine(secOffX, 0, secOffX, zMax, 'GRID'));
-        // overall height dim
+        const zMax2 = levels[levels.length-1];
+        out.push(...dxfLine(secOffX, 0, secOffX, zMax2, 'GRID'));
         const sDimX = secOffX + 2000;
-        out.push(...dxfLine(sDimX, z0, sDimX, zMax, 'DIM'));
+        out.push(...dxfLine(sDimX, z0, sDimX, zMax2, 'DIM'));
         out.push(...dxfLine(secOffX, z0, sDimX - ext, z0, 'DIM'));
-        out.push(...dxfLine(secOffX, zMax, sDimX - ext, zMax, 'DIM'));
-        out.push(...dxfText(sDimX + txtH*0.15, (z0+zMax)/2, txtH, String(zMax-z0), 'DIMTXT'));
-        // story heights
+        out.push(...dxfLine(secOffX, zMax2, sDimX - ext, zMax2, 'DIM'));
+        out.push(...dxfText(sDimX + txtH*0.15, (z0+zMax2)/2, txtH, String(zMax2-z0), 'DIMTXT'));
+
         const sDimX2 = secOffX + 1200;
-        out.push(...dxfLine(sDimX2, z0, sDimX2, zMax, 'DIM'));
+        out.push(...dxfLine(sDimX2, z0, sDimX2, zMax2, 'DIM'));
         for(let i=0;i<levels.length;i++){
           out.push(...dxfLine(secOffX, levels[i], sDimX2 - ext, levels[i], 'DIM'));
           if(i<levels.length-1){
@@ -1566,7 +1602,6 @@ function renderEditor(projectId){
       }
 
       out.push(...dxfFooter());
-
       download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-auto-dim.dxf`, out.join('\n'), 'application/dxf');
     };
 
@@ -1848,6 +1883,7 @@ async function createThreeView(container){
   const guideMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.55 });
   const guideMat2 = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.35 });
 
+  const guideSprites = [];
   const makeTextSprite = (text, opts={}) => {
     const fontSize = opts.fontSize || 48;
     const pad = opts.pad || 18;
@@ -1896,6 +1932,8 @@ async function createThreeView(container){
     sp.scale.set(w*scale, h*scale, 1);
     sp.renderOrder = 10;
     sp.userData.isGuide = true;
+    sp.userData.baseScale = sp.scale.clone();
+    guideSprites.push(sp);
     return sp;
   };
   const faceMat = new THREE.MeshBasicMaterial({
@@ -2460,6 +2498,19 @@ async function createThreeView(container){
   const animate = () => {
     raf = requestAnimationFrame(animate);
     controls.update();
+
+    // Keep guide label size readable (approx constant on screen)
+    try{
+      for(const sp of guideSprites){
+        if(!sp.visible) continue;
+        const dist = camera.position.distanceTo(sp.position);
+        const k = 0.045; // tune: meters per meter distance
+        const s = dist * k;
+        const bs = sp.userData.baseScale || sp.scale;
+        sp.scale.set(bs.x*s, bs.y*s, 1);
+      }
+    }catch{}
+
     renderer.render(scene, camera);
   };
   animate();
