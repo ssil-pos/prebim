@@ -219,8 +219,8 @@ h1{
 .editor{
   height: 100%;
   display:grid;
-  grid-template-columns: var(--w-tools,240px) 8px 1fr 8px var(--w-right,420px) var(--w-notes,220px);
-  grid-template-rows: 1fr;
+  grid-template-columns: var(--w-tools,240px) 8px 1fr 8px var(--w-right,420px);
+  grid-template-rows: 1fr 8px var(--h-qty,260px);
   gap: 10px;
   padding: 10px;
 }
@@ -231,12 +231,22 @@ h1{
   cursor: col-resize;
   user-select:none;
 }
+.splitterH{
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.58);
+  cursor: row-resize;
+  user-select:none;
+  grid-column: 1 / -1;
+}
+.splitterH:hover{background: rgba(56,189,248,0.18)}
 .splitter:hover{background: rgba(56,189,248,0.18)}
+
+.qty-bottom{grid-column: 1 / -1;}
 @media (max-width: 1180px){
   .editor{
     grid-template-columns: var(--w-tools,220px) 8px 1fr 8px var(--w-right,380px);
   }
-  .editor .notes{display:none;}
 }
 @media (max-width: 920px){
   body.mode-editor{overflow:auto;}
@@ -311,7 +321,7 @@ h1{
 }
 .smallbtn{padding:7px 10px; font-size:12px}
 
-.right-split{display:grid; grid-template-rows: 1fr 260px; gap:10px; min-height:0}
+/* right-split removed: quantities now spans bottom */
 
 .placeholder{
   width:100%; height:100%;

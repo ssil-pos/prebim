@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0401';
+const BUILD = '20260209-0406';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0401'),
-    import('/prebim/app_profiles.js?v=20260209-0401'),
+    import('/prebim/engine.js?v=20260209-0406'),
+    import('/prebim/app_profiles.js?v=20260209-0406'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -504,8 +504,7 @@ function renderEditor(projectId){
 
       <div class="splitter" id="splitterV" title="Drag to resize"></div>
 
-      <section class="right-split">
-        <section class="pane plan">
+      <section class="pane plan">
           <div class="pane-h">
             <b>Plan / Section</b>
             <div class="row" style="margin-top:0; gap:6px">
@@ -534,27 +533,13 @@ function renderEditor(projectId){
             </div>
           </div>
         </section>
-        <section class="pane qty">
-          <div class="pane-h"><b>Quantities</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">mvp</span></div>
-          <div class="pane-b" id="qty"></div>
-        </section>
-      </section>
 
-      <aside class="pane notes">
-        <div class="pane-h"><b>Help</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
-        <div class="pane-b">
-          <div class="note" style="margin-top:0">Use the Bracing / Override buttons on the 3D View header.</div>
-          <div class="note">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
-          <div class="note">Build: <span class="mono">${BUILD}</span></div>
-          <div class="card panel" style="margin-top:10px; padding:10px">
-            <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Quantities (total)</div>
-            <div style="display:flex; justify-content:space-between; gap:10px; margin-top:6px">
-              <b>Total weight</b>
-              <span class="mono" id="qtyTotalWeight">-</span>
-            </div>
-          </div>
-        </div>
-      </aside>
+      <div class="splitterH" id="splitterH" title="Drag to resize quantities"></div>
+
+      <section class="pane qty qty-bottom">
+        <div class="pane-h"><b>Quantities</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">mvp · build ${BUILD}</span></div>
+        <div class="pane-b" id="qty"></div>
+      </section>
     </section>
   `;
 
@@ -933,6 +918,7 @@ function renderEditor(projectId){
     // resizable splitters
     const splitterT = document.getElementById('splitterT');
     const splitterV = document.getElementById('splitterV');
+    const splitterH = document.getElementById('splitterH');
     const editor = document.querySelector('.editor');
 
     const bindSplitter = (handle, onMoveFn) => {
@@ -959,13 +945,24 @@ function renderEditor(projectId){
     bindSplitter(splitterV, (ev) => {
       const rect = editor.getBoundingClientRect();
       const toolsW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-tools')) || 240);
-      const notesW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-notes')) || 220);
       const minRight = 280;
-      const maxRight = Math.max(minRight, rect.width - toolsW - notesW - 260);
+      const maxRight = Math.max(minRight, rect.width - toolsW - 260);
       const x = ev.clientX - rect.left;
       // right width based on pointer position from left
-      const proposedRight = Math.max(minRight, Math.min(maxRight, rect.width - x - notesW - 30));
+      const proposedRight = Math.max(minRight, Math.min(maxRight, rect.width - x - 30));
       document.documentElement.style.setProperty('--w-right', `${proposedRight}px`);
+      view?.resize?.();
+    });
+
+    // bottom quantities height splitter
+    bindSplitter(splitterH, (ev) => {
+      const rect = editor.getBoundingClientRect();
+      const y = ev.clientY - rect.top;
+      const minH = 140;
+      const maxH = Math.max(minH, rect.height * 0.65);
+      // splitter row sits between top and qty; qty height = remaining below pointer minus padding
+      const proposed = Math.max(minH, Math.min(maxH, rect.bottom - ev.clientY - 20));
+      document.documentElement.style.setProperty('--h-qty', `${proposed}px`);
       view?.resize?.();
     });
 
@@ -1874,13 +1871,14 @@ function route(){
 function boot(){
   const fitLayout = () => {
     const w = window.innerWidth || 1200;
+    const h = window.innerHeight || 800;
     // keep within viewport
     const tools = Math.max(180, Math.min(260, w*0.22));
-    const right = Math.max(300, Math.min(440, w*0.30));
-    const notes = (w < 1180) ? 0 : 220;
+    const right = Math.max(320, Math.min(520, w*0.30));
+    const qtyH = Math.max(180, Math.min(320, h*0.30));
     document.documentElement.style.setProperty('--w-tools', `${tools}px`);
     document.documentElement.style.setProperty('--w-right', `${right}px`);
-    document.documentElement.style.setProperty('--w-notes', `${notes}px`);
+    document.documentElement.style.setProperty('--h-qty', `${qtyH}px`);
   };
   window.addEventListener('resize', fitLayout);
   fitLayout();
