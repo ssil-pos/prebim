@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0310'),
-    import('/prebim/app_profiles.js?v=20260209-0310'),
+    import('/prebim/engine.js?v=20260209-0338'),
+    import('/prebim/app_profiles.js?v=20260209-0338'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -368,9 +368,7 @@ function renderEditor(projectId){
               <input id="spansY" class="input" placeholder="e.g. 6000,6000" />
 
               <div class="note">If custom spans are provided, grid count will follow spans+1.</div>
-              <div class="row" style="margin-top:10px">
-                <button class="btn primary" id="btnApplyGrid" type="button">Apply</button>
-              </div>
+              <div class="note" style="margin-top:8px">Changes apply automatically.</div>
             </div>
 
             <button class="acc-btn" type="button" data-acc="levels">Level <span class="chev" id="chevLevels">▾</span></button>
@@ -378,8 +376,8 @@ function renderEditor(projectId){
               <div id="levelsList"></div>
               <div class="row" style="margin-top:10px">
                 <button class="btn" id="btnAddLevel" type="button">Add level</button>
-                <button class="btn primary" id="btnApplyLevels" type="button">Apply</button>
               </div>
+              <div class="note" style="margin-top:8px">Changes apply automatically.</div>
               <div class="note">Levels are absolute elevations (mm). Example: 4200, 8400</div>
             </div>
 
@@ -399,9 +397,7 @@ function renderEditor(projectId){
                   <select id="subSize" class="input"></select>
                 </div>
               </div>
-              <div class="row" style="margin-top:10px">
-                <button class="btn primary" id="btnApplySub" type="button">Apply</button>
-              </div>
+              <div class="note" style="margin-top:8px">Changes apply automatically.</div>
             </div>
 
             <button class="acc-btn" type="button" data-acc="joist">Joist <span class="chev" id="chevJoist">▾</span></button>
@@ -409,9 +405,7 @@ function renderEditor(projectId){
               <div class="row" style="margin-top:0">
                 <label class="badge" style="cursor:pointer"><input id="optJoist" type="checkbox" style="margin:0 8px 0 0" /> enable</label>
               </div>
-              <div class="row" style="margin-top:10px">
-                <button class="btn primary" id="btnApplyJoist" type="button">Apply</button>
-              </div>
+              <div class="note" style="margin-top:8px">Changes apply automatically.</div>
             </div>
 
             <!-- Bracing controls moved out of Tools (see right Help/Notes pane) -->
@@ -461,10 +455,7 @@ function renderEditor(projectId){
                 </div>
               </div>
 
-              <div class="note">Profiles are stored in the project. Full catalog hookup will follow the old draft engine.</div>
-              <div class="row" style="margin-top:10px">
-                <button class="btn primary" id="btnApplyProfile" type="button">Apply</button>
-              </div>
+              <div class="note">Profiles are stored in the project. Changes apply automatically.</div>
             </div>
           </div>
         </div>
@@ -498,8 +489,15 @@ function renderEditor(projectId){
             <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Panel-select in 3D</label>
             <select id="braceStory" class="input" style="max-width:140px"></select>
           </div>
-          <div class="row" style="margin-top:8px">
-            <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
+          <div class="grid2">
+            <div>
+              <label class="label">Shape</label>
+              <select id="braceShape" class="input"></select>
+            </div>
+            <div>
+              <label class="label">Profile</label>
+              <select id="braceSize" class="input"></select>
+            </div>
           </div>
           <div class="note">Pick panels on grid×level faces. Works for internal & external frames.</div>
         </div></div>
@@ -521,13 +519,10 @@ function renderEditor(projectId){
             </div>
           </div>
           <div class="row" style="margin-top:8px">
-            <button class="btn primary" id="btnOvApply" type="button">Apply to selection</button>
-          </div>
-          <div class="row" style="margin-top:8px">
             <button class="btn" id="btnOvClear" type="button">Clear</button>
             <button class="btn danger" id="btnOvReset" type="button">Reset</button>
           </div>
-          <div class="note">Applies to Column / Beam / Sub-beam.</div>
+          <div class="note">Pick a member → then change Profile to apply immediately.</div>
         </div></div>
       </section>
 
@@ -815,12 +810,7 @@ function renderEditor(projectId){
     braceModeEl?.addEventListener('change', updateBraceMode);
     braceStoryEl?.addEventListener('change', updateBraceMode);
 
-    // Apply buttons kept as optional (but realtime changes auto-apply)
-    document.getElementById('btnApplyGrid')?.addEventListener('click', () => scheduleApply(0));
-    document.getElementById('btnApplyLevels')?.addEventListener('click', () => scheduleApply(0));
-    document.getElementById('btnApplySub')?.addEventListener('click', () => scheduleApply(0));
-    document.getElementById('btnApplyJoist')?.addEventListener('click', () => scheduleApply(0));
-    document.getElementById('btnApplyBrace')?.addEventListener('click', () => { updateBraceMode(); scheduleApply(0); });
+    // Apply buttons removed; everything is realtime
 
     // Realtime auto-apply
     const wireRealtime = (id, ev='input') => {
@@ -918,7 +908,7 @@ function renderEditor(projectId){
       apply(getForm());
       updateOvInfo();
     });
-    document.getElementById('btnApplyProfile')?.addEventListener('click', () => scheduleApply(0));
+    // (btnApplyProfile removed)
 
 
     // accordion toggles
