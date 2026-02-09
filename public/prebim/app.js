@@ -2327,11 +2327,15 @@ function renderEditor(projectId){
 
     document.getElementById('btnExportMenu')?.addEventListener('click', (ev) => {
       ev.preventDefault();
-      ev.stopPropagation();
+      // toggle open/close even if user clicks the button again
       toggleExportMenu();
     });
 
-    document.addEventListener('click', () => toggleExportMenu(false), { capture:true });
+    // close menu on any click outside the export button/menu
+    document.addEventListener('click', (ev) => {
+      const wrap = ev.target?.closest?.('.export-wrap');
+      if(!wrap) toggleExportMenu(false);
+    }, { capture:true });
 
     document.getElementById('btnExportData')?.addEventListener('click', () => { toggleExportMenu(false); exportData(); });
     document.getElementById('btnExportStaad')?.addEventListener('click', () => { toggleExportMenu(false); exportStaad(); });

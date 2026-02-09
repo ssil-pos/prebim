@@ -57,6 +57,10 @@ a{color:inherit; text-decoration:none}
 
 .export-menu{position:absolute; right:0; top:36px; min-width: 180px; padding:10px; display:grid; gap:8px; background: rgba(255,255,255,0.92); border:1px solid rgba(148,163,184,0.35); border-radius:14px; box-shadow: 0 10px 24px rgba(2,6,23,0.10); backdrop-filter: blur(8px);}
 .export-menu[hidden]{display:none !important;}
+
+/* ensure 3D containers have height */
+#view3dWrap{position:relative; width:100%; height:100%;}
+#view3d{width:100%; height:100%;}
 .pill{
   padding:7px 10px;
   border-radius: 999px;
