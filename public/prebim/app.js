@@ -1608,15 +1608,19 @@ function renderEditor(projectId){
       };
 
       // supports (base pinned)
+      // NOTE: base level may be very close to 0 but not exactly; and some projects may not have columns touching y=0 exactly.
+      // We take all member endpoints, find global minY, and support all joints at that minY.
       const supportJoints = new Set();
+      let minY = Infinity;
       for(const mm of memList){
         const mem = mm.mem;
-        if(mem.kind==='column'){
-          const ya = mem.a[1], yb = mem.b[1];
-          const jLow = (ya<yb) ? mm.j1 : mm.j2;
-          const yLow = Math.min(ya,yb);
-          if(Math.abs(yLow - 0) < 1e-8) supportJoints.add(jLow);
-        }
+        minY = Math.min(minY, mem.a[1], mem.b[1]);
+      }
+      const yEps = 1e-6;
+      for(const mm of memList){
+        const mem = mm.mem;
+        if(Math.abs(mem.a[1] - minY) < yEps) supportJoints.add(mm.j1);
+        if(Math.abs(mem.b[1] - minY) < yEps) supportJoints.add(mm.j2);
       }
 
       // loads (1 case = DEAD+LIVE)
@@ -1665,7 +1669,11 @@ function renderEditor(projectId){
         };
       });
 
-      const supports = Array.from(supportJoints).map(id => ({ nodeId: id, fix: { DX:true,DY:true,DZ:true,RX:false,RY:false,RZ:false } }));
+      let supports = Array.from(supportJoints).map(id => ({ nodeId: id, fix: { DX:true,DY:true,DZ:true,RX:false,RY:false,RZ:false } }));
+      // fallback: if still empty, at least pin node 1 to avoid rigid body motion
+      if(!supports.length && jointList.length){
+        supports = [{ nodeId: jointList[0].id, fix: { DX:true,DY:true,DZ:true,RX:false,RY:false,RZ:false } }];
+      }
 
       const payload = {
         units: { length:'m', force:'kN' },
