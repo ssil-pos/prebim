@@ -1569,9 +1569,36 @@ function renderEditor(projectId){
         return '';
       };
 
+      const parseProfileDimsMmLocal = (name) => {
+        const s0 = String(name||'').trim().replaceAll('X','x');
+        const s = s0.replaceAll('×','x');
+        const shapeKey = (s.split(/\s+/)[0] || 'BOX').toUpperCase();
+
+        const mL = s.match(/^L\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+        if(mL) return { shape:'L', d:+mL[1], b:+mL[2], tw:+mL[3], tf:+mL[3], lip:0, t:+mL[3] };
+
+        const mHI = s.match(/^(H|I)\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+        if(mHI) return { shape:mHI[1].toUpperCase(), d:+mHI[2], b:+mHI[3], tw:+mHI[4], tf:+mHI[5], lip:0 };
+
+        const mC = s.match(/^C\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+        if(mC) return { shape:'C', d:+mC[1], b:+mC[2], tw:+mC[3], tf:+mC[4], lip:0 };
+
+        const mLC = s.match(/^LC\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+        if(mLC) return { shape:'LC', d:+mLC[1], b:+mLC[2], tw:+mLC[4], tf:+mLC[4], lip:+mLC[3] };
+
+        const mT2 = s.match(/^T\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+        if(mT2){ const b=+mT2[1], d=+mT2[2]; const t=Math.max(6, Math.min(b,d)*0.10); return { shape:'T', d, b, tw:t, tf:t, lip:0, t }; }
+
+        const m2 = s.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+        const d = m2 ? parseFloat(m2[1]) : 150;
+        const b = m2 ? parseFloat(m2[2]) : 150;
+        const t = Math.max(6, Math.min(b,d)*0.08);
+        return { shape: shapeKey, d, b, tw:t, tf:t, lip:0, t };
+      };
+
       const sectionPropsMmFromMember = (kind, memObj) => {
         const profName = memberProfileNameLocal(kind, m, memObj.id, memObj);
-        const d = parseProfileDimsMm(profName);
+        const d = parseProfileDimsMmLocal(profName);
         const depth = Math.max(30, d.d||150);
         const width = Math.max(30, d.b||150);
         const tf = d.tf || d.t || 12;
