@@ -76,6 +76,7 @@ a{color:inherit; text-decoration:none}
 
 /* 3D header buttons */
 #btn3dGuides{background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.22)}
+#btn3dSection{background: rgba(96,165,250,0.12); border-color: rgba(96,165,250,0.22)}
 #btnPopBr{background: rgba(34,211,238,0.10); border-color: rgba(34,211,238,0.18)}
 #btnPopOv{background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.20)}
 

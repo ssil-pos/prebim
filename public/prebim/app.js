@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0545';
+const BUILD = '20260209-0553';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0545'),
-    import('/prebim/app_profiles.js?v=20260209-0545'),
+    import('/prebim/engine.js?v=20260209-0553'),
+    import('/prebim/app_profiles.js?v=20260209-0553'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -455,6 +455,7 @@ function renderEditor(projectId){
           <b>3D View</b>
           <div class="row" style="margin-top:0; gap:6px">
             <button class="pill" id="btn3dGuides" type="button">Guides</button>
+            <button class="pill" id="btn3dSection" type="button">Section Box</button>
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
           </div>
@@ -488,6 +489,48 @@ function renderEditor(projectId){
             </div>
           </div>
           <div class="note">Pick panels on grid×level faces. Works for internal & external frames.</div>
+        </div></div>
+
+        <div class="popwrap" id="popSection"><div class="popcard">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+            <b>Section Box</b>
+            <button class="pill" id="btnPopSectionClose" type="button">Close</button>
+          </div>
+          <div class="note" style="margin-top:6px">Clip the 3D model to a rectangular box.</div>
+          <div class="row" style="margin-top:8px">
+            <label class="badge" style="cursor:pointer"><input id="secOn" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
+            <button class="btn" id="btnSecReset" type="button">Reset</button>
+          </div>
+          <div class="grid2" style="margin-top:8px">
+            <div>
+              <label class="label">X min (%)</label>
+              <input id="secX0" class="input" type="range" min="0" max="100" step="1" value="0" />
+            </div>
+            <div>
+              <label class="label">X max (%)</label>
+              <input id="secX1" class="input" type="range" min="0" max="100" step="1" value="100" />
+            </div>
+          </div>
+          <div class="grid2" style="margin-top:8px">
+            <div>
+              <label class="label">Y min (%)</label>
+              <input id="secY0" class="input" type="range" min="0" max="100" step="1" value="0" />
+            </div>
+            <div>
+              <label class="label">Y max (%)</label>
+              <input id="secY1" class="input" type="range" min="0" max="100" step="1" value="100" />
+            </div>
+          </div>
+          <div class="grid2" style="margin-top:8px">
+            <div>
+              <label class="label">Z min (%)</label>
+              <input id="secZ0" class="input" type="range" min="0" max="100" step="1" value="0" />
+            </div>
+            <div>
+              <label class="label">Z max (%)</label>
+              <input id="secZ1" class="input" type="range" min="0" max="100" step="1" value="100" />
+            </div>
+          </div>
         </div></div>
 
         <div class="popwrap" id="popOv"><div class="popcard">
@@ -723,6 +766,55 @@ function renderEditor(projectId){
       const on = view.toggleGuides?.();
       const btn = document.getElementById('btn3dGuides');
       if(btn) btn.classList.toggle('active', !!on);
+    });
+
+    // Section box UI wiring
+    const secOn = document.getElementById('secOn');
+    const secX0 = document.getElementById('secX0');
+    const secX1 = document.getElementById('secX1');
+    const secY0 = document.getElementById('secY0');
+    const secY1 = document.getElementById('secY1');
+    const secZ0 = document.getElementById('secZ0');
+    const secZ1 = document.getElementById('secZ1');
+
+    const secGet = () => {
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      let x0 = clamp01((parseFloat(secX0?.value||'0')||0)/100);
+      let x1 = clamp01((parseFloat(secX1?.value||'100')||100)/100);
+      let y0 = clamp01((parseFloat(secY0?.value||'0')||0)/100);
+      let y1 = clamp01((parseFloat(secY1?.value||'100')||100)/100);
+      let z0 = clamp01((parseFloat(secZ0?.value||'0')||0)/100);
+      let z1 = clamp01((parseFloat(secZ1?.value||'100')||100)/100);
+      // keep order
+      if(x0>x1) [x0,x1]=[x1,x0];
+      if(y0>y1) [y0,y1]=[y1,y0];
+      if(z0>z1) [z0,z1]=[z1,z0];
+      return { x0,x1,y0,y1,z0,z1 };
+    };
+
+    const secApply = () => {
+      view.setSectionBox?.(!!secOn?.checked, secGet(), getForm());
+    };
+
+    ['change','input'].forEach(ev => {
+      secOn?.addEventListener(ev, secApply);
+      secX0?.addEventListener(ev, secApply);
+      secX1?.addEventListener(ev, secApply);
+      secY0?.addEventListener(ev, secApply);
+      secY1?.addEventListener(ev, secApply);
+      secZ0?.addEventListener(ev, secApply);
+      secZ1?.addEventListener(ev, secApply);
+    });
+
+    document.getElementById('btnSecReset')?.addEventListener('click', () => {
+      if(secX0) secX0.value='0';
+      if(secX1) secX1.value='100';
+      if(secY0) secY0.value='0';
+      if(secY1) secY1.value='100';
+      if(secZ0) secZ0.value='0';
+      if(secZ1) secZ1.value='100';
+      if(secOn) secOn.checked=false;
+      secApply();
     });
 
     // Plan/Section Three.js view (replaces SVG)
@@ -1099,18 +1191,27 @@ function renderEditor(projectId){
     // popovers
     const popBr = document.getElementById('popBr');
     const popOv = document.getElementById('popOv');
-    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); };
+    const popSection = document.getElementById('popSection');
+    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); popSection?.classList.remove('open'); };
     document.getElementById('btnPopBr')?.addEventListener('click', () => {
       popOv?.classList.remove('open');
+      popSection?.classList.remove('open');
       popBr?.classList.toggle('open');
       updateBraceMode(popBr?.classList.contains('open'));
     });
     document.getElementById('btnPopOv')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
+      popSection?.classList.remove('open');
       popOv?.classList.toggle('open');
+    });
+    document.getElementById('btn3dSection')?.addEventListener('click', () => {
+      popBr?.classList.remove('open');
+      popOv?.classList.remove('open');
+      popSection?.classList.toggle('open');
     });
     document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
     document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
+    document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
 
     // resizable splitters
     const splitterT = document.getElementById('splitterT');
@@ -1658,6 +1759,7 @@ async function createThreeView(container){
   camera.position.set(10, 8, 10);
 
   const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+  renderer.localClippingEnabled = true;
   renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1776,6 +1878,65 @@ async function createThreeView(container){
   // member selection
   const selectRay = new THREE.Raycaster();
   const selected = new Set();
+
+  // section box (clipping)
+  const clipPlanes = [
+    new THREE.Plane(new THREE.Vector3( 1, 0, 0), 0),
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
+    new THREE.Plane(new THREE.Vector3( 0, 1, 0), 0),
+    new THREE.Plane(new THREE.Vector3( 0,-1, 0), 0),
+    new THREE.Plane(new THREE.Vector3( 0, 0, 1), 0),
+    new THREE.Plane(new THREE.Vector3( 0, 0,-1), 0),
+  ];
+  let secBoxOn = false;
+  let secBox = { x0:0, x1:1, y0:0, y1:1, z0:0, z1:1 };
+  const boxHelper = new THREE.Box3Helper(new THREE.Box3(), 0x60a5fa);
+  boxHelper.visible = false;
+  boxHelper.material.transparent = true;
+  boxHelper.material.opacity = 0.35;
+  scene.add(boxHelper);
+
+  function applyClipping(model){
+    // compute extents from grid+levels
+    const spansX = model?.grid?.spansXmm || [];
+    const spansY = model?.grid?.spansYmm || [];
+    const xs=[0], zs=[0];
+    for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+    for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
+    const xMax = xs[xs.length-1] || 1;
+    const zMax = zs[zs.length-1] || 1;
+    const lv = Array.isArray(model?.levels) ? model.levels : [0,6000];
+    const yMin = (lv[0]||0)/1000;
+    const yMax = (lv[lv.length-1]||6000)/1000;
+
+    const x0 = secBox.x0 * xMax;
+    const x1 = secBox.x1 * xMax;
+    const y0 = yMin + secBox.y0 * (yMax - yMin);
+    const y1 = yMin + secBox.y1 * (yMax - yMin);
+    const z0 = secBox.z0 * zMax;
+    const z1 = secBox.z1 * zMax;
+
+    // planes: normal dot p + constant >= 0 keeps inside
+    clipPlanes[0].set(new THREE.Vector3( 1,0,0), -x0);
+    clipPlanes[1].set(new THREE.Vector3(-1,0,0),  x1);
+    clipPlanes[2].set(new THREE.Vector3(0, 1,0), -y0);
+    clipPlanes[3].set(new THREE.Vector3(0,-1,0),  y1);
+    clipPlanes[4].set(new THREE.Vector3(0,0, 1), -z0);
+    clipPlanes[5].set(new THREE.Vector3(0,0,-1),  z1);
+
+    boxHelper.box.min.set(x0,y0,z0);
+    boxHelper.box.max.set(x1,y1,z1);
+    boxHelper.visible = secBoxOn;
+
+    // apply to member meshes
+    group.traverse(obj => {
+      if(obj.material && obj.material.isMaterial){
+        obj.material.clippingPlanes = secBoxOn ? clipPlanes : null;
+        obj.material.clipIntersection = true;
+        obj.material.needsUpdate = true;
+      }
+    });
+  }
 
   const matByKind = {
     column: new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness:0.55, metalness:0.25 }),
@@ -2106,6 +2267,8 @@ async function createThreeView(container){
 
     if(braceMode) buildFacePlanes(model);
 
+    applyClipping(model);
+
     // guides: grid lines + labels at base, and level outlines + labels
     try{
       const spansX = model?.grid?.spansXmm || [];
@@ -2290,10 +2453,17 @@ async function createThreeView(container){
     return guidesOn;
   }
 
+  function setSectionBox(on, box01, model){
+    secBoxOn = !!on;
+    if(box01) secBox = { ...secBox, ...box01 };
+    applyClipping(model);
+  }
+
   return {
     setMembers,
     setBraceMode,
     toggleGuides,
+    setSectionBox,
     resize: doResize,
     getSelection,
     setSelection,
