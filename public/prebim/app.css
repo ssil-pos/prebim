@@ -83,6 +83,9 @@ main{
 body.mode-editor .topbar-inner{
   max-width:none;
 }
+body.mode-editor{
+  overflow:hidden;
+}
 body.mode-editor main{
   max-width: none;
   width: 100%;
@@ -207,17 +210,30 @@ h1{
 .editor{
   height: 100%;
   display:grid;
-  grid-template-columns: 240px 1fr 360px 220px;
+  grid-template-columns: var(--w-tools,240px) 1fr 8px var(--w-right,420px) var(--w-notes,220px);
   grid-template-rows: 1fr;
   gap: 10px;
   padding: 10px;
 }
+.splitter{
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.58);
+  cursor: col-resize;
+  user-select:none;
+}
+.splitter:hover{background: rgba(56,189,248,0.18)}
 @media (max-width: 1180px){
-  .editor{grid-template-columns: 200px 1fr 320px;}
+  .editor{
+    grid-template-columns: var(--w-tools,220px) 1fr 8px var(--w-right,380px);
+  }
   .editor .notes{display:none;}
 }
 @media (max-width: 920px){
+  body.mode-editor{overflow:auto;}
+  body.mode-editor main{height:auto;}
   .editor{grid-template-columns:1fr; height:auto;}
+  .splitter{display:none;}
 }
 
 .pane{
@@ -227,6 +243,7 @@ h1{
   overflow:hidden;
   display:flex;
   flex-direction:column;
+  min-height:0;
 }
 .pane-h{
   padding: 8px 10px;
@@ -238,7 +255,7 @@ h1{
   background: rgba(255,255,255,0.72);
 }
 .pane-h b{font-size: 12px; letter-spacing:0.02em}
-.pane-b{padding: 10px; flex:1; min-height: 0;}
+.pane-b{padding: 10px; flex:1; min-height: 0; overflow:auto;}
 
 /* Accordion inside tools */
 .acc{display:grid; gap:8px}
@@ -273,7 +290,7 @@ h1{
 }
 .smallbtn{padding:7px 10px; font-size:12px}
 
-.right-split{display:grid; grid-template-rows: 1fr 220px; gap:10px}
+.right-split{display:grid; grid-template-rows: 1fr 260px; gap:10px; min-height:0}
 
 .placeholder{
   width:100%; height:100%;
@@ -285,3 +302,11 @@ h1{
     radial-gradient(520px 300px at 20% 10%, rgba(56,189,248,0.12), transparent 60%),
     radial-gradient(560px 340px at 80% 30%, rgba(167,139,250,0.10), transparent 60%);
 }
+
+/* Qty table */
+.qty-title{font-weight:1000; font-size:14px; margin:0 0 10px}
+.qty-table{width:100%; border-collapse:collapse; font-size:12px}
+.qty-table th, .qty-table td{padding:8px 6px; border-bottom:1px solid var(--stroke); text-align:left; vertical-align:top}
+.qty-table th{font-size:11px; color: rgba(11,27,58,0.62)}
+.qty-table td.num, .qty-table th.num{text-align:right}
+.qty-table tfoot td{font-weight:1000}

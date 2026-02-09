@@ -15,7 +15,7 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0202'),
+    import('/prebim/engine.js?v=20260209-0205'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -480,6 +480,8 @@ function renderEditor(projectId){
         <div class="pane-b" id="view3d"></div>
       </section>
 
+      <div class="splitter" id="splitterV" title="Drag to resize"></div>
+
       <section class="right-split">
         <section class="pane plan">
           <div class="pane-h"><b>Plan / Section</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">next</span></div>
@@ -629,11 +631,36 @@ function renderEditor(projectId){
 
     const view = await createThreeView(view3dEl);
 
+    // resizable splitter (3D vs right panel)
+    const splitter = document.getElementById('splitterV');
+    const editor = document.querySelector('.editor');
+    if(splitter && editor){
+      let dragging = false;
+      const onDown = (ev) => { dragging = true; ev.preventDefault(); };
+      const onUp = () => { dragging = false; };
+      const onMove = (ev) => {
+        if(!dragging) return;
+        const rect = editor.getBoundingClientRect();
+        const toolsW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-tools')) || 240);
+        const notesW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-notes')) || 220);
+        const minRight = 280;
+        const maxRight = Math.max(minRight, rect.width - toolsW - notesW - 260);
+        const x = ev.clientX - rect.left;
+        // right width based on pointer position from left
+        const proposedRight = Math.max(minRight, Math.min(maxRight, rect.width - x - notesW - 30));
+        document.documentElement.style.setProperty('--w-right', `${proposedRight}px`);
+        view?.resize?.();
+      };
+      splitter.addEventListener('pointerdown', onDown);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointermove', onMove);
+    }
+
     const apply = (m) => {
       const members = __engine.generateMembers(m);
       view.setMembers(members, m);
-      const q = __engine.quantities(members);
-      if(qtyEl) qtyEl.innerHTML = renderQty(q);
+      const q = summarizeMembers(members);
+      if(qtyEl) qtyEl.innerHTML = renderQtyTable(q, m);
 
       // persist into project
       const projects = loadProjects();
@@ -910,18 +937,21 @@ async function createThreeView(container){
   };
   animate();
 
-  const ro = new ResizeObserver(() => {
+  const doResize = () => {
     const w2 = container.clientWidth || 300;
     const h2 = container.clientHeight || 300;
     renderer.setSize(w2, h2);
     camera.aspect = w2 / h2;
     camera.updateProjectionMatrix();
-  });
+  };
+
+  const ro = new ResizeObserver(doResize);
   ro.observe(container);
 
   return {
     setMembers,
     setBraceMode,
+    resize: doResize,
     dispose(){
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -932,15 +962,75 @@ async function createThreeView(container){
   };
 }
 
-function renderQty(q){
+function summarizeMembers(members){
+  const byKind = {};
+  let totalLen = 0;
+  let totalCount = 0;
+  for(const mem of members){
+    const dx = mem.a[0]-mem.b[0];
+    const dy = mem.a[1]-mem.b[1];
+    const dz = mem.a[2]-mem.b[2];
+    const len = Math.sqrt(dx*dx+dy*dy+dz*dz);
+    totalLen += len;
+    totalCount += 1;
+    const cur = byKind[mem.kind] || { len:0, count:0 };
+    cur.len += len;
+    cur.count += 1;
+    byKind[mem.kind] = cur;
+  }
+  return { byKind, totalLen, totalCount };
+}
+
+function renderQtyTable(q, model){
+  const kindLabel = {
+    column: { cat:'Column', prof: model?.profiles?.colSize || model?.profiles?.colShape || '-' },
+    beamX: { cat:'Beam', prof: model?.profiles?.beamSize || model?.profiles?.beamShape || '-' },
+    beamY: { cat:'Beam', prof: model?.profiles?.beamSize || model?.profiles?.beamShape || '-' },
+    subBeam: { cat:'Sub beam', prof: model?.profiles?.subSize || model?.profiles?.subShape || '-' },
+    joist: { cat:'Joist', prof: model?.profiles?.beamSize || model?.profiles?.beamShape || '-' },
+    brace: { cat:'Brace', prof: model?.profiles?.braceSize || model?.profiles?.braceShape || '-' },
+  };
+
   const rows = Object.entries(q.byKind)
-    .sort((a,b)=>b[1]-a[1])
-    .map(([k,len]) => `<div class="item"><div><b>${escapeHtml(k)}</b><small>${(len).toFixed(2)} m</small></div></div>`)
-    .join('');
+    .map(([kind, v]) => ({ kind, ...v }))
+    .sort((a,b)=>b.len-a.len)
+    .map(r => {
+      const meta = kindLabel[r.kind] || { cat:r.kind, prof:'-' };
+      return `
+        <tr>
+          <td>${escapeHtml(meta.cat)}</td>
+          <td>${escapeHtml(String(meta.prof))}</td>
+          <td class="num">${r.len.toFixed(3)}</td>
+          <td class="num">${r.count}</td>
+          <td class="num">-</td>
+        </tr>
+      `;
+    }).join('');
 
   return `
-    <div class="note" style="margin-top:0">Total length: <span class="mono">${q.totalLen.toFixed(2)} m</span></div>
-    <div class="list">${rows || '<div class="item"><div><b>-</b><small>No members</small></div></div>'}</div>
+    <div class="qty-title">Total quantities</div>
+    <table class="qty-table" aria-label="Total quantities">
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Member type</th>
+          <th class="num">Length (m)</th>
+          <th class="num">Count</th>
+          <th class="num">Load</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows || '<tr><td colspan="5">-</td></tr>'}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2">Total</td>
+          <td class="num">${q.totalLen.toFixed(3)}</td>
+          <td class="num">${q.totalCount}</td>
+          <td class="num">-</td>
+        </tr>
+      </tfoot>
+    </table>
   `;
 }
 
