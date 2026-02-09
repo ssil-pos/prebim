@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0210'),
-    import('/prebim/app_profiles.js?v=20260209-0210'),
+    import('/prebim/engine.js?v=20260209-0220'),
+    import('/prebim/app_profiles.js?v=20260209-0220'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -414,39 +414,7 @@ function renderEditor(projectId){
               </div>
             </div>
 
-            <button class="acc-btn" type="button" data-acc="brace">Bracing <span class="chev" id="chevBrace">▾</span></button>
-            <div class="acc-panel" id="panelBrace">
-              <div class="row" style="margin-top:0">
-                <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
-                <select id="braceType" class="input" style="max-width:110px">
-                  <option value="X">X</option>
-                  <option value="S">S</option>
-                </select>
-              </div>
-              <div class="grid2">
-                <div>
-                  <label class="label">Shape</label>
-                  <select id="braceShape" class="input"></select>
-                </div>
-                <div>
-                  <label class="label">Profile</label>
-                  <select id="braceSize" class="input"></select>
-                </div>
-              </div>
-              <div class="row" style="margin-top:8px">
-                <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Select face in 3D</label>
-                <select id="braceFace" class="input" style="max-width:110px">
-                  <option value="Y0">Y0</option>
-                  <option value="Y1">Y1</option>
-                  <option value="X0">X0</option>
-                  <option value="X1">X1</option>
-                </select>
-              </div>
-              <div class="row" style="margin-top:10px">
-                <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
-              </div>
-              <div class="note">Brace mode: click an outer face in the 3D view.</div>
-            </div>
+            <!-- Bracing controls moved out of Tools (see right Help/Notes pane) -->
 
             <button class="acc-btn" type="button" data-acc="profile">Profile <span class="chev" id="chevProfile">▾</span></button>
             <div class="acc-panel" id="panelProfile">
@@ -502,6 +470,8 @@ function renderEditor(projectId){
         </div>
       </aside>
 
+      <div class="splitter" id="splitterT" title="Drag to resize"></div>
+
       <section class="pane view3d">
         <div class="pane-h"><b>3D View</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">three.js</span></div>
         <div class="pane-b" id="view3d"></div>
@@ -523,10 +493,44 @@ function renderEditor(projectId){
       </section>
 
       <aside class="pane notes">
-        <div class="pane-h"><b>Help</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">later</span></div>
+        <div class="pane-h"><b>Bracing</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
         <div class="pane-b">
-          <div class="note" style="margin-top:0">주석/상태 관련 기능 (추후 추가)</div>
-          <div class="note">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
+          <div class="row" style="margin-top:0">
+            <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
+            <select id="braceType" class="input" style="max-width:110px">
+              <option value="X">X</option>
+              <option value="S">S</option>
+            </select>
+          </div>
+
+          <div class="grid2">
+            <div>
+              <label class="label">Shape</label>
+              <select id="braceShape" class="input"></select>
+            </div>
+            <div>
+              <label class="label">Profile</label>
+              <select id="braceSize" class="input"></select>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:8px">
+            <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Select face in 3D</label>
+            <select id="braceFace" class="input" style="max-width:110px">
+              <option value="Y0">Y0</option>
+              <option value="Y1">Y1</option>
+              <option value="X0">X0</option>
+              <option value="X1">X1</option>
+            </select>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
+          </div>
+          <div class="note">Brace mode: click an outer face in the 3D view.</div>
+
+          <hr style="border:none; border-top:1px solid var(--stroke); margin:12px 0"/>
+          <div class="note" style="margin-top:0">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
         </div>
       </aside>
     </section>
@@ -672,30 +676,44 @@ function renderEditor(projectId){
 
     const view = await createThreeView(view3dEl);
 
-    // resizable splitter (3D vs right panel)
-    const splitter = document.getElementById('splitterV');
+    // resizable splitters
+    const splitterT = document.getElementById('splitterT');
+    const splitterV = document.getElementById('splitterV');
     const editor = document.querySelector('.editor');
-    if(splitter && editor){
+
+    const bindSplitter = (handle, onMoveFn) => {
+      if(!handle || !editor) return;
       let dragging = false;
       const onDown = (ev) => { dragging = true; ev.preventDefault(); };
       const onUp = () => { dragging = false; };
-      const onMove = (ev) => {
-        if(!dragging) return;
-        const rect = editor.getBoundingClientRect();
-        const toolsW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-tools')) || 240);
-        const notesW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-notes')) || 220);
-        const minRight = 280;
-        const maxRight = Math.max(minRight, rect.width - toolsW - notesW - 260);
-        const x = ev.clientX - rect.left;
-        // right width based on pointer position from left
-        const proposedRight = Math.max(minRight, Math.min(maxRight, rect.width - x - notesW - 30));
-        document.documentElement.style.setProperty('--w-right', `${proposedRight}px`);
-        view?.resize?.();
-      };
-      splitter.addEventListener('pointerdown', onDown);
+      const onMove = (ev) => { if(dragging) onMoveFn(ev); };
+      handle.addEventListener('pointerdown', onDown);
       window.addEventListener('pointerup', onUp);
       window.addEventListener('pointermove', onMove);
-    }
+    };
+
+    bindSplitter(splitterT, (ev) => {
+      const rect = editor.getBoundingClientRect();
+      const minTools = 180;
+      const maxTools = Math.max(minTools, rect.width * 0.45);
+      const x = ev.clientX - rect.left;
+      const w = Math.max(minTools, Math.min(maxTools, x - 20));
+      document.documentElement.style.setProperty('--w-tools', `${w}px`);
+      view?.resize?.();
+    });
+
+    bindSplitter(splitterV, (ev) => {
+      const rect = editor.getBoundingClientRect();
+      const toolsW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-tools')) || 240);
+      const notesW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-notes')) || 220);
+      const minRight = 280;
+      const maxRight = Math.max(minRight, rect.width - toolsW - notesW - 260);
+      const x = ev.clientX - rect.left;
+      // right width based on pointer position from left
+      const proposedRight = Math.max(minRight, Math.min(maxRight, rect.width - x - notesW - 30));
+      document.documentElement.style.setProperty('--w-right', `${proposedRight}px`);
+      view?.resize?.();
+    });
 
     const apply = (m) => {
       const members = __engine.generateMembers(m);
@@ -745,7 +763,6 @@ function renderEditor(projectId){
         levels: document.getElementById('panelLevels'),
         sub: document.getElementById('panelSub'),
         joist: document.getElementById('panelJoist'),
-        brace: document.getElementById('panelBrace'),
         profile: document.getElementById('panelProfile'),
       };
       const chevs = {
@@ -753,7 +770,6 @@ function renderEditor(projectId){
         levels: document.getElementById('chevLevels'),
         sub: document.getElementById('chevSub'),
         joist: document.getElementById('chevJoist'),
-        brace: document.getElementById('chevBrace'),
         profile: document.getElementById('chevProfile'),
       };
 

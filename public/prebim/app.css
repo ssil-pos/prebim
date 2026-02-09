@@ -210,7 +210,7 @@ h1{
 .editor{
   height: 100%;
   display:grid;
-  grid-template-columns: var(--w-tools,240px) 1fr 8px var(--w-right,420px) var(--w-notes,220px);
+  grid-template-columns: var(--w-tools,240px) 8px 1fr 8px var(--w-right,420px) var(--w-notes,220px);
   grid-template-rows: 1fr;
   gap: 10px;
   padding: 10px;
@@ -225,7 +225,7 @@ h1{
 .splitter:hover{background: rgba(56,189,248,0.18)}
 @media (max-width: 1180px){
   .editor{
-    grid-template-columns: var(--w-tools,220px) 1fr 8px var(--w-right,380px);
+    grid-template-columns: var(--w-tools,220px) 8px 1fr 8px var(--w-right,380px);
   }
   .editor .notes{display:none;}
 }
@@ -257,8 +257,15 @@ h1{
 .pane-h b{font-size: 12px; letter-spacing:0.02em}
 .pane-b{padding: 10px; flex:1; min-height: 0; overflow:auto;}
 
+/* tighter tool panel */
+.tools .pane-b{padding: 8px;}
+.tools .label{margin-top:8px; margin-bottom:5px; font-size:11px;}
+.tools .note{font-size:11px;}
+.tools .input{padding:10px 10px; font-size:12px; border-radius: 12px;}
+.tools .btn{padding:10px 12px; font-size:12px; border-radius: 12px;}
+
 /* Accordion inside tools */
-.acc{display:grid; gap:8px}
+.acc{display:grid; gap:6px}
 .acc-btn{
   width:100%;
   text-align:left;
@@ -266,11 +273,12 @@ h1{
   justify-content:space-between;
   align-items:center;
   gap:10px;
-  padding:10px 12px;
+  padding:8px 10px;
   border-radius: 14px;
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.62);
   font-weight: 1000;
+  font-size: 12px;
   cursor:pointer;
 }
 .acc-btn .chev{font-weight: 1000; color: rgba(11,27,58,0.55)}
