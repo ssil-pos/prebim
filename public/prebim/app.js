@@ -593,18 +593,6 @@ function renderAnalysis(projectId){
   setTopbarActions(`
     <a class="pill" href="#/editor/${encodeURIComponent(p.id)}">Back to editor</a>
     <button class="pill" id="btnRunAnalysis" type="button">Run analysis</button>
-    <span class="badge" style="background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.26)">Support</span>
-    <select class="input" id="supportMode" style="max-width:140px; height:30px; padding:4px 10px">
-      <option value="PINNED" selected>PINNED</option>
-      <option value="FIXED">FIXED</option>
-    </select>
-    <span class="badge" style="background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.26)">Combo</span>
-    <select class="input" id="comboMode" style="max-width:140px; height:30px; padding:4px 10px">
-      <option value="D+L" selected>D+L</option>
-      <option value="D">D</option>
-    </select>
-    <span class="badge" style="background: rgba(34,211,238,0.10); border-color: rgba(34,211,238,0.18)">Live</span>
-    <input class="input" id="qLive" value="3.0" style="max-width:90px; height:30px; padding:4px 10px" title="kN/m^2" />
   `);
 
   const root = document.getElementById('app');
@@ -621,13 +609,6 @@ function renderAnalysis(projectId){
           <div class="row" style="margin-top:10px">
             <label class="label" style="margin:0">Deformation scale</label>
             <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
-          </div>
-
-          <label class="label" style="margin-top:10px">Supports (node ids)</label>
-          <textarea id="supportNodes" class="input" rows="2" placeholder="e.g. 1,2,3" style="width:100%; resize:vertical"></textarea>
-          <div class="row" style="margin-top:6px; gap:8px">
-            <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
-            <span class="mono" style="font-size:11px; opacity:.65">Edit + Run to apply</span>
           </div>
 
           <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
@@ -647,6 +628,47 @@ function renderAnalysis(projectId){
         </div>
         <div class="pane-b" id="view3dWrap" style="position:relative">
           <div id="view3d"></div>
+
+          <div class="card" id="analysisHud" style="position:absolute; right:12px; top:12px; z-index:15; padding:10px; min-width:240px; max-width:320px; background: rgba(255,255,255,0.88); border:1px solid rgba(148,163,184,0.35); border-radius:14px; box-shadow: 0 10px 24px rgba(2,6,23,0.10); backdrop-filter: blur(8px);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+              <b style="font-size:12px">Analysis settings</b>
+              <span class="mono" id="analysisHudState" style="font-size:11px; opacity:.65">idle</span>
+            </div>
+
+            <div class="row" style="margin-top:8px">
+              <label class="label" style="margin:0; font-size:11px">Support</label>
+              <select class="input" id="supportMode" style="max-width:140px; height:30px; padding:4px 10px">
+                <option value="PINNED" selected>PINNED</option>
+                <option value="FIXED">FIXED</option>
+              </select>
+            </div>
+
+            <div class="row" style="margin-top:8px">
+              <label class="label" style="margin:0; font-size:11px">Combo</label>
+              <select class="input" id="comboMode" style="max-width:140px; height:30px; padding:4px 10px">
+                <option value="D+L" selected>D+L</option>
+                <option value="D">D</option>
+              </select>
+            </div>
+
+            <div class="row" style="margin-top:8px">
+              <label class="label" style="margin:0; font-size:11px">Live load (kN/m²)</label>
+              <input class="input" id="qLive" value="3.0" style="max-width:120px; height:30px; padding:4px 10px" />
+            </div>
+
+            <div class="row" style="margin-top:8px">
+              <label class="label" style="margin:0; font-size:11px">Supports (node ids)</label>
+              <input class="input" id="supportNodes" placeholder="e.g. 1,2,3" style="width:100%" />
+            </div>
+
+            <div class="row" style="margin-top:8px; gap:8px">
+              <button class="btn" id="btnSupportsAuto" type="button">Auto supports</button>
+              <button class="btn" id="btnHudRun" type="button">Run</button>
+            </div>
+
+            <div class="note" style="margin-top:8px; font-size:11px">Change settings then click <b>Run</b>.</div>
+          </div>
+
           <div class="analysis-overlay" id="analysisOverlay" hidden>
             <div class="analysis-overlay-card">
               <div class="spinner"></div>
@@ -689,6 +711,8 @@ function renderAnalysis(projectId){
     const setStatus = (t) => {
       const el = document.getElementById('analysisStatus');
       if(el) el.textContent = 'status: ' + t;
+      const el2 = document.getElementById('analysisHudState');
+      if(el2) el2.textContent = t;
     };
 
     const renderResultsTable = (res) => {
@@ -797,6 +821,7 @@ function renderAnalysis(projectId){
     };
 
     document.getElementById('btnRunAnalysis')?.addEventListener('click', run);
+    document.getElementById('btnHudRun')?.addEventListener('click', run);
     document.getElementById('analysisScale2')?.addEventListener('input', (ev) => {
       const v = Number(ev.target?.value || 120);
       view.setAnalysisScale?.(v);
@@ -3498,17 +3523,33 @@ async function createThreeView(container){
     const nodeMap = new Map((nodes||[]).map(n => [String(n.id), n]));
     const fixed = String(supportMode).toUpperCase() === 'FIXED';
 
-    const mat = new THREE.MeshBasicMaterial({ color: fixed ? 0x7c3aed : 0x0ea5e9, transparent:true, opacity:0.85, depthWrite:false });
-    const geom = new THREE.ConeGeometry(0.10, 0.20, 16);
+    // scale marker to model size
+    let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+    for(const n of (nodes||[])){
+      minX=Math.min(minX,n.x); minY=Math.min(minY,n.y); minZ=Math.min(minZ,n.z);
+      maxX=Math.max(maxX,n.x); maxY=Math.max(maxY,n.y); maxZ=Math.max(maxZ,n.z);
+    }
+    const diag = Math.hypot(maxX-minX, maxY-minY, maxZ-minZ) || 10;
+    const r = Math.max(0.12, diag * 0.015);
+    const h = Math.max(0.24, diag * 0.03);
+
+    const mat = new THREE.MeshBasicMaterial({ color: fixed ? 0x7c3aed : 0x0ea5e9, transparent:true, opacity:0.90, depthWrite:false });
+    const geom = new THREE.ConeGeometry(r, h, 18);
+    const baseGeom = new THREE.CylinderGeometry(r*1.15, r*1.15, Math.max(0.04, h*0.18), 18);
+    const baseMat = new THREE.MeshBasicMaterial({ color: fixed ? 0x5b21b6 : 0x0369a1, transparent:true, opacity:0.45, depthWrite:false });
 
     for(const s of supports){
       const n = nodeMap.get(String(s.nodeId));
       if(!n) continue;
+
       const mesh = new THREE.Mesh(geom, mat);
-      // point upward from base
-      mesh.position.set(n.x, n.y - 0.05, n.z);
+      mesh.position.set(n.x, n.y - (h*0.15), n.z);
       mesh.rotation.x = Math.PI;
       supportGroup.add(mesh);
+
+      const base = new THREE.Mesh(baseGeom, baseMat);
+      base.position.set(n.x, n.y - (h*0.02), n.z);
+      supportGroup.add(base);
     }
   }
 
