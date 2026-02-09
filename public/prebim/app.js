@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0553';
+const BUILD = '20260209-0602';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0553'),
-    import('/prebim/app_profiles.js?v=20260209-0553'),
+    import('/prebim/engine.js?v=20260209-0602'),
+    import('/prebim/app_profiles.js?v=20260209-0602'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1890,6 +1890,7 @@ async function createThreeView(container){
   ];
   let secBoxOn = false;
   let secBox = { x0:0, x1:1, y0:0, y1:1, z0:0, z1:1 };
+  let lastClipModel = null;
   const boxHelper = new THREE.Box3Helper(new THREE.Box3(), 0x60a5fa);
   boxHelper.visible = false;
   boxHelper.material.transparent = true;
@@ -1897,15 +1898,19 @@ async function createThreeView(container){
   scene.add(boxHelper);
 
   function applyClipping(model){
+    lastClipModel = model || lastClipModel;
+    const mm = model || lastClipModel;
+    if(!mm) return;
+
     // compute extents from grid+levels
-    const spansX = model?.grid?.spansXmm || [];
-    const spansY = model?.grid?.spansYmm || [];
+    const spansX = mm?.grid?.spansXmm || [];
+    const spansY = mm?.grid?.spansYmm || [];
     const xs=[0], zs=[0];
     for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
     for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
     const xMax = xs[xs.length-1] || 1;
     const zMax = zs[zs.length-1] || 1;
-    const lv = Array.isArray(model?.levels) ? model.levels : [0,6000];
+    const lv = Array.isArray(mm?.levels) ? mm.levels : [0,6000];
     const yMin = (lv[0]||0)/1000;
     const yMax = (lv[lv.length-1]||6000)/1000;
 
@@ -1928,10 +1933,12 @@ async function createThreeView(container){
     boxHelper.box.max.set(x1,y1,z1);
     boxHelper.visible = secBoxOn;
 
-    // apply to member meshes
+    // Prefer GLOBAL renderer clipping to avoid losing clipping when materials are replaced.
+    renderer.clippingPlanes = secBoxOn ? clipPlanes : [];
+
+    // Ensure all materials use intersection behavior.
     group.traverse(obj => {
       if(obj.material && obj.material.isMaterial){
-        obj.material.clippingPlanes = secBoxOn ? clipPlanes : null;
         obj.material.clipIntersection = true;
         obj.material.needsUpdate = true;
       }
@@ -2399,6 +2406,8 @@ async function createThreeView(container){
     });
 
     onSel && onSel(Array.from(selected));
+    // re-apply clipping after any material replacement
+    applyClipping(lastClipModel);
   }
 
   renderer.domElement.addEventListener('pointerdown', pick);
@@ -2439,6 +2448,8 @@ async function createThreeView(container){
       }
     });
     onSel && onSel(Array.from(selected));
+    // re-apply clipping after any material replacement
+    applyClipping(lastClipModel);
   }
   function clearSelection(){ setSelection([]); }
   let onSel = null;
