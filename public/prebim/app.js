@@ -376,20 +376,6 @@ function renderEditor(projectId){
   if(!root) return;
 
   root.innerHTML = `
-    <div class="analysis-top" id="analysisTop" aria-label="Analysis">
-      <div class="analysis-top-inner">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
-          <b>Analysis mode</b>
-          <button class="pill" id="btnAnalysisClose" type="button">Close</button>
-        </div>
-        <div class="row" style="margin-top:8px; gap:10px; flex-wrap:wrap">
-          <span class="badge">Displacement</span>
-          <label class="label" style="margin:0">Deformation scale</label>
-          <input id="analysisScale" type="range" min="10" max="400" value="120" style="width:220px" />
-          <span class="mono" id="analysisMaxDisp" style="font-size:12px; color:rgba(11,27,58,0.75)">max: -</span>
-        </div>
-      </div>
-    </div>
     <section class="editor" aria-label="Editor">
       <aside class="pane tools">
         <div class="pane-h"><b>Tools</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
@@ -1472,8 +1458,8 @@ function renderEditor(projectId){
     const runAnalysis = async () => {
       const qLive = parseFloat(prompt('Live load (kN/m^2) for Story 1 beams/sub-beams (analysis)', '3.0')||'3') || 0;
 
-      // Enter analysis mode UI immediately (so user sees mode change even if compute is slow)
-      document.body.classList.add('analysis-open');
+      // Show non-intrusive analysis state (topbar subtitle + 3D overlay)
+      setTopbarSubtitle((p.name || 'project') + ' · analyzing…');
       const ov = document.getElementById('analysisOverlay');
       if(ov){ ov.hidden = false; }
 
@@ -1677,6 +1663,7 @@ function renderEditor(projectId){
         res = await r.json();
       } catch (e) {
         if(ov) ov.hidden = true;
+        setTopbarSubtitle(p.name || 'project');
         alert('Analysis API failed.');
         console.warn('analysis failed', e);
         return;
@@ -1692,16 +1679,20 @@ function renderEditor(projectId){
       // Visualize in 3D
       try{ view.setAnalysisResult?.(res, payload); }catch(e){ console.warn('analysis visualize failed', e); }
 
-      // Update analysis UI summary
+      // Update topbar subtitle summary
       try{
-        const maxEl = document.getElementById('analysisMaxDisp');
         const md = res?.maxDisp;
-        if(maxEl && md && md.value!=null){
-          maxEl.textContent = `max: ${(Number(md.value)||0).toFixed(6)} m`;
+        if(md && md.value!=null){
+          setTopbarSubtitle((p.name || 'project') + ` · max disp ${(Number(md.value)||0).toFixed(6)} m`);
+          setTimeout(() => setTopbarSubtitle(p.name || 'project'), 1800);
+        } else {
+          setTopbarSubtitle(p.name || 'project');
         }
-      }catch{}
+      }catch{ setTopbarSubtitle(p.name || 'project'); }
       } catch (e) {
         if(ov) ov.hidden = true;
+        if(ov) ov.hidden = true;
+        setTopbarSubtitle(p.name || 'project');
         alert('Analysis failed: ' + (e?.message || e));
         console.error(e);
       }
@@ -2168,14 +2159,6 @@ function renderEditor(projectId){
 
     document.getElementById('btnExportData')?.addEventListener('click', exportData);
     document.getElementById('btnAnalysis')?.addEventListener('click', runAnalysis);
-    document.getElementById('btnAnalysisClose')?.addEventListener('click', () => {
-      document.body.classList.remove('analysis-open');
-      try{ view.clearAnalysis?.(); }catch{}
-    });
-    document.getElementById('analysisScale')?.addEventListener('input', (ev) => {
-      const v = Number(ev.target?.value || 120);
-      try{ view.setAnalysisScale?.(v); }catch{}
-    });
     document.getElementById('btnExportStaad')?.addEventListener('click', exportStaad);
     document.getElementById('btnExportIfc')?.addEventListener('click', exportIfc);
     document.getElementById('btnExportDxf')?.addEventListener('click', exportDxf);
