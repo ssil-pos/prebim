@@ -9,16 +9,15 @@ export function defaultModel(){
   return {
     v: 1,
     grid: {
-      nx: 4,
-      ny: 3,
-      spacingXmm: 6000,
-      spacingYmm: 6000,
+      // Final UX: spans lists (mm)
+      spansXmm: [6000, 6000, 6000],
+      spansYmm: [6000, 6000],
     },
     levels: [0, 6000], // elevations in mm
     options: {
       subBeams: { enabled: true, countPerBay: 2 },
       joists: { enabled: true },
-      bracing: { enabled: true, type: 'X' },
+      bracing: { enabled: true, type: 'X', face: 'Y0' },
     }
   };
 }
@@ -34,14 +33,22 @@ export function normalizeModel(m){
     if(m.options?.joists) out.options.joists = { ...out.options.joists, ...m.options.joists };
     if(m.options?.bracing) out.options.bracing = { ...out.options.bracing, ...m.options.bracing };
   }
-  out.grid.nx = Math.max(1, parseInt(out.grid.nx,10)||1);
-  out.grid.ny = Math.max(1, parseInt(out.grid.ny,10)||1);
-  out.grid.spacingXmm = Math.max(1, parseFloat(out.grid.spacingXmm)||1);
-  out.grid.spacingYmm = Math.max(1, parseFloat(out.grid.spacingYmm)||1);
+  // spans (mm)
+  const toNumArr = (v, fallback) => {
+    if(Array.isArray(v)){
+      const a = v.map(x => Math.max(1, parseFloat(x)||0)).filter(Boolean);
+      return a.length ? a : fallback;
+    }
+    return fallback;
+  };
+
+  out.grid.spansXmm = toNumArr(out.grid.spansXmm, d.grid.spansXmm);
+  out.grid.spansYmm = toNumArr(out.grid.spansYmm, d.grid.spansYmm);
   out.levels = out.levels.map(x => Math.max(0, parseFloat(x)||0)).sort((a,b)=>a-b);
   if(out.levels.length < 2) out.levels = [0, 6000];
   out.options.subBeams.countPerBay = Math.max(0, parseInt(out.options.subBeams.countPerBay,10)||0);
   out.options.bracing.type = (out.options.bracing.type === 'S') ? 'S' : 'X';
+  out.options.bracing.face = ['Y0','Y1','X0','X1'].includes(out.options.bracing.face) ? out.options.bracing.face : 'Y0';
   return out;
 }
 
@@ -51,16 +58,22 @@ export function normalizeModel(m){
 
 export function generateMembers(model){
   const m = normalizeModel(model);
-  const nx = m.grid.nx;
-  const ny = m.grid.ny;
-  const sx = mmToM(m.grid.spacingXmm);
-  const sy = mmToM(m.grid.spacingYmm);
+  const spansX = m.grid.spansXmm;
+  const spansY = m.grid.spansYmm;
+
+  const xs = [0];
+  const ys = [0];
+  for(const s of spansX) xs.push(xs[xs.length-1] + mmToM(s));
+  for(const s of spansY) ys.push(ys[ys.length-1] + mmToM(s));
+
+  const nx = xs.length;
+  const ny = ys.length;
   const levelsM = m.levels.map(mmToM);
 
   const members = /** @type {Member[]} */([]);
 
   const nodeId = (ix,iy,iz) => `${ix},${iy},${iz}`;
-  const pos = (ix,iy,iz) => [ix*sx, levelsM[iz], iy*sy];
+  const pos = (ix,iy,iz) => [xs[ix], levelsM[iz], ys[iy]];
 
   // columns
   for(let iz=0; iz<levelsM.length-1; iz++){
@@ -108,9 +121,9 @@ export function generateMembers(model){
         for(let iy=0; iy<ny-1; iy++){
           for(let k=1;k<=c;k++){
             const t = k/(c+1);
-            const y = (iy+t)*sy;
-            const a = [ix*sx, levelsM[iz], y];
-            const b = [(ix+1)*sx, levelsM[iz], y];
+            const y = ys[iy] + (ys[iy+1]-ys[iy]) * t;
+            const a = [xs[ix], levelsM[iz], y];
+            const b = [xs[ix+1], levelsM[iz], y];
             members.push({ id:`sub:${ix},${iy},${iz},${k}`, kind:'subBeam', a, b });
           }
         }
@@ -121,9 +134,9 @@ export function generateMembers(model){
     if(m.options.joists.enabled){
       for(let ix=0; ix<nx-1; ix++){
         for(let iy=0; iy<ny-1; iy++){
-          const x = (ix+0.5)*sx;
-          const a = [x, levelsM[iz], iy*sy];
-          const b = [x, levelsM[iz], (iy+1)*sy];
+          const x = xs[ix] + (xs[ix+1]-xs[ix]) * 0.5;
+          const a = [x, levelsM[iz], ys[iy]];
+          const b = [x, levelsM[iz], ys[iy+1]];
           members.push({ id:`joist:${ix},${iy},${iz}`, kind:'joist', a, b });
         }
       }
@@ -135,19 +148,43 @@ export function generateMembers(model){
     const iz = 0;
     const z0 = levelsM[iz];
     const z1 = levelsM[iz+1] ?? (z0 + 6);
-    // brace on Y=0 face along X bays
-    for(let ix=0; ix<nx-1; ix++){
-      const a = [ix*sx, z0, 0];
-      const b = [(ix+1)*sx, z1, 0];
-      const c = [(ix+1)*sx, z0, 0];
-      const d = [ix*sx, z1, 0];
+    // brace on selected outer face (first story)
+    const face = m.options.bracing.face || 'Y0';
+    const zFace0 = z0;
+    const zFace1 = z1;
+
+    const addXBrace = (a,b,c,d, key) => {
       if(m.options.bracing.type === 'S'){
-        members.push({ id:`braceS:${ix},0`, kind:'brace', a, b });
+        members.push({ id:`braceS:${key}`, kind:'brace', a, b });
       } else {
-        members.push({ id:`braceX1:${ix},0`, kind:'brace', a, b });
-        members.push({ id:`braceX2:${ix},0`, kind:'brace', a: c, b: d });
+        members.push({ id:`braceX1:${key}`, kind:'brace', a, b });
+        members.push({ id:`braceX2:${key}`, kind:'brace', a: c, b: d });
+      }
+    };
+
+    if(face === 'Y0' || face === 'Y1'){
+      const y = (face === 'Y0') ? ys[0] : ys[ny-1];
+      for(let ix=0; ix<nx-1; ix++){
+        const a = [xs[ix], zFace0, y];
+        const b = [xs[ix+1], zFace1, y];
+        const c = [xs[ix+1], zFace0, y];
+        const d = [xs[ix], zFace1, y];
+        addXBrace(a,b,c,d, `${face}:${ix}`);
       }
     }
+
+    if(face === 'X0' || face === 'X1'){
+      const x = (face === 'X0') ? xs[0] : xs[nx-1];
+      for(let iy=0; iy<ny-1; iy++){
+        const a = [x, zFace0, ys[iy]];
+        const b = [x, zFace1, ys[iy+1]];
+        const c = [x, zFace0, ys[iy+1]];
+        const d = [x, zFace1, ys[iy]];
+        addXBrace(a,b,c,d, `${face}:${iy}`);
+      }
+    }
+
+    // (old bracing block removed)
   }
 
   return members;

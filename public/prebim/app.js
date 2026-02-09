@@ -15,7 +15,7 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0136'),
+    import('/prebim/engine.js?v=20260209-0152'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -333,30 +333,13 @@ function renderEditor(projectId){
             <button class="acc-btn" type="button" data-acc="grid">Grid <span class="chev" id="chevGrid">▾</span></button>
             <div class="acc-panel open" id="panelGrid">
               <div class="row" style="margin-top:0">
-                <input id="nx" class="input" style="max-width:110px" type="number" min="1" step="1" placeholder="nx" />
-                <input id="ny" class="input" style="max-width:110px" type="number" min="1" step="1" placeholder="ny" />
+                <input id="spansX" class="input" placeholder="spansX (mm) e.g. 6000,8000,6000" />
               </div>
               <div class="row" style="margin-top:8px">
-                <input id="sx" class="input" style="max-width:170px" type="number" min="1" step="100" placeholder="spacing X (mm)" />
-                <input id="sy" class="input" style="max-width:170px" type="number" min="1" step="100" placeholder="spacing Y (mm)" />
+                <input id="spansY" class="input" placeholder="spansY (mm) e.g. 6000,6000" />
               </div>
-
-              <div class="note" style="margin-top:10px">Options</div>
-              <div class="row" style="margin-top:8px">
-                <label class="badge" style="cursor:pointer"><input id="optSub" type="checkbox" style="margin:0 8px 0 0" /> sub-beams</label>
-                <input id="subCount" class="input" style="max-width:120px" type="number" min="0" step="1" placeholder="count" />
-              </div>
-              <div class="row" style="margin-top:8px">
-                <label class="badge" style="cursor:pointer"><input id="optJoist" type="checkbox" style="margin:0 8px 0 0" /> joists</label>
-                <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> bracing</label>
-                <select id="braceType" class="input" style="max-width:110px">
-                  <option value="X">X</option>
-                  <option value="S">S</option>
-                </select>
-              </div>
-
               <div class="row" style="margin-top:10px">
-                <button class="btn primary" id="btnApply" type="button">Apply</button>
+                <button class="btn primary" id="btnApplyGrid" type="button">Apply</button>
               </div>
             </div>
 
@@ -365,7 +348,55 @@ function renderEditor(projectId){
               <div class="row" style="margin-top:0">
                 <input id="levels" class="input" placeholder="e.g. 0, 6000, 12000" />
               </div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="btnApplyLevels" type="button">Apply</button>
+              </div>
               <div class="note">Comma-separated elevations (mm).</div>
+            </div>
+
+            <button class="acc-btn" type="button" data-acc="sub">Sub-beam <span class="chev" id="chevSub">▾</span></button>
+            <div class="acc-panel" id="panelSub">
+              <div class="row" style="margin-top:0">
+                <label class="badge" style="cursor:pointer"><input id="optSub" type="checkbox" style="margin:0 8px 0 0" /> enable</label>
+                <input id="subCount" class="input" style="max-width:120px" type="number" min="0" step="1" placeholder="count" />
+              </div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="btnApplySub" type="button">Apply</button>
+              </div>
+            </div>
+
+            <button class="acc-btn" type="button" data-acc="joist">Joist <span class="chev" id="chevJoist">▾</span></button>
+            <div class="acc-panel" id="panelJoist">
+              <div class="row" style="margin-top:0">
+                <label class="badge" style="cursor:pointer"><input id="optJoist" type="checkbox" style="margin:0 8px 0 0" /> enable</label>
+              </div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="btnApplyJoist" type="button">Apply</button>
+              </div>
+            </div>
+
+            <button class="acc-btn" type="button" data-acc="brace">Bracing <span class="chev" id="chevBrace">▾</span></button>
+            <div class="acc-panel" id="panelBrace">
+              <div class="row" style="margin-top:0">
+                <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> enable</label>
+                <select id="braceType" class="input" style="max-width:110px">
+                  <option value="X">X</option>
+                  <option value="S">S</option>
+                </select>
+              </div>
+              <div class="row" style="margin-top:8px">
+                <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> face-select in 3D</label>
+                <select id="braceFace" class="input" style="max-width:110px">
+                  <option value="Y0">Y0</option>
+                  <option value="Y1">Y1</option>
+                  <option value="X0">X0</option>
+                  <option value="X1">X1</option>
+                </select>
+              </div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
+              </div>
+              <div class="note">In brace mode: click an outer face in the 3D view.</div>
             </div>
           </div>
         </div>
@@ -405,16 +436,19 @@ function renderEditor(projectId){
     const engineModel = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || __engine.defaultModel());
 
     const setForm = (m) => {
-      document.getElementById('nx').value = String(m.grid.nx);
-      document.getElementById('ny').value = String(m.grid.ny);
-      document.getElementById('sx').value = String(m.grid.spacingXmm);
-      document.getElementById('sy').value = String(m.grid.spacingYmm);
+      document.getElementById('spansX').value = (m.grid.spansXmm||[]).join(', ');
+      document.getElementById('spansY').value = (m.grid.spansYmm||[]).join(', ');
       document.getElementById('levels').value = (m.levels||[]).join(', ');
+
       document.getElementById('optSub').checked = !!m.options.subBeams.enabled;
       document.getElementById('subCount').value = String(m.options.subBeams.countPerBay||0);
+
       document.getElementById('optJoist').checked = !!m.options.joists.enabled;
+
       document.getElementById('optBrace').checked = !!m.options.bracing.enabled;
       document.getElementById('braceType').value = m.options.bracing.type || 'X';
+      document.getElementById('braceFace').value = m.options.bracing.face || 'Y0';
+      document.getElementById('braceMode').checked = false;
     };
 
     const getForm = () => {
@@ -424,13 +458,18 @@ function renderEditor(projectId){
         .filter(Boolean)
         .map(x=>parseFloat(x));
 
+      const parseSpans = (s) => String(s||'')
+        .split(',')
+        .map(x=>x.trim())
+        .filter(Boolean)
+        .map(x=>Math.max(1, parseFloat(x)||0))
+        .filter(Boolean);
+
       const next = {
         v: 1,
         grid: {
-          nx: parseInt(document.getElementById('nx').value||'1',10),
-          ny: parseInt(document.getElementById('ny').value||'1',10),
-          spacingXmm: parseFloat(document.getElementById('sx').value||'6000'),
-          spacingYmm: parseFloat(document.getElementById('sy').value||'6000'),
+          spansXmm: parseSpans(document.getElementById('spansX').value),
+          spansYmm: parseSpans(document.getElementById('spansY').value),
         },
         levels: levels.length? levels : [0,6000],
         options: {
@@ -439,7 +478,11 @@ function renderEditor(projectId){
             countPerBay: parseInt(document.getElementById('subCount').value||'0',10) || 0,
           },
           joists: { enabled: document.getElementById('optJoist').checked },
-          bracing: { enabled: document.getElementById('optBrace').checked, type: document.getElementById('braceType').value || 'X' },
+          bracing: {
+            enabled: document.getElementById('optBrace').checked,
+            type: document.getElementById('braceType').value || 'X',
+            face: document.getElementById('braceFace').value || 'Y0',
+          },
         }
       };
       return __engine.normalizeModel(next);
@@ -454,7 +497,7 @@ function renderEditor(projectId){
 
     const apply = (m) => {
       const members = __engine.generateMembers(m);
-      view.setMembers(members);
+      view.setMembers(members, m);
       const q = __engine.quantities(members);
       if(qtyEl) qtyEl.innerHTML = renderQty(q);
 
@@ -470,23 +513,53 @@ function renderEditor(projectId){
 
     apply(engineModel);
 
-    document.getElementById('btnApply')?.addEventListener('click', () => apply(getForm()));
+    // bracing face selection mode (3D)
+    const braceModeEl = document.getElementById('braceMode');
+    const braceFaceEl = document.getElementById('braceFace');
+    const updateBraceMode = () => {
+      const on = !!braceModeEl?.checked;
+      const m = getForm();
+      view.setBraceMode?.(on, m, (faceKey) => {
+        if(braceFaceEl) braceFaceEl.value = faceKey;
+        const next = getForm();
+        apply(next);
+      });
+    };
+    braceModeEl?.addEventListener('change', updateBraceMode);
+    braceFaceEl?.addEventListener('change', () => apply(getForm()));
+
+    document.getElementById('btnApplyGrid')?.addEventListener('click', () => apply(getForm()));
+    document.getElementById('btnApplyLevels')?.addEventListener('click', () => apply(getForm()));
+    document.getElementById('btnApplySub')?.addEventListener('click', () => apply(getForm()));
+    document.getElementById('btnApplyJoist')?.addEventListener('click', () => apply(getForm()));
+    document.getElementById('btnApplyBrace')?.addEventListener('click', () => { updateBraceMode(); apply(getForm()); });
+
 
     // accordion toggles
     const toggle = (which) => {
-      const g = document.getElementById('panelGrid');
-      const l = document.getElementById('panelLevels');
-      const cg = document.getElementById('chevGrid');
-      const cl = document.getElementById('chevLevels');
-      if(!g || !l) return;
+      const panels = {
+        grid: document.getElementById('panelGrid'),
+        levels: document.getElementById('panelLevels'),
+        sub: document.getElementById('panelSub'),
+        joist: document.getElementById('panelJoist'),
+        brace: document.getElementById('panelBrace'),
+      };
+      const chevs = {
+        grid: document.getElementById('chevGrid'),
+        levels: document.getElementById('chevLevels'),
+        sub: document.getElementById('chevSub'),
+        joist: document.getElementById('chevJoist'),
+        brace: document.getElementById('chevBrace'),
+      };
 
-      const gridOpen = which === 'grid' ? !g.classList.contains('open') : false;
-      const levelsOpen = which === 'levels' ? !l.classList.contains('open') : false;
-
-      g.classList.toggle('open', gridOpen);
-      l.classList.toggle('open', levelsOpen);
-      if(cg) cg.textContent = gridOpen ? '▴' : '▾';
-      if(cl) cl.textContent = levelsOpen ? '▴' : '▾';
+      for(const k of Object.keys(panels)){
+        const pEl = panels[k];
+        if(!pEl) continue;
+        const open = (k === which) ? !pEl.classList.contains('open') : false;
+        pEl.classList.toggle('open', open);
+        const cEl = chevs[k];
+        if(cEl) cEl.textContent = open ? '▴' : '▾';
+      }
     };
 
     document.querySelectorAll('button.acc-btn[data-acc]')
@@ -554,6 +627,30 @@ async function createThreeView(container){
   const group = new THREE.Group();
   scene.add(group);
 
+  // brace face selection overlays
+  const faceGroup = new THREE.Group();
+  scene.add(faceGroup);
+  const faceMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const faceMatHot = new THREE.MeshBasicMaterial({
+    color: 0x7c3aed,
+    transparent: true,
+    opacity: 0.22,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let braceMode = false;
+  let onFaceSelect = null;
+  let hot = null;
+
   const matByKind = {
     column: new THREE.LineBasicMaterial({ color: 0x0b1b3a, transparent:true, opacity:0.9 }),
     beamX: new THREE.LineBasicMaterial({ color: 0x2563eb, transparent:true, opacity:0.85 }),
@@ -563,7 +660,55 @@ async function createThreeView(container){
     brace: new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent:true, opacity:0.65 }),
   };
 
-  function setMembers(members){
+  function buildFacePlanes(model){
+    while(faceGroup.children.length) faceGroup.remove(faceGroup.children[0]);
+    if(!model) return;
+
+    const spansX = model.grid?.spansXmm || [];
+    const spansY = model.grid?.spansYmm || [];
+    const xs = [0];
+    const ys = [0];
+    for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+    for(const s of spansY) ys.push(ys[ys.length-1] + (s/1000));
+    const nx = xs.length;
+    const ny = ys.length;
+
+    const z0 = ((model.levels?.[0] ?? 0)/1000);
+    const z1 = ((model.levels?.[1] ?? 6000)/1000);
+
+    const makePlane = (key, w, h) => {
+      const g = new THREE.PlaneGeometry(w, h);
+      const mesh = new THREE.Mesh(g, faceMat.clone());
+      mesh.userData.faceKey = key;
+      return mesh;
+    };
+
+    // Y0 / Y1 (planes normal +/-Z)
+    const wX = xs[nx-1] - xs[0];
+    const hZ = z1 - z0;
+    const pY0 = makePlane('Y0', wX, hZ);
+    pY0.position.set(wX/2, z0 + hZ/2, ys[0]);
+    pY0.rotation.x = Math.PI; // face up
+    faceGroup.add(pY0);
+
+    const pY1 = makePlane('Y1', wX, hZ);
+    pY1.position.set(wX/2, z0 + hZ/2, ys[ny-1]);
+    faceGroup.add(pY1);
+
+    // X0 / X1 (planes normal +/-X)
+    const wY = ys[ny-1] - ys[0];
+    const pX0 = makePlane('X0', wY, hZ);
+    pX0.position.set(xs[0], z0 + hZ/2, wY/2);
+    pX0.rotation.y = Math.PI/2;
+    faceGroup.add(pX0);
+
+    const pX1 = makePlane('X1', wY, hZ);
+    pX1.position.set(xs[nx-1], z0 + hZ/2, wY/2);
+    pX1.rotation.y = -Math.PI/2;
+    faceGroup.add(pX1);
+  }
+
+  function setMembers(members, model){
     while(group.children.length) group.remove(group.children[0]);
 
     for(const mem of members){
@@ -575,6 +720,8 @@ async function createThreeView(container){
       const line = new THREE.Line(geom, mat);
       group.add(line);
     }
+
+    if(braceMode) buildFacePlanes(model);
 
     // recenter target
     const box = new THREE.Box3().setFromObject(group);
@@ -588,6 +735,35 @@ async function createThreeView(container){
       camera.position.set(center.x + r*0.9, center.y + r*0.6, center.z + r*0.9);
     }
   }
+
+  function setBraceMode(on, model, cb){
+    braceMode = !!on;
+    onFaceSelect = cb || null;
+    faceGroup.visible = braceMode;
+    if(braceMode) buildFacePlanes(model);
+    else {
+      while(faceGroup.children.length) faceGroup.remove(faceGroup.children[0]);
+    }
+  }
+
+  function pick(ev){
+    if(!braceMode) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(faceGroup.children, false);
+    if(hits.length){
+      const obj = hits[0].object;
+      if(hot && hot.material) hot.material = faceMat.clone();
+      hot = obj;
+      if(hot.material) hot.material = faceMatHot.clone();
+      const key = obj.userData.faceKey;
+      if(key && onFaceSelect) onFaceSelect(String(key));
+    }
+  }
+
+  renderer.domElement.addEventListener('pointerdown', pick);
 
   let raf = 0;
   const animate = () => {
@@ -608,9 +784,11 @@ async function createThreeView(container){
 
   return {
     setMembers,
+    setBraceMode,
     dispose(){
       cancelAnimationFrame(raf);
       ro.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', pick);
       renderer.dispose();
       container.innerHTML='';
     }
