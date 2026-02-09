@@ -32,11 +32,14 @@
     <div class="h">
       <div>
         <b>PreBIM‑SteelStructure Manual</b>
-        <div class="note">MVP documentation</div>
+        <div class="note">
+          <span id="ver">Build: -</span>
+        </div>
       </div>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
         <a class="pill" href="/prebim/">Back to app</a>
         <a class="pill" href="/prebim/MANUAL.md" target="_blank" rel="noreferrer">Download MD</a>
+        <a class="pill" href="/prebim/PreBIM-SteelStructure-Manual.pdf" target="_blank" rel="noreferrer">Download PDF</a>
       </div>
     </div>
   </header>
@@ -47,15 +50,29 @@
     </article>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
     (async () => {
+      // version/build
+      try{
+        const vr = await fetch('/prebim/version.json', { cache: 'no-store' });
+        if(vr.ok){
+          const v = await vr.json();
+          document.getElementById('ver').textContent = `Build: ${v.build || '-'}${v.generatedAt ? ' · ' + v.generatedAt : ''}`;
+        }
+      }catch{}
+
+      // manual content (no external CDN dependency)
       try{
         const res = await fetch('/prebim/MANUAL.md', { cache: 'no-store' });
+        if(!res.ok) throw new Error('HTTP ' + res.status);
         const md = await res.text();
-        document.getElementById('doc').innerHTML = marked.parse(md);
+        const safe = md
+          .replaceAll('&','&amp;')
+          .replaceAll('<','&lt;')
+          .replaceAll('>','&gt;');
+        document.getElementById('doc').innerHTML = `<pre style="margin:0; white-space:pre-wrap">${safe}</pre>`;
       }catch(e){
-        document.getElementById('doc').innerHTML = '<b>Failed to load manual.</b>';
+        document.getElementById('doc').innerHTML = '<b>Failed to load manual.</b><div class="note">Try opening /prebim/MANUAL.md directly.</div>';
       }
     })();
   </script>
