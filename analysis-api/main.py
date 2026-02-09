@@ -165,9 +165,12 @@ def analyze(req: AnalyzeRequest):
 
         model.add_load_combo(COMBO, {CASE: 1.0})
 
-        # Treat singular stiffness warnings as hard errors
+        # Treat singular stiffness warnings as hard errors, unless we're in stabilization mode.
         with warnings.catch_warnings():
-            warnings.filterwarnings('error', category=MatrixRankWarning)
+            if stabilize:
+                warnings.filterwarnings('ignore', category=MatrixRankWarning)
+            else:
+                warnings.filterwarnings('error', category=MatrixRankWarning)
             model.analyze()
 
         out: Dict[str, NodeDispOut] = {}
