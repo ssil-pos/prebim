@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0412';
+const BUILD = '20260209-0417';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0412'),
-    import('/prebim/app_profiles.js?v=20260209-0412'),
+    import('/prebim/engine.js?v=20260209-0417'),
+    import('/prebim/app_profiles.js?v=20260209-0417'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -689,6 +689,10 @@ function renderEditor(projectId){
     const secHost = document.getElementById('secHost');
     const secDirEl = document.getElementById('secDir');
     const secLineEl = document.getElementById('secLine');
+    const planCard = document.getElementById('planCard');
+    const secCard = document.getElementById('secCard');
+    const btnModePlan = document.getElementById('btnModePlan');
+    const btnModeSec = document.getElementById('btnModeSec');
 
     const view = await createThreeView(view3dEl);
 
@@ -806,6 +810,10 @@ function renderEditor(projectId){
 
     const renderPlan = (members, m) => {
       if(!planHost) return;
+      if(secCard) secCard.style.display = 'none';
+      if(planCard) planCard.style.display = '';
+      if(btnModePlan) btnModePlan.classList.add('active');
+      if(btnModeSec) btnModeSec.classList.remove('active');
       const { xs, zs } = computeGrid(m);
       const xMax0 = xs[xs.length-1] || 1;
       const zMax0 = zs[zs.length-1] || 1;
@@ -917,6 +925,10 @@ function renderEditor(projectId){
 
     const renderSection = (members, m) => {
       if(!secHost || !secDirEl || !secLineEl) return;
+      if(planCard) planCard.style.display = 'none';
+      if(secCard) secCard.style.display = '';
+      if(btnModeSec) btnModeSec.classList.add('active');
+      if(btnModePlan) btnModePlan.classList.remove('active');
       ensureSectionUI(m);
 
       const { xs, zs } = computeGrid(m);
@@ -1013,10 +1025,21 @@ function renderEditor(projectId){
       return { reset: () => pz?.reset?.() };
     };
 
-    secDirEl?.addEventListener('change', () => scheduleApply(0));
-    secLineEl?.addEventListener('change', () => scheduleApply(0));
+    let __psMode = 'plan';
+
+    const applyPSMode = () => {
+      if(__psMode === 'section') renderSection(__lastMembers||[], __lastModel||getForm());
+      else renderPlan(__lastMembers||[], __lastModel||getForm());
+    };
+
+    btnModePlan?.addEventListener('click', () => { __psMode = 'plan'; applyPSMode(); });
+    btnModeSec?.addEventListener('click', () => { __psMode = 'section'; applyPSMode(); });
+
+    secDirEl?.addEventListener('change', () => { __psMode='section'; scheduleApply(0); });
+    secLineEl?.addEventListener('change', () => { __psMode='section'; scheduleApply(0); });
 
     document.getElementById('btnPlanRot')?.addEventListener('click', () => {
+      __psMode='plan';
       __planRot = (__planRot + 90) % 360;
       scheduleApply(0);
     });
@@ -1097,8 +1120,12 @@ function renderEditor(projectId){
       view.setMembers(members, m);
 
       // 2D plan/section
-      try{ renderPlan(members, m); }catch(e){ console.warn('plan render failed', e); }
-      try{ renderSection(members, m); }catch(e){ console.warn('section render failed', e); }
+      __lastMembers = members;
+      __lastModel = m;
+      try{
+        if(__psMode === 'section') renderSection(members, m);
+        else renderPlan(members, m);
+      }catch(e){ console.warn('plan/section render failed', e); }
 
       const q = summarizeMembers(members, m);
       if(qtyEl) qtyEl.innerHTML = renderQtyTable(q, m);
