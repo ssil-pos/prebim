@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0520';
+const BUILD = '20260209-0526';
 
 // lazy-loaded deps
 let __three = null;
@@ -21,8 +21,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0520'),
-    import('/prebim/app_profiles.js?v=20260209-0520'),
+    import('/prebim/engine.js?v=20260209-0526'),
+    import('/prebim/app_profiles.js?v=20260209-0526'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -340,6 +340,7 @@ function renderEditor(projectId){
     <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
     <button class="pill" id="btnExportData" type="button">DATA Export</button>
     <button class="pill" id="btnExportDxf" type="button">DXF Export</button>
+    <button class="pill" id="btnManual" type="button">Manual</button>
     <button class="pill" id="btnSave" type="button">Save</button>
   `);
 
@@ -1612,6 +1613,10 @@ function renderEditor(projectId){
 
     document.getElementById('btnToggleQty')?.addEventListener('click', () => {
       document.body.classList.toggle('qty-collapsed');
+    });
+
+    document.getElementById('btnManual')?.addEventListener('click', () => {
+      window.open('/prebim/manual.html', '_blank', 'noreferrer');
     });
 
     document.getElementById('btnSave')?.addEventListener('click', () => {

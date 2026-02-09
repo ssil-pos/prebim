@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PreBIM‑SteelStructure — Manual</title>
+  <style>
+    :root{--max:980px; --stroke: rgba(11,27,58,0.10); --text:#0B1B3A; --muted: rgba(11,27,58,0.62);}
+    *{box-sizing:border-box}
+    body{margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:var(--text);
+      background: linear-gradient(180deg, #fff, #f6f8ff);
+    }
+    header{position:sticky; top:0; background:rgba(255,255,255,0.78); backdrop-filter: blur(10px);
+      border-bottom:1px solid var(--stroke);
+    }
+    .h{max-width:var(--max); margin:0 auto; padding:12px 16px; display:flex; justify-content:space-between; gap:10px; align-items:center}
+    .pill{padding:8px 10px; border-radius:999px; border:1px solid var(--stroke); background:rgba(255,255,255,0.70); font-weight:900; font-size:12px; color:inherit; text-decoration:none}
+    main{max-width:var(--max); margin:0 auto; padding:22px 16px 60px;}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;}
+    .note{color:var(--muted); font-size:12px; line-height:1.5}
+    article{background:rgba(255,255,255,0.70); border:1px solid var(--stroke); border-radius:16px; padding:18px;}
+    h1,h2,h3{letter-spacing:-0.01em}
+    h1{margin-top:0}
+    code, pre{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;}
+    pre{background:rgba(11,27,58,0.04); padding:12px; border-radius:12px; overflow:auto; border:1px solid var(--stroke)}
+    table{border-collapse:collapse}
+    table td, table th{border:1px solid var(--stroke); padding:6px 8px; font-size:13px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="h">
+      <div>
+        <b>PreBIM‑SteelStructure Manual</b>
+        <div class="note">MVP documentation</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <a class="pill" href="/prebim/">Back to app</a>
+        <a class="pill" href="/prebim/MANUAL.md" target="_blank" rel="noreferrer">Download MD</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <article id="doc">
+      <div class="note">Loading manual…</div>
+    </article>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    (async () => {
+      try{
+        const res = await fetch('/prebim/MANUAL.md', { cache: 'no-store' });
+        const md = await res.text();
+        document.getElementById('doc').innerHTML = marked.parse(md);
+      }catch(e){
+        document.getElementById('doc').innerHTML = '<b>Failed to load manual.</b>';
+      }
+    })();
+  </script>
+</body>
+</html>
