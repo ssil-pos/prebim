@@ -48,6 +48,7 @@ export function normalizeModel(m){
     if(m.options?.bracing) out.options.bracing = { ...out.options.bracing, ...m.options.bracing };
     if(Array.isArray(m.braces)) out.braces = m.braces.slice();
     if(m.overrides && typeof m.overrides === 'object') out.overrides = structuredClone(m.overrides);
+    if(m.profiles && typeof m.profiles === 'object') out.profiles = { ...out.profiles, ...structuredClone(m.profiles) };
   }
   // grid base
   out.grid.nx = Math.max(1, parseInt(out.grid.nx,10) || d.grid.nx);

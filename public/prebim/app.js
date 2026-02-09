@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0249'),
-    import('/prebim/app_profiles.js?v=20260209-0249'),
+    import('/prebim/engine.js?v=20260209-0255'),
+    import('/prebim/app_profiles.js?v=20260209-0255'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -339,35 +339,13 @@ function renderEditor(projectId){
           <div class="acc">
             <button class="acc-btn" type="button" data-acc="grid">Grid <span class="chev" id="chevGrid">▾</span></button>
             <div class="acc-panel open" id="panelGrid">
-              <div class="grid2">
-                <div>
-                  <label class="label">Grid X (count)</label>
-                  <input id="nx" class="input" type="number" min="1" step="1" placeholder="4" />
-                </div>
-                <div>
-                  <label class="label">Grid Y (count)</label>
-                  <input id="ny" class="input" type="number" min="1" step="1" placeholder="3" />
-                </div>
-              </div>
-
-              <div class="grid2">
-                <div>
-                  <label class="label">X base spacing (mm)</label>
-                  <input id="sx" class="input" type="number" min="1" step="100" placeholder="6000" />
-                </div>
-                <div>
-                  <label class="label">Y base spacing (mm)</label>
-                  <input id="sy" class="input" type="number" min="1" step="100" placeholder="6000" />
-                </div>
-              </div>
-
-              <label class="label">X custom spans (mm, comma)</label>
+              <label class="label">X spans (mm, comma)</label>
               <input id="spansX" class="input" placeholder="e.g. 6000,6000,8000" />
 
-              <label class="label">Y custom spans (mm, comma)</label>
+              <label class="label">Y spans (mm, comma)</label>
               <input id="spansY" class="input" placeholder="e.g. 6000,6000" />
 
-              <div class="note">If custom spans are provided, grid count will follow spans+1.</div>
+              <div class="note">Grid count is derived automatically: (spans + 1).</div>
               <div class="note" style="margin-top:8px">Changes apply automatically.</div>
             </div>
 
@@ -569,10 +547,6 @@ function renderEditor(projectId){
     };
 
     const setForm = (m) => {
-      document.getElementById('nx').value = String(m.grid.nx || ((m.grid.spansXmm?.length||0)+1) || 1);
-      document.getElementById('ny').value = String(m.grid.ny || ((m.grid.spansYmm?.length||0)+1) || 1);
-      document.getElementById('sx').value = String(m.grid.spacingXmm || 6000);
-      document.getElementById('sy').value = String(m.grid.spacingYmm || 6000);
       document.getElementById('spansX').value = (m.grid.spansXmm||[]).join(', ');
       document.getElementById('spansY').value = (m.grid.spansYmm||[]).join(', ');
 
@@ -634,10 +608,6 @@ function renderEditor(projectId){
       const next = {
         v: 1,
         grid: {
-          nx: parseInt(document.getElementById('nx').value||'1',10),
-          ny: parseInt(document.getElementById('ny').value||'1',10),
-          spacingXmm: parseFloat(document.getElementById('sx').value||'6000'),
-          spacingYmm: parseFloat(document.getElementById('sy').value||'6000'),
           spansXmm: parseSpans(document.getElementById('spansX').value),
           spansYmm: parseSpans(document.getElementById('spansY').value),
         },
@@ -815,7 +785,7 @@ function renderEditor(projectId){
     };
 
     // grid
-    ['nx','ny','sx','sy','spansX','spansY'].forEach(id => wireRealtime(id, 'input'));
+    ['spansX','spansY'].forEach(id => wireRealtime(id, 'input'));
     // levels (list)
     document.getElementById('levelsList')?.addEventListener('input', () => scheduleApply());
     // toggles
