@@ -12,6 +12,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEY_PATH="$ROOT_DIR/.keys/prebim_deploy_ed25519"
 DEST_DIR="/var/www/ssil_prebim"
+DEST_APP_DIR="/var/www/ssil_prebim/prebim"
 BACKUP_DIR="/root/clawd-dev/backups/prebim"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -60,12 +61,20 @@ if [ ! -d "$SRC_PAYLOAD" ]; then
   exit 1
 fi
 
+# Safety-first deploy:
+# - update ONLY the web root index.html
+# - update /prebim/ subtree (delete within that subtree only)
+# This prevents accidental deletion of unrelated site sections (blog/civilarchi/etc).
+
+mkdir -p "$DEST_APP_DIR"
+
+# 2a) Deploy main landing page
+rsync -av \
+  "$SRC_PAYLOAD/index.html" "$DEST_DIR/index.html"
+
+# 2b) Deploy /prebim/ app subtree
 rsync -av --delete \
-  --exclude '.git/' \
-  --exclude '.keys/' \
-  --exclude 'node_modules/' \
-  --exclude '*.log' \
-  "$SRC_PAYLOAD/" "$DEST_DIR/"
+  "$SRC_PAYLOAD/prebim/" "$DEST_APP_DIR/"
 
 # 3) Snapshot backup of deployed folder
 SNAP_NAME="${TS}_${COMMIT}.tgz"
