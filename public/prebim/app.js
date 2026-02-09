@@ -10,17 +10,20 @@ let __three = null;
 let __OrbitControls = null;
 let __engine = null;
 let __profiles = null;
+let __threeUtils = null;
 
 async function loadDeps(){
   if(__three && __OrbitControls && __engine) return;
-  const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
+  const [threeMod, controlsMod, utilsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0257'),
-    import('/prebim/app_profiles.js?v=20260209-0257'),
+    import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
+    import('/prebim/engine.js?v=20260209-0305'),
+    import('/prebim/app_profiles.js?v=20260209-0305'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
+  __threeUtils = utilsMod;
   __engine = engineMod;
   __profiles = profilesMod;
 }
@@ -1012,14 +1015,22 @@ async function createThreeView(container){
   };
 
   function parseProfileDimsMm(name){
-    // Extract first two dimensions like 150x150 from "H 150x150x10x7"
-    const m = String(name||'').match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
-    const d = m ? parseFloat(m[1]) : 150;
-    const b = m ? parseFloat(m[2]) : 150;
-    // keep a minimum thickness so geometry is visible
-    const w = Math.max(30, b);
-    const h = Math.max(30, d);
-    return { w, h };
+    const s = String(name||'').trim();
+    // H/I commonly: d x b x tw x tf
+    const m4 = s.match(/^(H|I)\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(m4){
+      const shape = m4[1].toUpperCase();
+      const d = parseFloat(m4[2]);
+      const b = parseFloat(m4[3]);
+      const tw = parseFloat(m4[4]);
+      const tf = parseFloat(m4[5]);
+      return { shape, d, b, tw, tf };
+    }
+    // fallback: first two dims
+    const m2 = s.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    const d = m2 ? parseFloat(m2[1]) : 150;
+    const b = m2 ? parseFloat(m2[2]) : 150;
+    return { shape: s.split(/\s+/)[0]?.toUpperCase() || 'BOX', d, b, tw: Math.max(6, b*0.06), tf: Math.max(6, d*0.06) };
   }
 
   function memberProfileName(kind, model, memberId){
@@ -1123,17 +1134,36 @@ async function createThreeView(container){
       if(mem.kind === 'column' || mem.kind === 'beamX' || mem.kind === 'beamY' || mem.kind === 'subBeam'){
         const profName = memberProfileName(mem.kind, model, mem.id);
         const dims = parseProfileDimsMm(profName);
-        const w = (dims.w/1000);
-        const h = (dims.h/1000);
+        const d = (Math.max(30, dims.d)/1000);
+        const b = (Math.max(30, dims.b)/1000);
+        const tw = (Math.max(6, dims.tw)/1000);
+        const tf = (Math.max(6, dims.tf)/1000);
 
         const meshMat = mat.clone();
 
-        // Vertical columns: keep along world Y.
-        // Horizontal beams: keep section vertical (world Y) and align length to dir.
+        const makeSectionAlongZ = () => {
+          // Create geometry with LENGTH along local Z.
+          if((dims.shape === 'H' || dims.shape === 'I') && __threeUtils?.mergeGeometries){
+            const webH = Math.max(1e-6, d - 2*tf);
+            const geoms = [];
+            // flanges
+            const gTop = new THREE.BoxGeometry(b, tf, len);
+            gTop.translate(0, (d - tf)/2, 0);
+            const gBot = new THREE.BoxGeometry(b, tf, len);
+            gBot.translate(0, -(d - tf)/2, 0);
+            // web
+            const gWeb = new THREE.BoxGeometry(tw, webH, len);
+            geoms.push(gTop, gBot, gWeb);
+            return __threeUtils.mergeGeometries(geoms, false);
+          }
+          // fallback box
+          return new THREE.BoxGeometry(b, d, len);
+        };
+
         const isMostlyVertical = Math.abs(dir.y) > 0.85;
         if(isMostlyVertical){
-          // box oriented along dir (Y axis)
-          const geom = new THREE.BoxGeometry(w, len, h);
+          // Column: orient along dir (local Y)
+          const geom = new THREE.BoxGeometry(b, len, d);
           const mesh = new THREE.Mesh(geom, meshMat);
           quat.setFromUnitVectors(yAxis, dir);
           mesh.quaternion.copy(quat);
@@ -1142,15 +1172,17 @@ async function createThreeView(container){
           mesh.userData.kind = mem.kind;
           group.add(mesh);
         } else {
-          // beam/sub-beam: length along dir, height along world Y
+          // Beam/sub-beam: section vertical (world Y), length along dir
           const zAxis = new THREE.Vector3(0,0,1);
-          const geom = new THREE.BoxGeometry(w, h, len);
+          const geom = makeSectionAlongZ();
           const mesh = new THREE.Mesh(geom, meshMat);
           quat.setFromUnitVectors(zAxis, dir);
           mesh.quaternion.copy(quat);
-          // place so TOP of member is on level line (member endpoints are on level)
+
+          // Place so TOP of member is on level line
           mesh.position.copy(mid);
-          mesh.position.y -= (h/2);
+          mesh.position.y -= (d/2);
+
           mesh.userData.memberId = mem.id;
           mesh.userData.kind = mem.kind;
           group.add(mesh);
