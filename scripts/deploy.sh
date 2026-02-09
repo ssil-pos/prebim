@@ -19,6 +19,10 @@ BACKUP_DIR="/root/clawd-dev/backups/prebim"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 TAG="deploy-${TS}"
 
+# Build/version stamp for cache-busting (KST, UTC+9)
+# Option B: include explicit KST marker to avoid confusion.
+BUILD_KST="$(TZ=Asia/Seoul date +%Y%m%d-%H%M)KST"
+
 cd "$ROOT_DIR"
 
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -27,6 +31,23 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 COMMIT="$(git rev-parse --short=7 HEAD)"
+
+# 0) Inject build stamp into app + cache busters (tracked files)
+# - public/prebim/app.js: const BUILD = '...'
+# - public/prebim/index.html: app.css/app.js query params
+# - public/prebim/app.js: dynamic imports query params
+# This keeps clients from getting stale bundles and makes build time human-readable (KST).
+perl -0777 -pi -e "s/const BUILD = '[^']*';/const BUILD = '$BUILD_KST';/g" "$ROOT_DIR/public/prebim/app.js"
+perl -0777 -pi -e "s#/prebim/app\\.css\\?v=[^\"']+#/prebim/app.css?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/index.html"
+perl -0777 -pi -e "s#/prebim/app\\.js\\?v=[^\"']+#/prebim/app.js?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/index.html"
+perl -0777 -pi -e "s#/prebim/engine\\.js\\?v=[^\"']+#/prebim/engine.js?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/app.js"
+perl -0777 -pi -e "s#/prebim/app_profiles\\.js\\?v=[^\"']+#/prebim/app_profiles.js?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/app.js"
+
+# Commit build bump if anything changed (best-effort; don't fail deploy)
+if ! git diff --quiet -- "$ROOT_DIR/public/prebim/app.js" "$ROOT_DIR/public/prebim/index.html"; then
+  git add "$ROOT_DIR/public/prebim/app.js" "$ROOT_DIR/public/prebim/index.html"
+  git commit -m "chore: bump build ${BUILD_KST}" >/dev/null 2>&1 || true
+fi
 
 # Ensure deploy key exists
 if [ ! -f "$KEY_PATH" ]; then
