@@ -127,28 +127,30 @@ h1{
   .grid{grid-template-columns:1fr;}
 }
 
-.row{display:flex; gap:10px; flex-wrap:wrap; margin-top: 14px; align-items:center}
+.row{display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px; align-items:center}
 
 .input{
   width: 100%;
-  padding: 12px 12px;
+  padding: 10px 10px;
   border-radius: 12px;
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.64);
   color: var(--text);
   font-weight: 700;
+  font-size: 12px;
 }
 
 .btn{
   display:inline-flex; align-items:center; justify-content:center;
   gap:8px;
-  padding: 12px 14px;
-  border-radius: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.62);
   font-weight: 900;
   color: var(--text);
   cursor:pointer;
+  font-size: 12px;
 }
 .btn.primary{
   border: 1px solid rgba(11,27,58,0.12);
@@ -200,10 +202,10 @@ h1{
 }
 
 .note{
-  margin-top: 10px;
-  font-size: 12px;
+  margin-top: 8px;
+  font-size: 11px;
   color: rgba(11,27,58,0.60);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 /* Editor layout (matches your sketch): left tools, center 3D, right split, far-right notes */
@@ -246,7 +248,7 @@ h1{
   min-height:0;
 }
 .pane-h{
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--stroke);
   display:flex;
   justify-content:space-between;
@@ -255,14 +257,18 @@ h1{
   background: rgba(255,255,255,0.72);
 }
 .pane-h b{font-size: 12px; letter-spacing:0.02em}
-.pane-b{padding: 10px; flex:1; min-height: 0; overflow:auto;}
+
+/* Popover panels over 3D */
+.view3d{position:relative;}
+.popwrap{position:absolute; top:40px; right:10px; width: 340px; max-width: calc(100% - 20px); max-height: calc(100% - 50px); overflow:auto; display:none; z-index:5;}
+.popwrap.open{display:block;}
+.popcard{background: rgba(255,255,255,0.90); border:1px solid var(--stroke); border-radius: 14px; box-shadow: var(--shadow); padding:10px;}
+.pane-b{padding: 8px; flex:1; min-height: 0; overflow:auto;}
 
 /* tighter tool panel */
-.tools .pane-b{padding: 8px;}
-.tools .label{margin-top:8px; margin-bottom:5px; font-size:11px;}
+.tools .pane-b{padding: 6px;}
+.tools .label{margin-top:7px; margin-bottom:4px; font-size:11px;}
 .tools .note{font-size:11px;}
-.tools .input{padding:10px 10px; font-size:12px; border-radius: 12px;}
-.tools .btn{padding:10px 12px; font-size:12px; border-radius: 12px;}
 
 /* Accordion inside tools */
 .acc{display:grid; gap:6px}
@@ -286,7 +292,7 @@ h1{
   border-radius: 14px;
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.62);
-  padding: 10px;
+  padding: 8px;
   display:none;
 }
 .acc-panel.open{display:block;}
@@ -312,7 +318,7 @@ h1{
 }
 
 /* Qty table */
-.qty-title{font-weight:1000; font-size:14px; margin:0 0 10px}
+.qty-title{font-weight:1000; font-size:13px; margin:0 0 8px}
 .qty-table{width:100%; border-collapse:collapse; font-size:12px}
 .qty-table th, .qty-table td{padding:7px 6px; border-bottom:1px solid var(--stroke); text-align:left; vertical-align:top}
 .qty-table th{font-size:11px; color: rgba(11,27,58,0.62)}

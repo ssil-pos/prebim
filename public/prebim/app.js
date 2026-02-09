@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0300'),
-    import('/prebim/app_profiles.js?v=20260209-0300'),
+    import('/prebim/engine.js?v=20260209-0310'),
+    import('/prebim/app_profiles.js?v=20260209-0310'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -473,8 +473,62 @@ function renderEditor(projectId){
       <div class="splitter" id="splitterT" title="Drag to resize"></div>
 
       <section class="pane view3d">
-        <div class="pane-h"><b>3D View</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">three.js</span></div>
+        <div class="pane-h">
+          <b>3D View</b>
+          <div class="row" style="margin-top:0; gap:6px">
+            <button class="pill" id="btnPopBr" type="button">Bracing</button>
+            <button class="pill" id="btnPopOv" type="button">Override</button>
+          </div>
+        </div>
         <div class="pane-b" id="view3d"></div>
+
+        <div class="popwrap" id="popBr"><div class="popcard">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+            <b>Bracing</b>
+            <button class="pill" id="btnPopBrClose" type="button">Close</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
+            <select id="braceType" class="input" style="max-width:110px">
+              <option value="X">X</option>
+              <option value="S">S</option>
+            </select>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Panel-select in 3D</label>
+            <select id="braceStory" class="input" style="max-width:140px"></select>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
+          </div>
+          <div class="note">Pick panels on grid×level faces. Works for internal & external frames.</div>
+        </div></div>
+
+        <div class="popwrap" id="popOv"><div class="popcard">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+            <b>Override</b>
+            <button class="pill" id="btnPopOvClose" type="button">Close</button>
+          </div>
+          <div class="note" id="ovInfo" style="margin-top:8px">Selected: -</div>
+          <div class="grid2">
+            <div>
+              <label class="label">Shape</label>
+              <select id="ovShape" class="input"></select>
+            </div>
+            <div>
+              <label class="label">Profile</label>
+              <select id="ovSize" class="input"></select>
+            </div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary" id="btnOvApply" type="button">Apply to selection</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn" id="btnOvClear" type="button">Clear</button>
+            <button class="btn danger" id="btnOvReset" type="button">Reset</button>
+          </div>
+          <div class="note">Applies to Column / Beam / Sub-beam.</div>
+        </div></div>
       </section>
 
       <div class="splitter" id="splitterV" title="Drag to resize"></div>
@@ -493,62 +547,10 @@ function renderEditor(projectId){
       </section>
 
       <aside class="pane notes">
-        <div class="pane-h"><b>Bracing</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
+        <div class="pane-h"><b>Help</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
         <div class="pane-b">
-          <div class="row" style="margin-top:0">
-            <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
-            <select id="braceType" class="input" style="max-width:110px">
-              <option value="X">X</option>
-              <option value="S">S</option>
-            </select>
-          </div>
-
-          <div class="grid2">
-            <div>
-              <label class="label">Shape</label>
-              <select id="braceShape" class="input"></select>
-            </div>
-            <div>
-              <label class="label">Profile</label>
-              <select id="braceSize" class="input"></select>
-            </div>
-          </div>
-
-          <div class="row" style="margin-top:8px">
-            <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Panel-select in 3D</label>
-            <select id="braceStory" class="input" style="max-width:140px"></select>
-          </div>
-
-          <div class="row" style="margin-top:10px">
-            <button class="btn primary" id="btnApplyBrace" type="button">Apply</button>
-          </div>
-          <div class="note">Brace mode: click an outer face in the 3D view.</div>
-
-          <hr style="border:none; border-top:1px solid var(--stroke); margin:12px 0"/>
-
-          <div style="font-weight:1000; font-size:12px; margin:0 0 8px">Override</div>
-          <div class="note" id="ovInfo" style="margin-top:0">Selected: -</div>
-          <div class="grid2">
-            <div>
-              <label class="label">Shape</label>
-              <select id="ovShape" class="input"></select>
-            </div>
-            <div>
-              <label class="label">Profile</label>
-              <select id="ovSize" class="input"></select>
-            </div>
-          </div>
-          <div class="row" style="margin-top:10px">
-            <button class="btn primary" id="btnOvApply" type="button">Apply to selection</button>
-          </div>
-          <div class="row" style="margin-top:8px">
-            <button class="btn" id="btnOvClear" type="button">Clear selection</button>
-            <button class="btn danger" id="btnOvReset" type="button">Reset overrides</button>
-          </div>
-          <div class="note">Applies to Column / Beam / Sub-beam members.</div>
-
-          <hr style="border:none; border-top:1px solid var(--stroke); margin:12px 0"/>
-          <div class="note" style="margin-top:0">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
+          <div class="note" style="margin-top:0">Use the Bracing / Override buttons on the 3D View header.</div>
+          <div class="note">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
         </div>
       </aside>
     </section>
@@ -706,6 +708,21 @@ function renderEditor(projectId){
     const qtyEl = document.getElementById('qty');
 
     const view = await createThreeView(view3dEl);
+
+    // popovers
+    const popBr = document.getElementById('popBr');
+    const popOv = document.getElementById('popOv');
+    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); };
+    document.getElementById('btnPopBr')?.addEventListener('click', () => {
+      popOv?.classList.remove('open');
+      popBr?.classList.toggle('open');
+    });
+    document.getElementById('btnPopOv')?.addEventListener('click', () => {
+      popBr?.classList.remove('open');
+      popOv?.classList.toggle('open');
+    });
+    document.getElementById('btnPopBrClose')?.addEventListener('click', closeAll);
+    document.getElementById('btnPopOvClose')?.addEventListener('click', closeAll);
 
     // resizable splitters
     const splitterT = document.getElementById('splitterT');
@@ -982,6 +999,10 @@ async function createThreeView(container){
   controls.enableDamping = true;
   controls.target.set(6, 3, 6);
 
+  let userInteracted = false;
+  controls.addEventListener('start', () => { userInteracted = true; });
+  let hasCentered = false;
+
   // lights
   scene.add(new THREE.AmbientLight(0xffffff, 0.95));
   const dir = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -1170,16 +1191,19 @@ async function createThreeView(container){
 
     if(braceMode) buildFacePlanes(model);
 
-    // recenter target
-    const box = new THREE.Box3().setFromObject(group);
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
-    if(Number.isFinite(center.x)){
-      controls.target.copy(center);
-      const r = Math.max(size.x, size.y, size.z) || 10;
-      camera.position.set(center.x + r*0.9, center.y + r*0.6, center.z + r*0.9);
+    // recenter only on first render (avoid resetting user's camera)
+    if(!hasCentered && !userInteracted){
+      const box = new THREE.Box3().setFromObject(group);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+      if(Number.isFinite(center.x)){
+        controls.target.copy(center);
+        const r = Math.max(size.x, size.y, size.z) || 10;
+        camera.position.set(center.x + r*0.9, center.y + r*0.6, center.z + r*0.9);
+        hasCentered = true;
+      }
     }
   }
 
@@ -1273,7 +1297,7 @@ async function createThreeView(container){
   ro.observe(container);
 
   function getSelection(){ return Array.from(selected); }
-  function clearSelection(){ selected.clear(); }
+  function clearSelection(){ selected.clear(); onSel && onSel([]); }
   let onSel = null;
   function onSelectionChange(fn){ onSel = fn; }
 
@@ -1420,6 +1444,19 @@ function route(){
 }
 
 function boot(){
+  const fitLayout = () => {
+    const w = window.innerWidth || 1200;
+    // keep within viewport
+    const tools = Math.max(180, Math.min(260, w*0.22));
+    const right = Math.max(300, Math.min(440, w*0.30));
+    const notes = (w < 1180) ? 0 : 220;
+    document.documentElement.style.setProperty('--w-tools', `${tools}px`);
+    document.documentElement.style.setProperty('--w-right', `${right}px`);
+    document.documentElement.style.setProperty('--w-notes', `${notes}px`);
+  };
+  window.addEventListener('resize', fitLayout);
+  fitLayout();
+
   window.addEventListener('hashchange', route);
   route();
 
