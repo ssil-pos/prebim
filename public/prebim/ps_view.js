@@ -17,25 +17,26 @@ export async function createPlanSectionView(ctx){
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xffffff);
 
-  // Orthographic camera (we set bounds in fit())
+  // We render everything in 2D plane (Z=0) using u/v coordinates.
   const camera = new THREE.OrthographicCamera(-5,5,5,-5, 0.01, 1000);
-  camera.position.set(10,10,10);
+  camera.position.set(0,0,50);
   camera.up.set(0,1,0);
+  camera.lookAt(0,0,0);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableRotate = false;
   controls.enableDamping = true;
   controls.screenSpacePanning = true;
-  controls.zoomSpeed = 1.2;
+  controls.zoomSpeed = 1.25;
   controls.panSpeed = 1.0;
 
   const root = new THREE.Group();
   scene.add(root);
 
   // materials
-  const lineMat = new THREE.LineBasicMaterial({ color: 0x0b1b3a, transparent:true, opacity:0.75 });
-  const lineMatBg = new THREE.LineBasicMaterial({ color: 0x0b1b3a, transparent:true, opacity:0.25 });
-  const capMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent:true, opacity:0.55, side: THREE.DoubleSide });
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x0b1b3a, transparent:true, opacity:0.78 });
+  const lineMatBg = new THREE.LineBasicMaterial({ color: 0x0b1b3a, transparent:true, opacity:0.22 });
+  const capMat = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent:true, opacity:0.55, side: THREE.DoubleSide, depthWrite:false });
 
   const ro = new ResizeObserver(() => resize());
 
@@ -69,45 +70,69 @@ export async function createPlanSectionView(ctx){
 
   const clearRoot = () => { while(root.children.length) root.remove(root.children[0]); };
 
-  const addEdges = (geom, matrixWorld, mat=lineMat) => {
-    const g = new THREE.EdgesGeometry(geom, 12);
-    const l = new THREE.LineSegments(g, mat);
-    l.applyMatrix4(matrixWorld);
-    root.add(l);
+  const mapPoint = (pt, kind) => {
+    // pt: THREE.Vector3 world
+    if(kind === 'plan') return new THREE.Vector3(pt.x, pt.z, 0);
+    // section
+    const dir = secDirEl?.value || 'X';
+    if(dir === 'X') return new THREE.Vector3(pt.z, pt.y, 0); // horizontal=z, vertical=y
+    return new THREE.Vector3(pt.x, pt.y, 0);                // horizontal=x, vertical=y
   };
 
-  const addMesh = (geom, matrixWorld, mat=capMat) => {
-    const m = new THREE.Mesh(geom, mat);
-    m.applyMatrix4(matrixWorld);
-    root.add(m);
+  const mapGeometry = (geom, matrixWorld, kind) => {
+    const g = geom.clone();
+    g.applyMatrix4(matrixWorld);
+    const pos = g.getAttribute('position');
+    for(let i=0;i<pos.count;i++){
+      const v = new THREE.Vector3().fromBufferAttribute(pos, i);
+      const uv = mapPoint(v, kind);
+      pos.setXYZ(i, uv.x, uv.y, 0);
+    }
+    pos.needsUpdate = true;
+    g.computeBoundingBox();
+    g.computeBoundingSphere();
+    return g;
+  };
+
+  const addEdges2D = (geom, matrixWorld, kind, mat=lineMat) => {
+    const mapped = mapGeometry(geom, matrixWorld, kind);
+    const eg = new THREE.EdgesGeometry(mapped, 12);
+    // EdgesGeometry may carry Z noise; force Z=0
+    const pos = eg.getAttribute('position');
+    for(let i=0;i<pos.count;i++) pos.setZ(i, 0);
+    pos.needsUpdate = true;
+    root.add(new THREE.LineSegments(eg, mat));
+  };
+
+  const addMesh2D = (geom, matrixWorld, kind, mat=capMat) => {
+    const mapped = mapGeometry(geom, matrixWorld, kind);
+    // ensure Z=0
+    const pos = mapped.getAttribute('position');
+    for(let i=0;i<pos.count;i++) pos.setZ(i, 0);
+    pos.needsUpdate = true;
+    root.add(new THREE.Mesh(mapped, mat));
   };
 
   const fit = () => {
     if(!lastModel) return;
     const { xMax, zMax } = computeGrid(lastModel);
-    const w = (mode==='plan') ? xMax : (secDirEl?.value==='X' ? zMax : xMax);
-    const h = (mode==='plan') ? zMax : ((lastModel.levels?.[lastModel.levels.length-1]||6000)/1000);
+    const uMax = (mode==='plan') ? xMax : (secDirEl?.value==='X' ? zMax : xMax);
+    const vMax = (mode==='plan') ? zMax : ((lastModel.levels?.[lastModel.levels.length-1]||6000)/1000);
     const pad = 0.8;
 
     camera.left = -pad;
-    camera.right = w + pad;
+    camera.right = uMax + pad;
     camera.bottom = -pad;
-    camera.top = h + pad;
+    camera.top = vMax + pad;
+    camera.position.set(uMax*0.5, vMax*0.5, 50);
+    camera.lookAt(uMax*0.5, vMax*0.5, 0);
     camera.updateProjectionMatrix();
 
-    if(mode==='plan'){
-      camera.position.set(w*0.5, 50, h*0.5);
-      controls.target.set(w*0.5, 0, h*0.5);
-    } else {
-      camera.position.set(w*0.5, h*0.5, 50);
-      controls.target.set(w*0.5, h*0.5, 0);
-    }
+    controls.target.set(uMax*0.5, vMax*0.5, 0);
     controls.update();
   };
 
   const buildMemberGeometry = (mem) => {
-    // simple box for now; 3D profile detail already exists elsewhere.
-    // We rely on section cap visuals rather than full profile in PS view MVP.
     const a = new THREE.Vector3(mem.a[0], mem.a[1], mem.a[2]);
     const b = new THREE.Vector3(mem.b[0], mem.b[1], mem.b[2]);
     const dir = b.clone().sub(a);
@@ -115,11 +140,11 @@ export async function createPlanSectionView(ctx){
     if(len < 1e-6) return null;
     dir.normalize();
 
-    const w = 0.10; // 100mm
-    const d = 0.10;
+    // MVP thickness: a bit larger so it reads as a sectioned member
+    const w = 0.12; // 120mm
+    const d = 0.12;
 
     const geom = new THREE.BoxGeometry(w, d, len);
-    // orient length along Z
     const zAxis = new THREE.Vector3(0,0,1);
     const q = new THREE.Quaternion().setFromUnitVectors(zAxis, dir);
     const mtx = new THREE.Matrix4().makeRotationFromQuaternion(q);
@@ -133,23 +158,22 @@ export async function createPlanSectionView(ctx){
     if(!lastModel) return;
     const { xMax, zMax, xs, zs } = computeGrid(lastModel);
 
-    // grid lines
-    const gridMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.30 });
+    // grid lines in UV plane
+    const gridMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.28 });
     for(const x of xs){
-      const pts=[new THREE.Vector3(x,0,0), new THREE.Vector3(x,0,zMax)];
+      const pts=[new THREE.Vector3(x,0,0), new THREE.Vector3(x,zMax,0)];
       root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
     }
     for(const z of zs){
-      const pts=[new THREE.Vector3(0,0,z), new THREE.Vector3(xMax,0,z)];
+      const pts=[new THREE.Vector3(0,z,0), new THREE.Vector3(xMax,z,0)];
       root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
     }
 
-    // members edges projected by camera
     for(const mem of lastMembers){
       if(!['beamX','beamY','subBeam','brace','column'].includes(mem.kind)) continue;
       const built = buildMemberGeometry(mem);
       if(!built) continue;
-      addEdges(built.geom, built.mtx, lineMat);
+      addEdges2D(built.geom, built.mtx, 'plan', lineMat);
     }
   };
 
@@ -163,12 +187,19 @@ export async function createPlanSectionView(ctx){
     const idx = parseInt(secLineEl?.value||'0',10) || 0;
     const planePos = (dir==='X') ? xs[Math.min(xs.length-1, Math.max(0, idx))] : zs[Math.min(zs.length-1, Math.max(0, idx))];
 
+    // section guide grid: levels
+    const yMax = ((lastModel.levels?.[lastModel.levels.length-1]||6000)/1000);
+    const w = (dir==='X') ? zMax : xMax;
+    const gridMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.22 });
+    for(const mm of (lastModel.levels||[])){
+      const y = (mm||0)/1000;
+      const pts=[new THREE.Vector3(0,y,0), new THREE.Vector3(w,y,0)];
+      root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), gridMat));
+    }
+
     // slab around section plane
     const slabTh = 0.05; // 50mm
-    const slabW = (dir==='X') ? slabTh : xMax + 10;
-    const slabD = 200; // huge
-    const slabH = (lastModel.levels?.[lastModel.levels.length-1]||6000)/1000 + 10;
-
+    const slabH = yMax + 10;
     let slabGeom;
     let slabMtx = new THREE.Matrix4();
     if(dir==='X'){
@@ -193,15 +224,15 @@ export async function createPlanSectionView(ctx){
         const b = new Brush(built.geom);
         b.matrix.copy(built.mtx);
         const res = evalr.evaluate(b, slabBrush, Evaluator.INTERSECTION);
-        if(res?.geometry){
-          // cap fill
-          addMesh(res.geometry, new THREE.Matrix4(), capMat);
-          // outline
-          addEdges(res.geometry, new THREE.Matrix4(), lineMat);
+        const geom = res?.geometry;
+        if(geom){
+          // cap fill + outline (mapped to section UV)
+          addMesh2D(geom, new THREE.Matrix4(), 'section', capMat);
+          addEdges2D(geom, new THREE.Matrix4(), 'section', lineMat);
         }
       } else {
-        // fallback: just draw edges
-        addEdges(built.geom, built.mtx, lineMatBg);
+        // fallback: show edges in section UV (no caps)
+        addEdges2D(built.geom, built.mtx, 'section', lineMatBg);
       }
     }
   };
@@ -210,7 +241,6 @@ export async function createPlanSectionView(ctx){
     if(mode==='section') renderSection();
     else renderPlan();
     fit();
-    resize();
   };
 
   const resize = () => {
@@ -228,6 +258,7 @@ export async function createPlanSectionView(ctx){
     host.appendChild(renderer.domElement);
     ro.disconnect();
     ro.observe(host);
+    resize();
   };
 
   const animate = () => {
