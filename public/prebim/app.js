@@ -693,6 +693,12 @@ function renderAnalysis(projectId){
     setIf('supportNodes', saved.supportNodes);
     setIf('analysisScale2', saved.analysisScale);
 
+    // restore panel widths (shared CSS vars)
+    try{
+      if(saved?.wTools) document.documentElement.style.setProperty('--w-tools', `${Number(saved.wTools)||240}px`);
+      if(saved?.wRight) document.documentElement.style.setProperty('--w-right', `${Number(saved.wRight)||320}px`);
+    }catch{}
+
     const view3dEl = document.getElementById('view3d');
     const view = await createThreeView(view3dEl);
     __active3D?.dispose?.();
@@ -878,13 +884,13 @@ function renderAnalysis(projectId){
     document.getElementById('btnRunAnalysis')?.addEventListener('click', run);
     document.getElementById('btnHudRun')?.addEventListener('click', run);
     // persist setting changes
-    const persist = () => {
+    const persist = (patch={}) => {
       const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
       const comboMode = (document.getElementById('comboMode')?.value || 'D+L').toString();
       const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
       const supportNodes = (document.getElementById('supportNodes')?.value || '').toString();
       const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
-      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale });
+      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, ...patch });
     };
     ['supportMode','comboMode','qLive','supportNodes'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', persist);
@@ -895,6 +901,49 @@ function renderAnalysis(projectId){
       const v = Number(ev.target?.value || 120);
       view.setAnalysisScale?.(v);
       persist();
+    });
+
+    // resizable splitters (analysis)
+    const splitterT = document.getElementById('splitterT');
+    const splitterAR = document.getElementById('splitterAR');
+    const layout = document.querySelector('.analysis-layout');
+
+    const bindSplitter = (handle, onMoveFn, onDone) => {
+      if(!handle || !layout) return;
+      let dragging = false;
+      const onDown = (ev) => { dragging = true; ev.preventDefault(); };
+      const onUp = () => { if(!dragging) return; dragging = false; onDone && onDone(); };
+      const onMove = (ev) => { if(dragging) onMoveFn(ev); };
+      handle.addEventListener('pointerdown', onDown);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointermove', onMove);
+    };
+
+    bindSplitter(splitterT, (ev) => {
+      const rect = layout.getBoundingClientRect();
+      const minTools = 180;
+      const maxTools = Math.max(minTools, rect.width * 0.45);
+      const x = ev.clientX - rect.left;
+      const w = Math.max(minTools, Math.min(maxTools, x - 20));
+      document.documentElement.style.setProperty('--w-tools', `${w}px`);
+      view?.resize?.();
+    }, () => {
+      const wTools = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-tools')) || 240;
+      persist({ wTools });
+    });
+
+    bindSplitter(splitterAR, (ev) => {
+      const rect = layout.getBoundingClientRect();
+      const toolsW = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-tools')) || 240);
+      const minRight = 260;
+      const maxRight = Math.max(minRight, rect.width - toolsW - 260);
+      const x = ev.clientX - rect.left;
+      const proposedRight = Math.max(minRight, Math.min(maxRight, rect.width - x - 30));
+      document.documentElement.style.setProperty('--w-right', `${proposedRight}px`);
+      view?.resize?.();
+    }, () => {
+      const wRight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--w-right')) || 320;
+      persist({ wRight });
     });
 
     // support markers shown even before run (based on default base supports)
