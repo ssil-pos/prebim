@@ -37,3 +37,4 @@ The pipeline is AI-assisted (Moltbot), but the log exists so humans can audit.
 - 20260209T031511Z | commit=4152da8 | tag=deploy-20260209T031511Z | dest=/var/www/ssil_prebim | snapshot=/root/clawd-dev/backups/prebim/20260209T031511Z_4152da8.tgz | via=AI-assisted
 - 20260209T033545Z | commit=ac12ad7 | tag=deploy-20260209T033545Z | dest=/var/www/ssil_prebim | snapshot=/root/clawd-dev/backups/prebim/20260209T033545Z_ac12ad7.tgz | via=AI-assisted
 - 20260209T033845Z | commit=df8a8dc | tag=deploy-20260209T033845Z | dest=/var/www/ssil_prebim | snapshot=/root/clawd-dev/backups/prebim/20260209T033845Z_df8a8dc.tgz | via=AI-assisted
+- 20260209T034451Z | commit=28b89d1 | tag=deploy-20260209T034451Z | dest=/var/www/ssil_prebim | snapshot=/root/clawd-dev/backups/prebim/20260209T034451Z_28b89d1.tgz | via=AI-assisted
