@@ -14,16 +14,17 @@
 
   <style>
     :root{
-      --bg0:#070B14;
-      --bg1:#0B1220;
-      --card: rgba(255,255,255,0.06);
-      --stroke: rgba(255,255,255,0.12);
-      --text: #E5E7EB;
-      --muted: rgba(229,231,235,0.72);
-      --muted2: rgba(229,231,235,0.55);
-      --brand: #7C3AED;
-      --brand2:#22C55E;
-      --shadow: 0 30px 80px rgba(0,0,0,0.45);
+      /* Bright, airy palette */
+      --bg0:#ffffff;
+      --bg1:#f4f7ff;
+      --card: rgba(255,255,255,0.72);
+      --stroke: rgba(11,27,58,0.10);
+      --text: #0B1B3A;      /* navy */
+      --muted: rgba(11,27,58,0.74);
+      --muted2: rgba(11,27,58,0.56);
+      --brand: #38BDF8;     /* sky */
+      --brand2:#A78BFA;     /* pastel violet */
+      --shadow: 0 30px 80px rgba(2,6,23,0.12);
       --r: 18px;
       --max: 1120px;
     }
@@ -34,9 +35,11 @@
       margin:0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       color:var(--text);
-      background: radial-gradient(1200px 800px at 30% 10%, rgba(124,58,237,0.22), transparent 60%),
-                  radial-gradient(900px 600px at 75% 30%, rgba(34,197,94,0.16), transparent 60%),
-                  linear-gradient(180deg, var(--bg0), var(--bg1));
+      background:
+        radial-gradient(1100px 700px at 20% 10%, rgba(56,189,248,0.32), transparent 60%),
+        radial-gradient(1000px 650px at 85% 20%, rgba(167,139,250,0.26), transparent 60%),
+        radial-gradient(900px 600px at 60% 85%, rgba(255,182,193,0.18), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
     }
 
     a{color:inherit; text-decoration:none}
@@ -45,9 +48,9 @@
 
     .nav{
       position:sticky; top:0; z-index:50;
-      backdrop-filter: blur(10px);
-      background: rgba(7,11,20,0.55);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(12px);
+      background: rgba(255,255,255,0.58);
+      border-bottom: 1px solid var(--stroke);
     }
     .nav-inner{
       max-width: var(--max);
@@ -63,9 +66,10 @@
     .logo{
       width:34px; height:34px; border-radius: 12px;
       display:grid; place-items:center;
-      background: linear-gradient(135deg, rgba(124,58,237,0.9), rgba(34,197,94,0.75));
+      background: linear-gradient(135deg, rgba(56,189,248,0.95), rgba(167,139,250,0.88));
+      color: #06203A;
       font-weight: 1000;
-      box-shadow: 0 12px 24px rgba(0,0,0,0.35);
+      box-shadow: 0 12px 24px rgba(2,6,23,0.12);
     }
     .brand b{letter-spacing:0.2px}
 
@@ -73,17 +77,17 @@
     .pill{
       padding:10px 12px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.16);
-      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.62);
       color: var(--text);
-      font-weight: 800;
+      font-weight: 900;
     }
     .cta{
       padding:10px 14px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.12);
-      background: linear-gradient(135deg, rgba(124,58,237,0.95), rgba(34,197,94,0.85));
-      color:#071018;
+      border: 1px solid rgba(11,27,58,0.10);
+      background: linear-gradient(135deg, rgba(56,189,248,0.95), rgba(167,139,250,0.88));
+      color:#06203A;
       font-weight: 1000;
     }
 
@@ -121,14 +125,15 @@
       gap:8px;
       padding: 12px 14px;
       border-radius: 14px;
-      border: 1px solid rgba(255,255,255,0.16);
-      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.62);
       font-weight: 900;
+      color: var(--text);
     }
     .btn.primary{
-      border:none;
-      background: linear-gradient(135deg, rgba(124,58,237,0.95), rgba(34,197,94,0.8));
-      color:#071018;
+      border: 1px solid rgba(11,27,58,0.10);
+      background: linear-gradient(135deg, rgba(56,189,248,0.95), rgba(167,139,250,0.88));
+      color:#06203A;
     }
 
     .card{
@@ -147,15 +152,16 @@
       content:"";
       position:absolute;
       inset:-40px;
-      background: radial-gradient(500px 260px at 30% 10%, rgba(124,58,237,0.18), transparent 60%),
-                  radial-gradient(520px 280px at 85% 30%, rgba(34,197,94,0.14), transparent 60%);
+      background:
+        radial-gradient(520px 280px at 30% 10%, rgba(56,189,248,0.22), transparent 60%),
+        radial-gradient(560px 320px at 85% 30%, rgba(167,139,250,0.18), transparent 60%);
       transform: rotate(-4deg);
     }
     .frame{
       position: relative;
       border-radius: 14px;
-      border: 1px solid rgba(255,255,255,0.14);
-      background: rgba(7,11,20,0.55);
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.60);
       padding: 14px;
     }
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace}
@@ -167,8 +173,8 @@
       margin-top: 12px;
     }
     .k{
-      border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.55);
       border-radius: 14px;
       padding: 10px;
       min-height: 62px;
@@ -198,7 +204,7 @@
     .footer{
       margin-top:auto;
       padding: 30px 18px;
-      border-top: 1px solid rgba(255,255,255,0.08);
+      border-top: 1px solid var(--stroke);
       color: var(--muted2);
       font-size: 12px;
     }
@@ -213,7 +219,7 @@
           <div class="logo">pb</div>
           <div>
             <b>prebim</b>
-            <div class="mono" style="font-size:11px; color:rgba(229,231,235,0.55)">concept → structure</div>
+            <div class="mono" style="font-size:11px; color:var(--muted2)">concept → structure</div>
           </div>
         </div>
         <div class="nav-actions">
@@ -227,7 +233,7 @@
       <section class="hero">
         <div>
           <h1>Build structure ideas
-            <span style="color:rgba(229,231,235,0.86)">before</span>
+            <span style="color:rgba(11,27,58,0.72)">before</span>
             BIM gets heavy.</h1>
           <p class="sub">
             <b>prebim</b> is a lightweight, web-based structural concept modeler for fast iteration:
@@ -238,18 +244,18 @@
             <a class="btn primary" href="/prebim/">Open prebim</a>
             <a class="btn" href="#features">See features</a>
           </div>
-          <p class="mono" style="margin-top:12px; color:rgba(229,231,235,0.55); font-size:12px">
+          <p class="mono" style="margin-top:12px; color:var(--muted2); font-size:12px">
             AI-assisted build/deploy · auditable tags + backups
           </p>
         </div>
 
         <div class="card shot">
           <div class="frame">
-            <div class="mono" style="font-size:12px; color:rgba(229,231,235,0.72)">preview</div>
-            <div style="height:220px; margin-top:10px; border-radius:12px; border:1px solid rgba(255,255,255,0.12); background:
-              linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+            <div class="mono" style="font-size:12px; color:var(--muted)">preview</div>
+            <div style="height:220px; margin-top:10px; border-radius:12px; border:1px solid var(--stroke); background:
+              linear-gradient(180deg, rgba(255,255,255,0.82), rgba(255,255,255,0.58));
               display:grid; place-items:center;">
-              <div class="mono" style="color:rgba(229,231,235,0.6); text-align:center; padding:12px">
+              <div class="mono" style="color:var(--muted); text-align:center; padding:12px">
                 3D frame + braces + joists<br/>
                 <span style="font-size:11px">(app screenshot will go here)</span>
               </div>
@@ -285,9 +291,9 @@
         <div class="card" style="padding:18px">
           <div style="display:flex; gap:12px; justify-content:space-between; flex-wrap:wrap; align-items:center">
             <div>
-              <div class="mono" style="font-size:12px; color:rgba(229,231,235,0.6)">AI-first development</div>
+              <div class="mono" style="font-size:12px; color:var(--muted2)">AI-first development</div>
               <div style="font-weight:1000; font-size:18px; margin-top:6px">Auditable by design</div>
-              <div style="color:rgba(229,231,235,0.75); margin-top:6px; line-height:1.55; font-size:14px">
+              <div style="color:var(--muted); margin-top:6px; line-height:1.55; font-size:14px">
                 Deploys are tagged (<span class="mono">deploy-*</span>), backed up as snapshots, and logged.
                 Fast iteration without losing control.
               </div>
