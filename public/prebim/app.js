@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0512';
+const BUILD = '20260209-0520';
 
 // lazy-loaded deps
 let __three = null;
@@ -21,8 +21,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0512'),
-    import('/prebim/app_profiles.js?v=20260209-0512'),
+    import('/prebim/engine.js?v=20260209-0520'),
+    import('/prebim/app_profiles.js?v=20260209-0520'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -316,6 +316,9 @@ function renderProjects(){
 
 function renderEditor(projectId){
   setMode('editor');
+  // default UI state
+  document.body.classList.add('qty-collapsed');
+  document.body.classList.add('ps-hidden');
   const p = findProjectById(projectId);
   if(!p){
     setTopbarSubtitle('projects');
@@ -329,8 +332,10 @@ function renderEditor(projectId){
   }
 
   setTopbarSubtitle(p.name || 'project');
+  document.title = `PreBIM-SteelStructure — ${p.name || 'project'}`;
   setTopbarActions(`
     <a class="pill" href="#/">Back</a>
+    <button class="pill" id="btnToggleQty" type="button">Quantities</button>
     <button class="pill" id="btnExportStaad" type="button">STAAD Export</button>
     <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
     <button class="pill" id="btnExportData" type="button">DATA Export</button>
@@ -1604,6 +1609,10 @@ function renderEditor(projectId){
 
     document.querySelectorAll('button.acc-btn[data-acc]')
       .forEach(btn => btn.addEventListener('click', () => toggle(btn.getAttribute('data-acc'))));
+
+    document.getElementById('btnToggleQty')?.addEventListener('click', () => {
+      document.body.classList.toggle('qty-collapsed');
+    });
 
     document.getElementById('btnSave')?.addEventListener('click', () => {
       const projects = loadProjects();
