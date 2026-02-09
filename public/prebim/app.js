@@ -665,6 +665,11 @@ function renderAnalysis(projectId){
           <label class="label">Supports (node ids)</label>
           <input class="input" id="supportNodes" placeholder="e.g. 1,2,3" />
 
+          <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+            <input id="editSupports" type="checkbox" style="margin:0" />
+            <span>Edit supports (click base nodes in 3D)</span>
+          </label>
+
           <label class="label">Deformation scale</label>
           <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
 
@@ -943,17 +948,59 @@ function renderAnalysis(projectId){
       persist({ wRight });
     });
 
+    const curSupportIds = () => {
+      const txt = (document.getElementById('supportNodes')?.value || '').trim();
+      if(!txt) return [];
+      return txt.split(/[^0-9A-Za-z_:-]+/g).map(s=>s.trim()).filter(Boolean);
+    };
+
     // support markers shown even before run (based on default base supports)
     const applyAutoSupports = () => {
       const payload0 = buildAnalysisPayload(model, parseFloat(document.getElementById('qLive')?.value||'3')||0, (document.getElementById('supportMode')?.value||'PINNED'));
-      view.setSupportMarkers?.(payload0.supports, payload0.nodes, (document.getElementById('supportMode')?.value||'PINNED'));
       const ids = (payload0.supports||[]).map(s => s.nodeId);
       const ta = document.getElementById('supportNodes');
       if(ta) ta.value = ids.join(',');
+      persist();
+      // show markers + base nodes
+      view.setSupportMarkers?.(payload0.supports, payload0.nodes, (document.getElementById('supportMode')?.value||'PINNED'));
+      view.setBaseNodes?.(payload0.nodes, ids, (document.getElementById('supportMode')?.value||'PINNED'));
+    };
+
+    const refreshSupportViz = () => {
+      try{
+        const qLive0 = parseFloat((document.getElementById('qLive')?.value||'3').toString())||0;
+        const supportMode0 = (document.getElementById('supportMode')?.value||'PINNED').toString();
+        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0);
+        const ids = curSupportIds();
+        const fixed = supportMode0.toUpperCase()==='FIXED';
+        payload0.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
+        view.setSupportMarkers?.(payload0.supports, payload0.nodes, supportMode0);
+        view.setBaseNodes?.(payload0.nodes, ids, supportMode0);
+      }catch{}
     };
 
     try{ applyAutoSupports(); }catch{}
     document.getElementById('btnSupportsAuto')?.addEventListener('click', () => { try{ applyAutoSupports(); }catch{} });
+    document.getElementById('supportMode')?.addEventListener('change', refreshSupportViz);
+    document.getElementById('supportNodes')?.addEventListener('input', refreshSupportViz);
+
+    // toggle edit supports mode
+    document.getElementById('editSupports')?.addEventListener('change', (ev) => {
+      const on = !!ev.target?.checked;
+      view.setSupportEditMode?.(on, {
+        memberPickEnabled: !on,
+        onSupportToggle: (nid) => {
+          const ids = new Set(curSupportIds().map(String));
+          if(ids.has(String(nid))) ids.delete(String(nid));
+          else ids.add(String(nid));
+          const ta = document.getElementById('supportNodes');
+          if(ta) ta.value = Array.from(ids).join(',');
+          persist();
+          refreshSupportViz();
+        }
+      });
+      refreshSupportViz();
+    });
   })();
 }
 
@@ -2844,6 +2891,13 @@ async function createThreeView(container){
   const supportGroup = new THREE.Group();
   scene.add(supportGroup);
 
+  // base node pickers for support editing
+  const baseNodeGroup = new THREE.Group();
+  scene.add(baseNodeGroup);
+  let supportEdit = false;
+  let memberPickEnabled = true;
+  let onSupportToggle = null;
+
   // 3D guide lines (grid outline + level outlines)
   const guideGroup = new THREE.Group();
   scene.add(guideGroup);
@@ -3407,6 +3461,17 @@ async function createThreeView(container){
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
 
+    // Support edit mode: pick base nodes only, disable member selection
+    if(supportEdit){
+      raycaster.setFromCamera(pointer, camera);
+      const nh = raycaster.intersectObjects(baseNodeGroup.children, false);
+      if(nh.length){
+        const nid = nh[0]?.object?.userData?.nodeId;
+        if(nid && onSupportToggle) onSupportToggle(String(nid));
+      }
+      return;
+    }
+
     if(braceMode){
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObjects(faceGroup.children, false);
@@ -3425,6 +3490,8 @@ async function createThreeView(container){
       }
       return;
     }
+
+    if(!memberPickEnabled) return;
 
     // member selection
     selectRay.setFromCamera(pointer, camera);
@@ -3458,7 +3525,6 @@ async function createThreeView(container){
     });
 
     onSel && onSel(Array.from(selected));
-    // re-apply clipping after any material replacement
     applyClipping(lastClipModel);
   }
 
@@ -3751,12 +3817,57 @@ async function createThreeView(container){
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.set(n.x, n.y - (h*0.15), n.z);
       mesh.rotation.x = Math.PI;
+      mesh.userData.nodeId = String(s.nodeId);
       supportGroup.add(mesh);
 
       const base = new THREE.Mesh(baseGeom, baseMat);
       base.position.set(n.x, n.y - (h*0.02), n.z);
+      base.userData.nodeId = String(s.nodeId);
       supportGroup.add(base);
     }
+  }
+
+  function setBaseNodes(nodes, activeIds = [], supportMode='PINNED'){
+    while(baseNodeGroup.children.length) baseNodeGroup.remove(baseNodeGroup.children[0]);
+    if(!nodes || !nodes.length) return;
+
+    const fixed = String(supportMode).toUpperCase() === 'FIXED';
+    const active = new Set((activeIds||[]).map(x=>String(x)));
+
+    let minY = Infinity;
+    for(const n of nodes) minY = Math.min(minY, n.y);
+    const eps = 1e-6;
+
+    // scale with model size
+    let minX=Infinity,minZ=Infinity,maxX=-Infinity,maxZ=-Infinity,maxY=-Infinity;
+    for(const n of nodes){
+      minX=Math.min(minX,n.x); minZ=Math.min(minZ,n.z);
+      maxX=Math.max(maxX,n.x); maxZ=Math.max(maxZ,n.z);
+      maxY=Math.max(maxY,n.y);
+    }
+    const diag = Math.hypot(maxX-minX, maxY-minY, maxZ-minZ) || 10;
+    const r = Math.max(0.10, diag * 0.010);
+
+    const geom = new THREE.SphereGeometry(r, 14, 14);
+    const matOn = new THREE.MeshBasicMaterial({ color: fixed ? 0x7c3aed : 0x0ea5e9, transparent:true, opacity:0.92, depthWrite:false });
+    const matOff = new THREE.MeshBasicMaterial({ color: 0x94a3b8, transparent:true, opacity:0.35, depthWrite:false });
+
+    for(const n of nodes){
+      if(Math.abs(n.y - minY) > eps) continue;
+      const id = String(n.id);
+      const m = new THREE.Mesh(geom, active.has(id) ? matOn : matOff);
+      m.position.set(n.x, n.y, n.z);
+      m.userData.nodeId = id;
+      baseNodeGroup.add(m);
+    }
+    baseNodeGroup.visible = supportEdit;
+  }
+
+  function setSupportEditMode(on, opts={}){
+    supportEdit = !!on;
+    memberPickEnabled = !!opts.memberPickEnabled;
+    onSupportToggle = opts.onSupportToggle || null;
+    baseNodeGroup.visible = supportEdit;
   }
 
   function setSectionBox(on, box01, model){
@@ -3774,6 +3885,8 @@ async function createThreeView(container){
     clearAnalysis,
     setAnalysisScale,
     setSupportMarkers,
+    setBaseNodes,
+    setSupportEditMode,
     resize: doResize,
     getSelection,
     setSelection,
