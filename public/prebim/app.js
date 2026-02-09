@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0602';
+const BUILD = '20260209-0627';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0602'),
-    import('/prebim/app_profiles.js?v=20260209-0602'),
+    import('/prebim/engine.js?v=20260209-0627'),
+    import('/prebim/app_profiles.js?v=20260209-0627'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1305,10 +1305,13 @@ function renderEditor(projectId){
       };
 
       const rows = Object.entries(q.byKind)
-        .map(([kind, v]) => ({ kind, ...v }))
+        .map(([kind, v]) => {
+          const baseKind = v.baseKind || (kind.includes(':') ? kind.split(':')[0] : kind);
+          return ({ kind, baseKind, ...v });
+        })
         .sort((a,b)=>b.len-a.len)
         .map(r => {
-          const meta = kindLabel[r.kind] || { cat:r.kind, prof:r.name || '-' , kgm: r.kgm ?? null };
+          const meta = kindLabel[r.baseKind] || { cat:r.baseKind, prof:r.name || '-' , kgm: r.kgm ?? null };
           const kgm = (r.kgm != null) ? r.kgm : meta.kgm;
           const loadKg = (kgm!=null) ? (kgm * r.len) : null;
           return [
@@ -2524,19 +2527,22 @@ function summarizeMembers(members, model){
       p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')
              : __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'');
     } else if(mem.kind === 'brace'){
-      key = 'brace';
+      // IMPORTANT: braces may have different profiles per panel.
+      // Group quantities by profile name so different brace specs show as separate rows.
       if(mem.profile && typeof mem.profile === 'object'){
         const pr = mem.profile;
         p = __profiles?.getProfile?.(pr.stdKey||prof.stdAll||'KS', pr.shapeKey||prof.braceShape||'L', pr.sizeKey||prof.braceSize||'');
       } else {
         p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'');
       }
+      const braceName = p?.name || p?.key || prof.braceSize || 'brace';
+      key = `brace:${braceName}`;
     } else if(mem.kind === 'joist'){
       key = 'joist';
       p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
     }
 
-    const cur = byKind[key] || { len:0, count:0, kgm: p?.kgm ?? null, name: p?.name ?? null };
+    const cur = byKind[key] || { len:0, count:0, kgm: p?.kgm ?? null, name: p?.name ?? null, baseKind: mem.kind };
     cur.len += len;
     cur.count += 1;
     if(p?.kgm != null && Number.isFinite(p.kgm)) totalWeightKg += (p.kgm * len);
@@ -2565,10 +2571,13 @@ function renderQtyTable(q, model){
   };
 
   const rows = Object.entries(q.byKind)
-    .map(([kind, v]) => ({ kind, ...v }))
+    .map(([kind, v]) => {
+      const baseKind = v.baseKind || (kind.includes(':') ? kind.split(':')[0] : kind);
+      return ({ kind, baseKind, ...v });
+    })
     .sort((a,b)=>b.len-a.len)
     .map(r => {
-      const meta = kindLabel[r.kind] || { cat:r.kind, prof:r.name || '-' , kgm: r.kgm ?? null };
+      const meta = kindLabel[r.baseKind] || { cat:r.baseKind, prof:r.name || '-' , kgm: r.kgm ?? null };
       const kgm = (r.kgm != null) ? r.kgm : meta.kgm;
       const loadKg = (kgm!=null) ? (kgm * r.len) : null;
       const loadCell = (loadKg==null) ? '-' : `${loadKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(loadKg/1000).toFixed(3)} t)`;
