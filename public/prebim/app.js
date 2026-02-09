@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0715';
+const BUILD = '20260209-0720';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0715'),
-    import('/prebim/app_profiles.js?v=20260209-0715'),
+    import('/prebim/engine.js?v=20260209-0720'),
+    import('/prebim/app_profiles.js?v=20260209-0720'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -2416,7 +2416,7 @@ async function createThreeView(container){
         const x = xs[i];
         const pts = [ new THREE.Vector3(x,0,0), new THREE.Vector3(x,0,zMax) ];
         guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat2));
-        const lab = makeTextSprite(`X${i+1}`, { fontSize: 36, scale: 0.011 });
+        const lab = makeTextSprite(`X${i+1}`, { fontSize: 38, scale: 0.012 });
         lab.position.set(x, 0.01, -offset);
         guideGroup.add(lab);
       }
@@ -2424,7 +2424,7 @@ async function createThreeView(container){
         const z = zs[j];
         const pts = [ new THREE.Vector3(0,0,z), new THREE.Vector3(xMax,0,z) ];
         guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat2));
-        const lab = makeTextSprite(`Y${j+1}`, { fontSize: 36, scale: 0.011 });
+        const lab = makeTextSprite(`Y${j+1}`, { fontSize: 38, scale: 0.012 });
         lab.position.set(-offset, 0.01, z);
         guideGroup.add(lab);
       }
@@ -2441,7 +2441,7 @@ async function createThreeView(container){
           new THREE.Vector3(0,y,0),
         ];
         guideGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), guideMat));
-        const lab = makeTextSprite(`L${k+1} ${Math.round(lv[k]||0)}`, { fontSize: 36, scale: 0.011 });
+        const lab = makeTextSprite(`L${k+1} ${Math.round(lv[k]||0)}`, { fontSize: 38, scale: 0.012 });
         lab.position.set(xMax + offset, y, 0);
         guideGroup.add(lab);
       }
@@ -2545,7 +2545,7 @@ async function createThreeView(container){
       for(const sp of guideSprites){
         if(!sp.visible) continue;
         const dist = camera.position.distanceTo(sp.position);
-        const k = 0.0225; // tune: meters per meter distance (half size)
+        const k = 0.028; // tune: meters per meter distance (slightly larger)
         const s = dist * k;
         const bs = sp.userData.baseScale || sp.scale;
         sp.scale.set(bs.x*s, bs.y*s, 1);
