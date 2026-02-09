@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0230'),
-    import('/prebim/app_profiles.js?v=20260209-0230'),
+    import('/prebim/engine.js?v=20260209-0235'),
+    import('/prebim/app_profiles.js?v=20260209-0235'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -746,10 +746,9 @@ function renderEditor(projectId){
       view?.resize?.();
     });
 
-    const apply = (m) => {
+    let __applyTimer = 0;
+    const applyNow = (m) => {
       const members = __engine.generateMembers(m);
-      // attach member metadata for selection/overrides
-      members.forEach(mem => { /* no-op placeholder */ });
       view.setMembers(members, m);
       const q = summarizeMembers(members, m);
       if(qtyEl) qtyEl.innerHTML = renderQtyTable(q, m);
@@ -763,6 +762,13 @@ function renderEditor(projectId){
         saveProjects(projects);
       }
     };
+
+    const scheduleApply = (ms = 120) => {
+      clearTimeout(__applyTimer);
+      __applyTimer = setTimeout(() => applyNow(getForm()), ms);
+    };
+
+    const apply = (m) => applyNow(m);
 
     apply(engineModel);
 
@@ -784,20 +790,42 @@ function renderEditor(projectId){
       const story = parseInt(braceStoryEl?.value||'0',10) || 0;
       view.setBraceMode?.(on, { ...m, braceStory: story }, (pick) => {
         toggleBrace(pick);
-        const next = getForm();
-        apply(next);
+        scheduleApply(0);
       });
-      apply(getForm());
+      scheduleApply(0);
     };
 
     braceModeEl?.addEventListener('change', updateBraceMode);
     braceStoryEl?.addEventListener('change', updateBraceMode);
 
-    document.getElementById('btnApplyGrid')?.addEventListener('click', () => apply(getForm()));
-    document.getElementById('btnApplyLevels')?.addEventListener('click', () => apply(getForm()));
-    document.getElementById('btnApplySub')?.addEventListener('click', () => apply(getForm()));
-    document.getElementById('btnApplyJoist')?.addEventListener('click', () => apply(getForm()));
-    document.getElementById('btnApplyBrace')?.addEventListener('click', () => { updateBraceMode(); apply(getForm()); });
+    // Apply buttons kept as optional (but realtime changes auto-apply)
+    document.getElementById('btnApplyGrid')?.addEventListener('click', () => scheduleApply(0));
+    document.getElementById('btnApplyLevels')?.addEventListener('click', () => scheduleApply(0));
+    document.getElementById('btnApplySub')?.addEventListener('click', () => scheduleApply(0));
+    document.getElementById('btnApplyJoist')?.addEventListener('click', () => scheduleApply(0));
+    document.getElementById('btnApplyBrace')?.addEventListener('click', () => { updateBraceMode(); scheduleApply(0); });
+
+    // Realtime auto-apply
+    const wireRealtime = (id, ev='input') => {
+      const el = document.getElementById(id);
+      el?.addEventListener(ev, () => scheduleApply());
+    };
+
+    // grid
+    ['nx','ny','sx','sy','spansX','spansY'].forEach(id => wireRealtime(id, 'input'));
+    // levels (list)
+    document.getElementById('levelsList')?.addEventListener('input', () => scheduleApply());
+    // toggles
+    ['optSub','subCount','optJoist','optBrace','braceType'].forEach(id => wireRealtime(id, 'change'));
+
+    // profiles
+    ['stdAll','colShape','colSize','beamShape','beamSize','subShape','subSize','braceShape','braceSize'].forEach(id => wireRealtime(id, 'change'));
+
+    // mirror subSizeMirror whenever subSize changes
+    document.getElementById('subSize')?.addEventListener('change', () => {
+      const mir = document.getElementById('subSizeMirror');
+      if(mir){ mir.innerHTML = document.getElementById('subSize').innerHTML; mir.value = document.getElementById('subSize').value; }
+    });
 
     // override UI wiring (columns/beams/sub-beams)
     const ovInfo = document.getElementById('ovInfo');
@@ -832,30 +860,39 @@ function renderEditor(projectId){
       }
     };
 
-    const updateOvInfo = () => {
-      const sel = view.getSelection?.() || [];
+    const updateOvInfo = (sel = (view.getSelection?.() || [])) => {
       if(ovInfo) ovInfo.textContent = sel.length ? `Selected: ${sel.length}` : 'Selected: -';
     };
+
+    view.onSelectionChange?.((sel) => {
+      updateOvInfo(sel);
+    });
 
     rebuildOv();
     ovShape?.addEventListener('change', rebuildOv);
     document.getElementById('stdAll')?.addEventListener('change', rebuildOv);
 
-    btnOvApply?.addEventListener('click', () => {
+    const applyOverrideToSelection = () => {
       const sel = view.getSelection?.() || [];
+      if(!sel.length) return;
       const stdKey = document.getElementById('stdAll').value || 'KS';
       const overrides = window.__prebimOverrides || {};
       for(const id of sel){
         overrides[id] = { stdKey, shapeKey: ovShape.value, sizeKey: ovSize.value };
       }
       window.__prebimOverrides = overrides;
-      apply(getForm());
+      scheduleApply(0);
       updateOvInfo();
-    });
+    };
+
+    btnOvApply?.addEventListener('click', applyOverrideToSelection);
+    ovShape?.addEventListener('change', () => { rebuildOv(); applyOverrideToSelection(); });
+    ovSize?.addEventListener('change', applyOverrideToSelection);
 
     btnOvClear?.addEventListener('click', () => {
       view.clearSelection?.();
       updateOvInfo();
+      scheduleApply(0);
     });
 
     btnOvReset?.addEventListener('click', () => {
@@ -864,7 +901,7 @@ function renderEditor(projectId){
       apply(getForm());
       updateOvInfo();
     });
-    document.getElementById('btnApplyProfile')?.addEventListener('click', () => apply(getForm()));
+    document.getElementById('btnApplyProfile')?.addEventListener('click', () => scheduleApply(0));
 
 
     // accordion toggles
@@ -1145,6 +1182,8 @@ async function createThreeView(container){
       ch.material = baseMat.clone();
       ch.material.opacity = sel ? 1.0 : baseMat.opacity;
     });
+
+    onSel && onSel(Array.from(selected));
   }
 
   renderer.domElement.addEventListener('pointerdown', pick);
@@ -1170,6 +1209,8 @@ async function createThreeView(container){
 
   function getSelection(){ return Array.from(selected); }
   function clearSelection(){ selected.clear(); }
+  let onSel = null;
+  function onSelectionChange(fn){ onSel = fn; }
 
   return {
     setMembers,
@@ -1177,6 +1218,7 @@ async function createThreeView(container){
     resize: doResize,
     getSelection,
     clearSelection,
+    onSelectionChange,
     dispose(){
       cancelAnimationFrame(raf);
       ro.disconnect();
