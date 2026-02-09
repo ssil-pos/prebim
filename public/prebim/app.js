@@ -1698,7 +1698,8 @@ function renderEditor(projectId){
       if(ov) ov.hidden = true;
 
       if(!res || res.ok !== true){
-        alert('Analysis failed. Check server logs.');
+        const note = (res && typeof res.note === 'string' && res.note) ? res.note : 'Analysis failed.';
+        alert(note);
         console.warn('analysis response', res);
         return;
       }

@@ -6,6 +6,10 @@ from typing import Dict, List, Literal, Optional
 
 from Pynite import FEModel3D
 
+import numpy as np
+import warnings
+from scipy.sparse.linalg import MatrixRankWarning
+
 
 app = FastAPI(title="prebim-analysis-api", version="0.1.0")
 
@@ -74,10 +78,16 @@ class NodeDispOut(BaseModel):
     dz: float = 0.0
 
 
+class MaxDispOut(BaseModel):
+    nodeId: str = ''
+    value: float = 0.0
+
+
 class AnalyzeResponse(BaseModel):
     ok: bool
     nodes: Dict[str, NodeDispOut]
-    maxDisp: Dict[str, float]
+    maxDisp: MaxDispOut
+    note: str = ''
 
 
 @app.get("/health")
@@ -87,69 +97,96 @@ def health():
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
-    # Build model
-    model = FEModel3D()
+    CASE = 'L1'
+    COMBO = 'LC1'
 
-    # Materials/sections: to keep it simple, make per-member unique names
-    for n in req.nodes:
-        model.add_node(n.id, n.x, n.y, n.z)
+    def solve(with_fixed_base_rotations: bool):
+        # Build model
+        model = FEModel3D()
 
-    # supports
-    for s in req.supports:
-        f = s.fix
-        model.def_support(
-            s.nodeId,
-            support_DX=f.DX,
-            support_DY=f.DY,
-            support_DZ=f.DZ,
-            support_RX=f.RX,
-            support_RY=f.RY,
-            support_RZ=f.RZ,
-        )
+        # Materials/sections: to keep it simple, make per-member unique names
+        for n in req.nodes:
+            model.add_node(n.id, n.x, n.y, n.z)
 
-    # members
-    for mem in req.members:
-        mat_name = f"mat_{mem.id}"
-        sec_name = f"sec_{mem.id}"
-        # rho: weight density (kN/m^3). Use steel ~76.8 kN/m^3
-        model.add_material(mat_name, E=mem.E, G=mem.G, nu=0.3, rho=76.8)
-        model.add_section(sec_name, A=mem.A, Iy=mem.Iy, Iz=mem.Iz, J=mem.J)
-        model.add_member(mem.id, mem.i, mem.j, mat_name, sec_name)
+        # supports
+        for s in req.supports:
+            f = s.fix
+            # fallback option: fix base rotations to avoid mechanisms
+            rx = True if with_fixed_base_rotations else f.RX
+            ry = True if with_fixed_base_rotations else f.RY
+            rz = True if with_fixed_base_rotations else f.RZ
+            model.def_support(
+                s.nodeId,
+                support_DX=f.DX,
+                support_DY=f.DY,
+                support_DZ=f.DZ,
+                support_RX=rx,
+                support_RY=ry,
+                support_RZ=rz,
+            )
 
-        if mem.type == "truss":
-            # release all rotations at both ends to approximate axial-only member
-            model.def_releases(mem.id, Rxi=True, Ryi=True, Rzi=True, Rxj=True, Ryj=True, Rzj=True)
+        # members
+        for mem in req.members:
+            mat_name = f"mat_{mem.id}"
+            sec_name = f"sec_{mem.id}"
+            # rho: weight density (kN/m^3). Use steel ~76.8 kN/m^3
+            model.add_material(mat_name, E=mem.E, G=mem.G, nu=0.3, rho=76.8)
+            model.add_section(sec_name, A=mem.A, Iy=mem.Iy, Iz=mem.Iz, J=mem.J)
+            model.add_member(mem.id, mem.i, mem.j, mat_name, sec_name)
 
-    # loads (single case: "Case 1")
-    # selfweight
+            if mem.type == "truss":
+                # release all rotations at both ends to approximate axial-only member
+                model.def_releases(mem.id, Rxi=True, Ryi=True, Rzi=True, Rxj=True, Ryj=True, Rzj=True)
+
+        # loads (single case)
+        try:
+            if req.loads.selfweightY and abs(req.loads.selfweightY) > 1e-12:
+                model.add_member_self_weight('FY', factor=req.loads.selfweightY, case=CASE)
+        except Exception:
+            pass
+
+        dir_map = {"GX": "FX", "GY": "FY", "GZ": "FZ"}
+        for udl in req.loads.memberUDL:
+            direction = dir_map[udl.dir]
+            model.add_member_dist_load(udl.memberId, direction=direction, w1=udl.w, w2=udl.w, case=CASE)
+
+        model.add_load_combo(COMBO, {CASE: 1.0})
+
+        # Treat singular stiffness warnings as hard errors
+        with warnings.catch_warnings():
+            warnings.filterwarnings('error', category=MatrixRankWarning)
+            model.analyze()
+
+        out: Dict[str, NodeDispOut] = {}
+        max_mag = 0.0
+        max_node = None
+
+        for n in req.nodes:
+            node = model.nodes[n.id]
+            dx = float(node.DX.get(COMBO, 0.0))
+            dy = float(node.DY.get(COMBO, 0.0))
+            dz = float(node.DZ.get(COMBO, 0.0))
+            out[n.id] = NodeDispOut(dx=dx, dy=dy, dz=dz)
+            mag = (dx * dx + dy * dy + dz * dz) ** 0.5
+            if mag > max_mag:
+                max_mag = mag
+                max_node = n.id
+
+        return AnalyzeResponse(ok=True, nodes=out, maxDisp=MaxDispOut(nodeId=max_node or '', value=max_mag))
+
+    # Try pinned-ish base first; if singular/unstable, retry with fixed base rotations.
     try:
-        if req.loads.selfweightY and abs(req.loads.selfweightY) > 1e-12:
-            # Global -Y typically
-            model.add_member_self_weight('FY', factor=req.loads.selfweightY)
-    except Exception:
-        # Don't hard-fail on self-weight issues in MVP
-        pass
-
-    dir_map = {"GX": "FX", "GY": "FY", "GZ": "FZ"}
-    for udl in req.loads.memberUDL:
-        direction = dir_map[udl.dir]
-        model.add_member_dist_load(udl.memberId, direction=direction, w1=udl.w, w2=udl.w)
-
-    model.analyze()
-
-    out: Dict[str, NodeDispOut] = {}
-    max_mag = 0.0
-    max_node = None
-
-    for n in req.nodes:
-        node = model.Nodes[n.id]
-        dx = float(node.DX['Case 1'])
-        dy = float(node.DY['Case 1'])
-        dz = float(node.DZ['Case 1'])
-        out[n.id] = NodeDispOut(dx=dx, dy=dy, dz=dz)
-        mag = (dx * dx + dy * dy + dz * dz) ** 0.5
-        if mag > max_mag:
-            max_mag = mag
-            max_node = n.id
-
-    return AnalyzeResponse(ok=True, nodes=out, maxDisp={"nodeId": max_node or "", "value": max_mag})
+        return solve(with_fixed_base_rotations=False)
+    except (np.linalg.LinAlgError, MatrixRankWarning) as e:
+        try:
+            return solve(with_fixed_base_rotations=True)
+        except Exception as e2:
+            return AnalyzeResponse(ok=False, nodes={}, maxDisp=MaxDispOut(), note=f'analysis failed (singular): {e2}')
+    except Exception as e:
+        msg = str(e)
+        if 'singular' in msg.lower() or 'unstable' in msg.lower():
+            try:
+                return solve(with_fixed_base_rotations=True)
+            except Exception as e2:
+                return AnalyzeResponse(ok=False, nodes={}, maxDisp=MaxDispOut(), note=f'analysis failed (singular): {e2}')
+        return AnalyzeResponse(ok=False, nodes={}, maxDisp=MaxDispOut(), note=f'analysis failed: {e}')
