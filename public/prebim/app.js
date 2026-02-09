@@ -598,6 +598,11 @@ function renderAnalysis(projectId){
       <option value="PINNED" selected>PINNED</option>
       <option value="FIXED">FIXED</option>
     </select>
+    <span class="badge" style="background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.26)">Combo</span>
+    <select class="input" id="comboMode" style="max-width:140px; height:30px; padding:4px 10px">
+      <option value="D+L" selected>D+L</option>
+      <option value="D">D</option>
+    </select>
     <span class="badge" style="background: rgba(34,211,238,0.10); border-color: rgba(34,211,238,0.18)">Live</span>
     <input class="input" id="qLive" value="3.0" style="max-width:90px; height:30px; padding:4px 10px" title="kN/m^2" />
   `);
@@ -617,6 +622,14 @@ function renderAnalysis(projectId){
             <label class="label" style="margin:0">Deformation scale</label>
             <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
           </div>
+
+          <label class="label" style="margin-top:10px">Supports (node ids)</label>
+          <textarea id="supportNodes" class="input" rows="2" placeholder="e.g. 1,2,3" style="width:100%; resize:vertical"></textarea>
+          <div class="row" style="margin-top:6px; gap:8px">
+            <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
+            <span class="mono" style="font-size:11px; opacity:.65">Edit + Run to apply</span>
+          </div>
+
           <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
           <div id="analysisResults"></div>
         </div>
@@ -731,8 +744,23 @@ function renderAnalysis(projectId){
       try{
         const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
         const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
+        const comboMode = (document.getElementById('comboMode')?.value || 'D+L').toString();
 
         const payload = buildAnalysisPayload(model, qLive, supportMode);
+
+        // supports override
+        const supTxt = (document.getElementById('supportNodes')?.value || '').trim();
+        if(supTxt){
+          const ids = supTxt.split(/[^0-9A-Za-z_:-]+/g).map(s=>s.trim()).filter(Boolean);
+          const fixed = supportMode.toUpperCase()==='FIXED';
+          payload.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
+        }
+
+        // combo selection: put selected combo first so API uses it as primary
+        if(Array.isArray(payload.combos) && payload.combos.length){
+          const idx = payload.combos.findIndex(c => String(c.name)===comboMode);
+          if(idx>0){ const c = payload.combos.splice(idx,1)[0]; payload.combos.unshift(c); }
+        }
         setStatus('calling solver…');
 
         const r = await fetch('/prebim/api/analyze', {
@@ -775,10 +803,16 @@ function renderAnalysis(projectId){
     });
 
     // support markers shown even before run (based on default base supports)
-    try{
+    const applyAutoSupports = () => {
       const payload0 = buildAnalysisPayload(model, parseFloat(document.getElementById('qLive')?.value||'3')||0, (document.getElementById('supportMode')?.value||'PINNED'));
       view.setSupportMarkers?.(payload0.supports, payload0.nodes, (document.getElementById('supportMode')?.value||'PINNED'));
-    }catch{}
+      const ids = (payload0.supports||[]).map(s => s.nodeId);
+      const ta = document.getElementById('supportNodes');
+      if(ta) ta.value = ids.join(',');
+    };
+
+    try{ applyAutoSupports(); }catch{}
+    document.getElementById('btnSupportsAuto')?.addEventListener('click', () => { try{ applyAutoSupports(); }catch{} });
   })();
 }
 
