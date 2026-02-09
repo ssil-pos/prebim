@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0453';
+const BUILD = '20260209-0504';
 
 // lazy-loaded deps
 let __three = null;
@@ -12,19 +12,22 @@ let __OrbitControls = null;
 let __engine = null;
 let __profiles = null;
 let __threeUtils = null;
+let __csg = null;
 
 async function loadDeps(){
   if(__three && __OrbitControls && __engine) return;
-  const [threeMod, controlsMod, utilsMod, engineMod, profilesMod] = await Promise.all([
+  const [threeMod, controlsMod, utilsMod, csgMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0453'),
-    import('/prebim/app_profiles.js?v=20260209-0453'),
+    import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
+    import('/prebim/engine.js?v=20260209-0504'),
+    import('/prebim/app_profiles.js?v=20260209-0504'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
   __threeUtils = utilsMod;
+  __csg = csgMod;
   __engine = engineMod;
   __profiles = profilesMod;
 }
@@ -527,6 +530,7 @@ function renderEditor(projectId){
               <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
             </div>
             <div id="planHost" style="height:380px; margin-top:6px"></div>
+            <div class="note">(Three.js view)</div>
           </div>
 
           <div class="card" id="secCard" style="padding:8px; display:none">
@@ -540,6 +544,7 @@ function renderEditor(projectId){
               <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
             </div>
             <div id="secHost" style="height:380px; margin-top:6px"></div>
+            <div class="note">(Three.js view)</div>
           </div>
         </div>
       </section>
@@ -707,6 +712,24 @@ function renderEditor(projectId){
     const btnModeSec = document.getElementById('btnModeSec');
 
     const view = await createThreeView(view3dEl);
+
+    // Plan/Section Three.js view (replaces SVG)
+    // expose deps for ps_view.js
+    window.__three = __three;
+    window.__OrbitControls = __OrbitControls;
+    window.__csg = __csg;
+
+    const psMod = await import('/prebim/ps_view.js');
+    const psView = await psMod.createPlanSectionView({
+      planHost,
+      secHost,
+      secDirEl,
+      secLineEl,
+      btnModePlan,
+      btnModeSec,
+      planCard,
+      secCard,
+    });
 
     // 2D plan/section helpers
     let __planRot = 0; // degrees: 0/90/180/270
@@ -1042,20 +1065,20 @@ function renderEditor(projectId){
     let __psMode = 'plan';
 
     const applyPSMode = () => {
-      if(__psMode === 'section') renderSection(__lastMembers||[], __lastModel||getForm());
-      else renderPlan(__lastMembers||[], __lastModel||getForm());
+      psView?.setMode?.(__psMode);
+      psView?.setModel?.(__lastMembers||[], __lastModel||getForm());
     };
 
     btnModePlan?.addEventListener('click', () => { __psMode = 'plan'; applyPSMode(); });
     btnModeSec?.addEventListener('click', () => { __psMode = 'section'; applyPSMode(); });
 
-    secDirEl?.addEventListener('change', () => { __psMode='section'; scheduleApply(0); });
-    secLineEl?.addEventListener('change', () => { __psMode='section'; scheduleApply(0); });
+    secDirEl?.addEventListener('change', () => { __psMode='section'; applyPSMode(); });
+    secLineEl?.addEventListener('change', () => { __psMode='section'; applyPSMode(); });
 
     document.getElementById('btnPlanRot')?.addEventListener('click', () => {
       __psMode='plan';
       __planRot = (__planRot + 90) % 360;
-      scheduleApply(0);
+      applyPSMode();
     });
 
     // 3D toggles
@@ -1195,13 +1218,10 @@ function renderEditor(projectId){
       const members = __engine.generateMembers(m);
       view.setMembers(members, m);
 
-      // 2D plan/section
+      // Plan/Section (Three.js)
       __lastMembers = members;
       __lastModel = m;
-      try{
-        if(__psMode === 'section') renderSection(members, m);
-        else renderPlan(members, m);
-      }catch(e){ console.warn('plan/section render failed', e); }
+      try{ psView?.setModel?.(members, m); }catch(e){ console.warn('plan/section render failed', e); }
 
       const q = summarizeMembers(members, m);
       __lastQty = q;
