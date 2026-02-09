@@ -15,7 +15,7 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js'),
+    import('/prebim/engine.js?v=20260209-0133'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
