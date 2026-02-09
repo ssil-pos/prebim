@@ -2,6 +2,9 @@
 
 **A web-based bim concept modeler — built with AI as the development engine.**
 
+> Build/Deploy note: This repository is deployed by an AI-assisted pipeline (Moltbot).
+> Each deploy is tagged (`deploy-*`) and logged in `DEPLOY_LOG.md` for auditability.
+
 This is **not a Revit or Tekla replacement**.  
 `prebim` is a lightweight, open structural modeler for **fast thinking, quick checks, and early-stage exploration** — before committing to heavy BIM workflows.
 
