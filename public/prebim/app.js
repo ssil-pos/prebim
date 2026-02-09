@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0720';
+const BUILD = '20260209-0738';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0720'),
-    import('/prebim/app_profiles.js?v=20260209-0720'),
+    import('/prebim/engine.js?v=20260209-0738'),
+    import('/prebim/app_profiles.js?v=20260209-0738'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1450,6 +1450,8 @@ function renderEditor(projectId){
       const m = getForm();
       const members = __engine.generateMembers(m);
 
+      const qLive = parseFloat(prompt('Live load (kN/m^2) for Story 1 beams/sub-beams', '3.0')||'3') || 0;
+
       // unique joints
       const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
       const joints = new Map();
@@ -1466,22 +1468,190 @@ function renderEditor(projectId){
       const memList = members.map((mem, idx) => {
         const j1 = ensureJoint(mem.a);
         const j2 = ensureJoint(mem.b);
-        return { id: idx+1, kind: mem.kind, j1, j2 };
+        return { id: idx+1, kind: mem.kind, j1, j2, mem };
       });
 
+      // grid helpers (for tributary widths)
+      const spansXmm = m.grid?.spansXmm || [];
+      const spansYmm = m.grid?.spansYmm || [];
+      const xs=[0], ys=[0];
+      for(const s of spansXmm) xs.push(xs[xs.length-1] + (s/1000));
+      for(const s of spansYmm) ys.push(ys[ys.length-1] + (s/1000));
+      const tol = 1e-6;
+
+      const findIdx = (arr, v) => {
+        for(let i=0;i<arr.length;i++) if(Math.abs(arr[i]-v) < 1e-5) return i;
+        return -1;
+      };
+
+      const tribWidthForBeamX = (z) => {
+        const j = findIdx(ys, z);
+        if(j < 0) return 0;
+        const wPrev = (j>0) ? (ys[j]-ys[j-1]) : 0;
+        const wNext = (j<ys.length-1) ? (ys[j+1]-ys[j]) : 0;
+        return 0.5*wPrev + 0.5*wNext;
+      };
+
+      const tribWidthForBeamY = (x) => {
+        const i = findIdx(xs, x);
+        if(i < 0) return 0;
+        const wPrev = (i>0) ? (xs[i]-xs[i-1]) : 0;
+        const wNext = (i<xs.length-1) ? (xs[i+1]-xs[i]) : 0;
+        return 0.5*wPrev + 0.5*wNext;
+      };
+
+      const getProfileDimsMm = (kind, memObj) => {
+        let profName = memberProfileName(kind, m, memObj.id);
+        if(kind==='brace' && memObj.profile && typeof memObj.profile==='object'){
+          const pr = memObj.profile;
+          profName = __profiles?.getProfile?.(pr.stdKey||m.profiles?.stdAll||'KS', pr.shapeKey||m.profiles?.braceShape||'L', pr.sizeKey||m.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
+        }
+        const d = parseProfileDimsMm(profName);
+        // d,d.b are mm
+        return { d: Math.max(30, d.d||150), b: Math.max(30, d.b||150) };
+      };
+
+      // group members by profile (approx PRIS YD ZD)
+      const propGroups = new Map(); // key -> {yd,zd, ids:[]}
+      const braceIds = [];
+      const supportJoints = new Set();
+      const liveLoads = []; // {ids, w} per member id
+
+      const story1m = (m.levels?.[1] ?? 0)/1000;
+      const subCount = m.options?.subBeams?.countPerBay || 0;
+
+      for(const mm of memList){
+        const mem = mm.mem;
+
+        // supports: base joints (y==0)
+        if(mem.kind==='column'){
+          const ya = mem.a[1], yb = mem.b[1];
+          const jLow = (ya<yb) ? mm.j1 : mm.j2;
+          const yLow = Math.min(ya,yb);
+          if(Math.abs(yLow - 0) < 1e-8) supportJoints.add(jLow);
+        }
+
+        // TRUSS braces
+        if(mem.kind==='brace') braceIds.push(mm.id);
+
+        // properties
+        const dims = getProfileDimsMm(mem.kind, mem);
+        const yd = dims.d; // mm
+        const zd = dims.b; // mm
+        const profKey = `${mem.kind}:${yd}x${zd}`;
+        const g = propGroups.get(profKey) || { kind: mem.kind, yd, zd, ids: [] };
+        g.ids.push(mm.id);
+        propGroups.set(profKey, g);
+
+        // live loads for story1 beams + subbeams
+        if(qLive > 0){
+          if(mem.kind==='beamX' || mem.kind==='beamY' || mem.kind==='subBeam'){
+            if(Math.abs(mem.a[1]-story1m) < 1e-6 && Math.abs(mem.b[1]-story1m) < 1e-6){
+              let trib = 0;
+              if(mem.kind==='beamX') trib = tribWidthForBeamX(mem.a[2]);
+              else if(mem.kind==='beamY') trib = tribWidthForBeamY(mem.a[0]);
+              else {
+                // subbeam inside a bay: tributary = bayWidth/(count+1)
+                const mId = String(mem.id||'');
+                const mSub = mId.match(/^sub:(\d+),(\d+),(\d+),(\d+)/);
+                if(mSub){
+                  const iy = parseInt(mSub[2],10) || 0;
+                  const bayW = (ys[iy+1]??ys[iy]) - (ys[iy]??0);
+                  trib = bayW / (Math.max(1, subCount)+1);
+                } else {
+                  trib = tribWidthForBeamX(mem.a[2]);
+                }
+              }
+              const w = qLive * trib; // kN/m
+              liveLoads.push({ id: mm.id, w });
+            }
+          }
+        }
+      }
+
       const lines = [];
-      lines.push('* PREBIM STAAD export (MVP)');
+      lines.push('* PreBIM-SteelStructure STAAD export');
       lines.push(`* project: ${p.id} ${p.name||''}`.trim());
       lines.push('STAAD SPACE');
       lines.push('UNIT METER KN');
+
       lines.push('JOINT COORDINATES');
       for(const j of jointList){
         lines.push(`${j.id} ${j.pt[0].toFixed(6)} ${j.pt[1].toFixed(6)} ${j.pt[2].toFixed(6)}`);
       }
+
       lines.push('MEMBER INCIDENCES');
       for(const mm of memList){
         lines.push(`${mm.id} ${mm.j1} ${mm.j2}`);
       }
+
+      // MATERIAL/CONSTANTS (steel)
+      lines.push('CONSTANTS');
+      lines.push('E 2.05e8 ALL');
+      lines.push('POISSON 0.3 ALL');
+
+      // MEMBER PROPERTY (approx PRISMATIC rectangles using profile b,d)
+      lines.push('MEMBER PROPERTY');
+      for(const g of propGroups.values()){
+        // Format member list as ranges
+        const ids = g.ids.slice().sort((a,b)=>a-b);
+        const parts = [];
+        let s = ids[0], prev = ids[0];
+        for(let i=1;i<=ids.length;i++){
+          const v = ids[i];
+          if(v === prev+1){ prev = v; continue; }
+          parts.push((s===prev) ? `${s}` : `${s} TO ${prev}`);
+          s = v; prev = v;
+        }
+        const memSel = parts.join(' ');
+        // YD = depth, ZD = width (mm)
+        lines.push(`PRIS YD ${g.yd} ZD ${g.zd} ${memSel}`);
+      }
+
+      // BRACE TRUSS
+      if(braceIds.length){
+        const ids = braceIds.slice().sort((a,b)=>a-b);
+        const parts = [];
+        let s = ids[0], prev = ids[0];
+        for(let i=1;i<=ids.length;i++){
+          const v = ids[i];
+          if(v === prev+1){ prev = v; continue; }
+          parts.push((s===prev) ? `${s}` : `${s} TO ${prev}`);
+          s = v; prev = v;
+        }
+        lines.push('MEMBER TRUSS');
+        lines.push(parts.join(' '));
+      }
+
+      // SUPPORTS (base pinned)
+      if(supportJoints.size){
+        lines.push('SUPPORTS');
+        const ids = Array.from(supportJoints).sort((a,b)=>a-b);
+        const parts=[];
+        let s=ids[0], prev=ids[0];
+        for(let i=1;i<=ids.length;i++){
+          const v=ids[i];
+          if(v===prev+1){ prev=v; continue; }
+          parts.push((s===prev)?`${s}`:`${s} TO ${prev}`);
+          s=v; prev=v;
+        }
+        lines.push(`${parts.join(' ')} PINNED`);
+      }
+
+      // LOADS
+      lines.push('LOAD 1 DEAD');
+      lines.push('SELFWEIGHT Y -1');
+      if(qLive > 0 && liveLoads.length){
+        lines.push('LOAD 2 LIVE');
+        lines.push('MEMBER LOAD');
+        for(const ll of liveLoads){
+          // UDL in global -Y
+          lines.push(`${ll.id} UNI GY ${(-ll.w).toFixed(3)}`);
+        }
+      }
+
+      lines.push('PERFORM ANALYSIS');
+      lines.push('PRINT ANALYSIS RESULTS');
       lines.push('FINISH');
 
       download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-staad.std`, lines.join('\n'), 'text/plain');
