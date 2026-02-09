@@ -11,7 +11,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEY_PATH="$ROOT_DIR/.keys/prebim_deploy_ed25519"
-DEST_DIR="/var/www/ssil_prebim/prebim"
+DEST_DIR="/var/www/ssil_prebim"
 BACKUP_DIR="/root/clawd-dev/backups/prebim"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -51,12 +51,15 @@ git push origin "$BRANCH"
 git push origin "$TAG"
 
 # 2) Deploy payload
-# For now we deploy the repository root as a static site.
-# (Later: if you add a build step, place artifacts into ./public and rsync that.)
+# Deploy ./public to the web root.
 
-SRC_PAYLOAD="$ROOT_DIR"
+SRC_PAYLOAD="$ROOT_DIR/public"
 
-# Safety: never rsync .git or secrets
+if [ ! -d "$SRC_PAYLOAD" ]; then
+  echo "Missing public/ folder: $SRC_PAYLOAD" >&2
+  exit 1
+fi
+
 rsync -av --delete \
   --exclude '.git/' \
   --exclude '.keys/' \
