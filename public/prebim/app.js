@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0417';
+const BUILD = '20260209-0420';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0417'),
-    import('/prebim/app_profiles.js?v=20260209-0417'),
+    import('/prebim/engine.js?v=20260209-0420'),
+    import('/prebim/app_profiles.js?v=20260209-0420'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -505,39 +505,41 @@ function renderEditor(projectId){
       <div class="splitter" id="splitterV" title="Drag to resize"></div>
 
       <section class="pane plan">
-          <div class="pane-h">
-            <b>Plan / Section</b>
-            <div class="row" style="margin-top:0; gap:6px">
-              <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">mvp</span>
-            </div>
+        <div class="pane-h">
+          <b>Plan / Section</b>
+          <div class="row" style="margin-top:0; gap:6px">
+            <button class="pill active" id="btnModePlan" type="button">Plan</button>
+            <button class="pill" id="btnModeSec" type="button">Section</button>
+            <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">mvp</span>
           </div>
-          <div class="pane-b" style="display:flex; flex-direction:column; gap:8px">
-            <div class="card" style="padding:8px">
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
-                <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Plan</div>
-                <button class="pill" id="btnPlanRot" type="button">Rotate</button>
-              </div>
-              <div class="row" style="margin-top:6px">
-                <span class="badge">Story 1</span>
-                <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
-              </div>
-              <div id="planHost" style="height:180px; margin-top:6px"></div>
+        </div>
+        <div class="pane-b" style="display:flex; flex-direction:column; gap:8px">
+          <div class="card" id="planCard" style="padding:8px">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+              <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Plan</div>
+              <button class="pill" id="btnPlanRot" type="button">Rotate</button>
             </div>
+            <div class="row" style="margin-top:6px">
+              <span class="badge">Story 1</span>
+              <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
+            </div>
+            <div id="planHost" style="height:380px; margin-top:6px"></div>
+          </div>
 
-            <div class="card" style="padding:8px">
-              <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Section</div>
-              <div class="row" style="margin-top:6px">
-                <select id="secDir" class="input" style="max-width:90px">
-                  <option value="X">X</option>
-                  <option value="Y">Y</option>
-                </select>
-                <select id="secLine" class="input" style="max-width:120px"></select>
-                <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
-              </div>
-              <div id="secHost" style="height:180px; margin-top:6px"></div>
+          <div class="card" id="secCard" style="padding:8px; display:none">
+            <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Section</div>
+            <div class="row" style="margin-top:6px">
+              <select id="secDir" class="input" style="max-width:90px">
+                <option value="X">X</option>
+                <option value="Y">Y</option>
+              </select>
+              <select id="secLine" class="input" style="max-width:120px"></select>
+              <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
             </div>
+            <div id="secHost" style="height:380px; margin-top:6px"></div>
           </div>
-        </section>
+        </div>
+      </section>
 
       <div class="splitterH" id="splitterH" title="Drag to resize quantities"></div>
 
