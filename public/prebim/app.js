@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0423';
+const BUILD = '20260209-0427';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0423'),
-    import('/prebim/app_profiles.js?v=20260209-0423'),
+    import('/prebim/engine.js?v=20260209-0427'),
+    import('/prebim/app_profiles.js?v=20260209-0427'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -70,8 +70,8 @@ function escapeHtml(s){
     .replaceAll("'",'&#39;');
 }
 
-function download(filename, text){
-  const blob = new Blob([text], {type:'application/json'});
+function download(filename, text, mime='application/json'){
+  const blob = new Blob([text], {type:mime});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -328,8 +328,10 @@ function renderEditor(projectId){
   setTopbarSubtitle(p.name || 'project');
   setTopbarActions(`
     <a class="pill" href="#/">Back</a>
+    <button class="pill" id="btnExportStaad" type="button">STAAD Export</button>
+    <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
+    <button class="pill" id="btnExportData" type="button">DATA Export</button>
     <button class="pill" id="btnSave" type="button">Save</button>
-    <button class="pill" id="btnHelp" type="button">Help</button>
   `);
 
   const root = document.getElementById('app');
@@ -544,7 +546,13 @@ function renderEditor(projectId){
       <div class="splitterH" id="splitterH" title="Drag to resize quantities"></div>
 
       <section class="pane qty qty-bottom">
-        <div class="pane-h"><b>Quantities</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">mvp · build ${BUILD}</span></div>
+        <div class="pane-h">
+          <b>Quantities</b>
+          <div class="row" style="margin-top:0; gap:6px">
+            <button class="pill" id="btnQtyCopy" type="button">Copy Excel</button>
+            <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">mvp · build ${BUILD}</span>
+          </div>
+        </div>
         <div class="pane-b" id="qty"></div>
       </section>
     </section>
@@ -687,6 +695,7 @@ function renderEditor(projectId){
 
     const view3dEl = document.getElementById('view3d');
     const qtyEl = document.getElementById('qty');
+    const btnQtyCopy = document.getElementById('btnQtyCopy');
     const planHost = document.getElementById('planHost');
     const secHost = document.getElementById('secHost');
     const secDirEl = document.getElementById('secDir');
@@ -1119,6 +1128,68 @@ function renderEditor(projectId){
     });
 
     let __applyTimer = 0;
+    let __lastQty = null;
+
+    const copyText = async (text) => {
+      try{
+        await navigator.clipboard.writeText(text);
+        return true;
+      }catch(e){
+        try{
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position='fixed';
+          ta.style.left='-9999px';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          const ok = document.execCommand('copy');
+          ta.remove();
+          return ok;
+        }catch{
+          return false;
+        }
+      }
+    };
+
+    const qtyToTSV = (q, model) => {
+      const prof = model?.profiles || {};
+      const pCol = __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'') || null;
+      const pBeam = __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'') || null;
+      const pSub = __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'') || null;
+      const pBrace = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'') || null;
+
+      const kindLabel = {
+        column: { cat:'Column', prof: pCol?.name || prof.colSize || '-' , kgm: pCol?.kgm ?? null },
+        beam: { cat:'Beam', prof: pBeam?.name || prof.beamSize || '-' , kgm: pBeam?.kgm ?? null },
+        subBeam: { cat:'Sub beam', prof: pSub?.name || prof.subSize || '-' , kgm: pSub?.kgm ?? null },
+        joist: { cat:'Joist', prof: pBeam?.name || prof.beamSize || '-' , kgm: pBeam?.kgm ?? null },
+        brace: { cat:'Brace', prof: pBrace?.name || prof.braceSize || '-' , kgm: pBrace?.kgm ?? null },
+      };
+
+      const rows = Object.entries(q.byKind)
+        .map(([kind, v]) => ({ kind, ...v }))
+        .sort((a,b)=>b.len-a.len)
+        .map(r => {
+          const meta = kindLabel[r.kind] || { cat:r.kind, prof:r.name || '-' , kgm: r.kgm ?? null };
+          const kgm = (r.kgm != null) ? r.kgm : meta.kgm;
+          const loadKg = (kgm!=null) ? (kgm * r.len) : null;
+          return [
+            meta.cat,
+            String(r.name || meta.prof),
+            r.len.toFixed(3),
+            String(r.count),
+            (kgm==null)?'':kgm.toFixed(2),
+            (loadKg==null)?'':loadKg.toFixed(1),
+            (loadKg==null)?'':(loadKg/1000).toFixed(3),
+          ];
+        });
+
+      const header = ['Category','Member type','Length (m)','Count','Unit wt (kg/m)','Load (kg)','Load (t)'];
+      const total = ['Total','',q.totalLen.toFixed(3), String(q.totalCount), '', (q.totalWeightKg??0).toFixed(1), ((q.totalWeightKg??0)/1000).toFixed(3) ];
+      return [header, ...rows, total].map(r => r.join('\t')).join('\n');
+    };
+
     const applyNow = (m) => {
       const members = __engine.generateMembers(m);
       view.setMembers(members, m);
@@ -1132,6 +1203,7 @@ function renderEditor(projectId){
       }catch(e){ console.warn('plan/section render failed', e); }
 
       const q = summarizeMembers(members, m);
+      __lastQty = q;
       if(qtyEl) qtyEl.innerHTML = renderQtyTable(q, m);
       const tw = document.getElementById('qtyTotalWeight');
       if(tw) tw.textContent = (q.totalWeightKg!=null && Number.isFinite(q.totalWeightKg)) ? `${q.totalWeightKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(q.totalWeightKg/1000).toFixed(3)} t)` : '-';
@@ -1152,6 +1224,88 @@ function renderEditor(projectId){
     };
 
     const apply = (m) => applyNow(m);
+
+    // Exports
+    const exportData = () => {
+      const m = getForm();
+      const payload = {
+        schema: 'prebim-data-v1',
+        exportedAt: new Date().toISOString(),
+        project: { id: p.id, name: p.name },
+        engineModel: m,
+      };
+      download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-data.json`, JSON.stringify(payload, null, 2));
+    };
+
+    const exportStaad = () => {
+      const m = getForm();
+      const members = __engine.generateMembers(m);
+
+      // unique joints
+      const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
+      const joints = new Map();
+      const jointList = [];
+      const ensureJoint = (pt) => {
+        const k = keyOf(pt);
+        if(joints.has(k)) return joints.get(k);
+        const id = jointList.length + 1;
+        joints.set(k, id);
+        jointList.push({ id, pt });
+        return id;
+      };
+
+      const memList = members.map((mem, idx) => {
+        const j1 = ensureJoint(mem.a);
+        const j2 = ensureJoint(mem.b);
+        return { id: idx+1, kind: mem.kind, j1, j2 };
+      });
+
+      const lines = [];
+      lines.push('* PREBIM STAAD export (MVP)');
+      lines.push(`* project: ${p.id} ${p.name||''}`.trim());
+      lines.push('STAAD SPACE');
+      lines.push('UNIT METER KN');
+      lines.push('JOINT COORDINATES');
+      for(const j of jointList){
+        lines.push(`${j.id} ${j.pt[0].toFixed(6)} ${j.pt[1].toFixed(6)} ${j.pt[2].toFixed(6)}`);
+      }
+      lines.push('MEMBER INCIDENCES');
+      for(const mm of memList){
+        lines.push(`${mm.id} ${mm.j1} ${mm.j2}`);
+      }
+      lines.push('FINISH');
+
+      download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-staad.std`, lines.join('\n'), 'text/plain');
+    };
+
+    const exportIfc = () => {
+      // Placeholder IFC (proper IFC export is a larger task)
+      const txt = [
+        'ISO-10303-21;',
+        'HEADER;',
+        "FILE_DESCRIPTION(('PREBIM IFC placeholder'),'2;1');",
+        `FILE_NAME('prebim.ifc','${new Date().toISOString()}',('prebim'),('prebim'),'prebim','prebim','');`,
+        "FILE_SCHEMA(('IFC4'));",
+        'ENDSEC;',
+        'DATA;',
+        'ENDSEC;',
+        'END-ISO-10303-21;'
+      ].join('\n');
+      download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}.ifc`, txt, 'application/octet-stream');
+      alert('IFC Export is currently a placeholder file (IFC4 header only).');
+    };
+
+    document.getElementById('btnExportData')?.addEventListener('click', exportData);
+    document.getElementById('btnExportStaad')?.addEventListener('click', exportStaad);
+    document.getElementById('btnExportIfc')?.addEventListener('click', exportIfc);
+
+    // copy quantities to clipboard (Excel-friendly TSV)
+    btnQtyCopy?.addEventListener('click', async () => {
+      const q = __lastQty;
+      if(!q){ alert('No quantities yet'); return; }
+      const ok = await copyText(qtyToTSV(q, getForm()));
+      if(!ok) alert('Copy failed');
+    });
 
     apply(engineModel);
 
@@ -1326,14 +1480,7 @@ function renderEditor(projectId){
       }
     });
 
-    document.getElementById('btnHelp')?.addEventListener('click', () => {
-      alert(
-        `PRE BIM (MVP)\n\n`+
-        `- Project picker + fullscreen editor layout\n`+
-        `- Engine v0: frame generator rendered as lines\n\n`+
-        `Next: port full Steel Structure Draft features + profiles/export.`
-      );
-    });
+    // Help button removed
   })();
 }
 
