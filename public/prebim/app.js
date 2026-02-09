@@ -4,6 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
+const BUILD = '20260209-0342';
 
 // lazy-loaded deps
 let __three = null;
@@ -18,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0338'),
-    import('/prebim/app_profiles.js?v=20260209-0338'),
+    import('/prebim/engine.js?v=20260209-0342'),
+    import('/prebim/app_profiles.js?v=20260209-0342'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -522,6 +523,7 @@ function renderEditor(projectId){
         <div class="pane-b">
           <div class="note" style="margin-top:0">Use the Bracing / Override buttons on the 3D View header.</div>
           <div class="note">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
+          <div class="note">Build: <span class="mono">${BUILD}</span></div>
           <div class="card panel" style="margin-top:10px; padding:10px">
             <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Quantities (total)</div>
             <div style="display:flex; justify-content:space-between; gap:10px; margin-top:6px">

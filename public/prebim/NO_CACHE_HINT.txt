@@ -1,0 +1,4 @@
+If you see stale UI even after hard refresh:
+1) Open: /prebim/?v=<timestamp>#/editor/<id>
+   (Querystring before # helps bypass CDN caches)
+2) Or open in Incognito.
