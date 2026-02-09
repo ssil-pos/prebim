@@ -11,7 +11,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEY_PATH="$ROOT_DIR/.keys/prebim_deploy_ed25519"
-DEST_DIR="/var/www/sengvis-playground/prebim"
+DEST_DIR="/var/www/ssil_prebim/prebim"
 BACKUP_DIR="/root/clawd-dev/backups/prebim"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
