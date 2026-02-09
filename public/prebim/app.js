@@ -18,8 +18,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0305'),
-    import('/prebim/app_profiles.js?v=20260209-0305'),
+    import('/prebim/engine.js?v=20260209-0315'),
+    import('/prebim/app_profiles.js?v=20260209-0315'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -442,6 +442,8 @@ function renderEditor(projectId){
         <div class="pane-h">
           <b>3D View</b>
           <div class="row" style="margin-top:0; gap:6px">
+            <button class="pill" id="btn3dReal" type="button">Realistic</button>
+            <button class="pill" id="btn3dOutline" type="button">Outline</button>
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
           </div>
@@ -672,6 +674,10 @@ function renderEditor(projectId){
     const qtyEl = document.getElementById('qty');
 
     const view = await createThreeView(view3dEl);
+
+    // 3D toggles
+    document.getElementById('btn3dReal')?.addEventListener('click', () => view.toggleRealistic?.());
+    document.getElementById('btn3dOutline')?.addEventListener('click', () => view.toggleOutline?.());
 
     // popovers
     const popBr = document.getElementById('popBr');
@@ -952,6 +958,9 @@ async function createThreeView(container){
   const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
   renderer.setSize(w, h);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   container.appendChild(renderer.domElement);
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -963,9 +972,11 @@ async function createThreeView(container){
   let hasCentered = false;
 
   // lights
-  scene.add(new THREE.AmbientLight(0xffffff, 0.95));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(10, 20, 10);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xb9d6ff, 0.75);
+  scene.add(hemi);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.05);
+  dir.position.set(12, 18, 8);
   scene.add(dir);
 
   // helpers
@@ -1015,22 +1026,42 @@ async function createThreeView(container){
   };
 
   function parseProfileDimsMm(name){
-    const s = String(name||'').trim();
-    // H/I commonly: d x b x tw x tf
-    const m4 = s.match(/^(H|I)\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
-    if(m4){
-      const shape = m4[1].toUpperCase();
-      const d = parseFloat(m4[2]);
-      const b = parseFloat(m4[3]);
-      const tw = parseFloat(m4[4]);
-      const tf = parseFloat(m4[5]);
-      return { shape, d, b, tw, tf };
+    const s = String(name||'').trim().replaceAll('X','x');
+    const shapeKey = (s.split(/\s+/)[0] || 'BOX').toUpperCase();
+
+    // H/I: d x b x tw x tf
+    const mHI = s.match(/^(H|I)\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mHI){
+      return { shape: mHI[1].toUpperCase(), d:+mHI[2], b:+mHI[3], tw:+mHI[4], tf:+mHI[5], lip:0 };
     }
-    // fallback: first two dims
+
+    // C: d x b x tw x tf
+    const mC = s.match(/^C\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mC){
+      return { shape:'C', d:+mC[1], b:+mC[2], tw:+mC[3], tf:+mC[4], lip:0 };
+    }
+
+    // LC: d x b x lip x t
+    const mLC = s.match(/^LC\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mLC){
+      const d=+mLC[1], b=+mLC[2], lip=+mLC[3], t=+mLC[4];
+      return { shape:'LC', d, b, tw:t, tf:t, lip };
+    }
+
+    // T: b x d (heuristic)
+    const mT2 = s.match(/^T\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mT2){
+      const b=+mT2[1], d=+mT2[2];
+      const t = Math.max(6, Math.min(b,d)*0.10);
+      return { shape:'T', d, b, tw:t, tf:t, lip:0 };
+    }
+
+    // fallback: first two dims -> box
     const m2 = s.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
     const d = m2 ? parseFloat(m2[1]) : 150;
     const b = m2 ? parseFloat(m2[2]) : 150;
-    return { shape: s.split(/\s+/)[0]?.toUpperCase() || 'BOX', d, b, tw: Math.max(6, b*0.06), tf: Math.max(6, d*0.06) };
+    const t = Math.max(6, Math.min(b,d)*0.08);
+    return { shape: shapeKey, d, b, tw:t, tf:t, lip:0 };
   }
 
   function memberProfileName(kind, model, memberId){
@@ -1142,34 +1173,121 @@ async function createThreeView(container){
         const meshMat = mat.clone();
 
         const makeSectionAlongZ = () => {
-          // Create geometry with LENGTH along local Z.
-          if((dims.shape === 'H' || dims.shape === 'I') && __threeUtils?.mergeGeometries){
+          if(!__threeUtils?.mergeGeometries) return new THREE.BoxGeometry(b, d, len);
+          const geoms = [];
+
+          if(dims.shape === 'H' || dims.shape === 'I'){
             const webH = Math.max(1e-6, d - 2*tf);
-            const geoms = [];
-            // flanges
             const gTop = new THREE.BoxGeometry(b, tf, len);
             gTop.translate(0, (d - tf)/2, 0);
             const gBot = new THREE.BoxGeometry(b, tf, len);
             gBot.translate(0, -(d - tf)/2, 0);
-            // web
             const gWeb = new THREE.BoxGeometry(tw, webH, len);
             geoms.push(gTop, gBot, gWeb);
             return __threeUtils.mergeGeometries(geoms, false);
           }
-          // fallback box
+
+          if(dims.shape === 'T'){
+            const stemH = Math.max(1e-6, d - tf);
+            const gFl = new THREE.BoxGeometry(b, tf, len);
+            gFl.translate(0, (d - tf)/2, 0);
+            const gStem = new THREE.BoxGeometry(tw, stemH, len);
+            gStem.translate(0, -(tf)/2, 0);
+            geoms.push(gFl, gStem);
+            return __threeUtils.mergeGeometries(geoms, false);
+          }
+
+          if(dims.shape === 'C' || dims.shape === 'LC'){
+            // Channel centered around x=0, opening to +x
+            const webH = Math.max(1e-6, d - 2*tf);
+            const gWeb = new THREE.BoxGeometry(tw, webH, len);
+            gWeb.translate(-(b/2) + (tw/2), 0, 0);
+            const gTop = new THREE.BoxGeometry(b, tf, len);
+            gTop.translate(0, (d - tf)/2, 0);
+            const gBot = new THREE.BoxGeometry(b, tf, len);
+            gBot.translate(0, -(d - tf)/2, 0);
+            geoms.push(gWeb, gTop, gBot);
+            if(dims.shape === 'LC' && dims.lip > 0){
+              const lip = (dims.lip/1000);
+              const gLipT = new THREE.BoxGeometry(tw, lip, len);
+              gLipT.translate((b/2) - (tw/2), (d/2) - (tf) - (lip/2), 0);
+              const gLipB = new THREE.BoxGeometry(tw, lip, len);
+              gLipB.translate((b/2) - (tw/2), -(d/2) + (tf) + (lip/2), 0);
+              geoms.push(gLipT, gLipB);
+            }
+            return __threeUtils.mergeGeometries(geoms, false);
+          }
+
           return new THREE.BoxGeometry(b, d, len);
+        };
+
+        const makeSectionAlongY = () => {
+          // Same section but with LENGTH along local Y (for columns)
+          if(!__threeUtils?.mergeGeometries) return new THREE.BoxGeometry(b, len, d);
+          const geoms = [];
+
+          if(dims.shape === 'H' || dims.shape === 'I'){
+            const webH = Math.max(1e-6, d - 2*tf);
+            const gTop = new THREE.BoxGeometry(b, len, tf);
+            gTop.translate(0, 0, (d - tf)/2);
+            const gBot = new THREE.BoxGeometry(b, len, tf);
+            gBot.translate(0, 0, -(d - tf)/2);
+            const gWeb = new THREE.BoxGeometry(tw, len, webH);
+            geoms.push(gTop, gBot, gWeb);
+            return __threeUtils.mergeGeometries(geoms, false);
+          }
+
+          if(dims.shape === 'T'){
+            const stemH = Math.max(1e-6, d - tf);
+            const gFl = new THREE.BoxGeometry(b, len, tf);
+            gFl.translate(0, 0, (d - tf)/2);
+            const gStem = new THREE.BoxGeometry(tw, len, stemH);
+            gStem.translate(0, 0, -(tf)/2);
+            geoms.push(gFl, gStem);
+            return __threeUtils.mergeGeometries(geoms, false);
+          }
+
+          if(dims.shape === 'C' || dims.shape === 'LC'){
+            const webH = Math.max(1e-6, d - 2*tf);
+            const gWeb = new THREE.BoxGeometry(tw, len, webH);
+            gWeb.translate(-(b/2) + (tw/2), 0, 0);
+            const gTop = new THREE.BoxGeometry(b, len, tf);
+            gTop.translate(0, 0, (d - tf)/2);
+            const gBot = new THREE.BoxGeometry(b, len, tf);
+            gBot.translate(0, 0, -(d - tf)/2);
+            geoms.push(gWeb, gTop, gBot);
+            if(dims.shape === 'LC' && dims.lip > 0){
+              const lip = (dims.lip/1000);
+              const gLipT = new THREE.BoxGeometry(tw, len, lip);
+              gLipT.translate((b/2) - (tw/2), 0, (d/2) - tf - (lip/2));
+              const gLipB = new THREE.BoxGeometry(tw, len, lip);
+              gLipB.translate((b/2) - (tw/2), 0, -(d/2) + tf + (lip/2));
+              geoms.push(gLipT, gLipB);
+            }
+            return __threeUtils.mergeGeometries(geoms, false);
+          }
+
+          return new THREE.BoxGeometry(b, len, d);
         };
 
         const isMostlyVertical = Math.abs(dir.y) > 0.85;
         if(isMostlyVertical){
-          // Column: orient along dir (local Y)
-          const geom = new THREE.BoxGeometry(b, len, d);
+          // Column: use real section geometry, length along local Y
+          const geom = makeSectionAlongY();
           const mesh = new THREE.Mesh(geom, meshMat);
           quat.setFromUnitVectors(yAxis, dir);
           mesh.quaternion.copy(quat);
           mesh.position.copy(mid);
           mesh.userData.memberId = mem.id;
           mesh.userData.kind = mem.kind;
+
+          try{
+            const e = new THREE.LineSegments(new THREE.EdgesGeometry(geom, 12), new THREE.LineBasicMaterial({ color:0x0b1b3a, transparent:true, opacity:0.22 }));
+            e.visible = outlines;
+            e.userData.isEdge = true;
+            mesh.add(e);
+          }catch{}
+
           group.add(mesh);
         } else {
           // Beam/sub-beam: section vertical (world Y), length along dir
@@ -1308,6 +1426,24 @@ async function createThreeView(container){
   let onSel = null;
   function onSelectionChange(fn){ onSel = fn; }
 
+  let realistic = false;
+  let outlines = true;
+
+  function toggleRealistic(){
+    realistic = !realistic;
+    scene.background = new THREE.Color(realistic ? 0xf7f8fb : 0xffffff);
+    renderer.toneMappingExposure = realistic ? 1.15 : 1.05;
+  }
+
+  function toggleOutline(){
+    outlines = !outlines;
+    group.traverse(obj => {
+      if(obj.userData && obj.userData.isEdge){
+        obj.visible = outlines;
+      }
+    });
+  }
+
   return {
     setMembers,
     setBraceMode,
@@ -1315,7 +1451,10 @@ async function createThreeView(container){
     getSelection,
     clearSelection,
     onSelectionChange,
+    toggleRealistic,
+    toggleOutline,
     dispose(){
+
       cancelAnimationFrame(raf);
       ro.disconnect();
       renderer.domElement.removeEventListener('pointerdown', pick);
