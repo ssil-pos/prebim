@@ -551,15 +551,23 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
     supports = [{ nodeId: jointList[0].id, fix: { DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }];
   }
 
+  // Load cases
+  const caseD = { name:'D', selfweightY: -1.0, memberUDL: [] };
+  const caseL = { name:'L', selfweightY: 0.0, memberUDL: liveLoads };
+
+  // Basic combos (factors can be extended later)
+  const combos = [
+    { name:'D', factors:{ D:1.0 } },
+    { name:'D+L', factors:{ D:1.0, L:1.0 } },
+  ];
+
   return {
     units: { length:'m', force:'kN' },
     nodes,
     members: amembers,
     supports,
-    loads: {
-      selfweightY: -1,
-      memberUDL: liveLoads,
-    }
+    cases: [caseD, caseL],
+    combos,
   };
 }
 
@@ -610,6 +618,7 @@ function renderAnalysis(projectId){
             <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
           </div>
           <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
+          <div id="analysisResults"></div>
         </div>
       </aside>
 
@@ -669,6 +678,51 @@ function renderAnalysis(projectId){
       if(el) el.textContent = 'status: ' + t;
     };
 
+    const renderResultsTable = (res) => {
+      const host = document.getElementById('analysisResults');
+      if(!host) return;
+      if(!res || res.ok !== true){ host.innerHTML=''; return; }
+
+      const maxDisp = Number(res?.maxDisp?.value)||0;
+      const maxNode = res?.maxDisp?.nodeId||'';
+      const mems = res?.members || {};
+      const rows = Object.values(mems);
+      rows.sort((a,b) => (b?.maxAbs?.Mz||0) - (a?.maxAbs?.Mz||0));
+      const top = rows.slice(0, 50);
+
+      host.innerHTML = `
+        <div class="note" style="margin-top:10px"><b>Summary</b></div>
+        <div class="mono" style="font-size:12px; margin-top:6px">combo: ${(res.combo||'-')}</div>
+        <div class="mono" style="font-size:12px; margin-top:4px">max disp: ${maxDisp.toFixed(6)} m @ node ${escapeHtml(maxNode)}</div>
+
+        <div class="note" style="margin-top:10px"><b>Members (top by |Mz|)</b> <span class="mono" style="opacity:.65">(showing ${top.length}/${rows.length})</span></div>
+        <div style="overflow:auto; margin-top:6px; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
+          <table class="table" style="min-width:520px">
+            <thead><tr>
+              <th>id</th>
+              <th class="r">|N|</th>
+              <th class="r">|Vy|</th>
+              <th class="r">|Vz|</th>
+              <th class="r">|My|</th>
+              <th class="r">|Mz|</th>
+            </tr></thead>
+            <tbody>
+              ${top.map(r => `
+                <tr>
+                  <td class="mono">${escapeHtml(String(r.id))}</td>
+                  <td class="r mono">${(Number(r?.maxAbs?.N)||0).toFixed(3)}</td>
+                  <td class="r mono">${(Number(r?.maxAbs?.Vy)||0).toFixed(3)}</td>
+                  <td class="r mono">${(Number(r?.maxAbs?.Vz)||0).toFixed(3)}</td>
+                  <td class="r mono">${(Number(r?.maxAbs?.My)||0).toFixed(3)}</td>
+                  <td class="r mono">${(Number(r?.maxAbs?.Mz)||0).toFixed(3)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    };
+
     const run = async () => {
       setStatus('building payload…');
       const ov = document.getElementById('analysisOverlay');
@@ -678,7 +732,6 @@ function renderAnalysis(projectId){
         const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
         const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
 
-        // build payload (reuse logic from STAAD export style)
         const payload = buildAnalysisPayload(model, qLive, supportMode);
         setStatus('calling solver…');
 
@@ -692,6 +745,7 @@ function renderAnalysis(projectId){
         if(!res || res.ok !== true){
           alert(res?.note || 'Analysis failed.');
           setStatus('failed');
+          renderResultsTable(null);
           return;
         }
 
@@ -700,9 +754,9 @@ function renderAnalysis(projectId){
         const sc = Number(document.getElementById('analysisScale2')?.value || 120);
         view.setAnalysisScale?.(sc);
 
-        // mark support nodes in 3D
         view.setSupportMarkers?.(payload.supports, payload.nodes, supportMode);
 
+        renderResultsTable(res);
         setStatus(`done (max ${(Number(res?.maxDisp?.value)||0).toFixed(6)} m)`);
       } catch (e) {
         console.error(e);
