@@ -1555,12 +1555,36 @@ function renderEditor(projectId){
         return { A, Iy, Iz, J };
       };
 
-      const sectionPropsMmFromMember = (kind, memObj) => {
-        let profName = memberProfileName(kind, m, memObj.id);
-        if(kind==='brace' && memObj.profile && typeof memObj.profile==='object'){
-          const pr = memObj.profile;
-          profName = __profiles?.getProfile?.(pr.stdKey||m.profiles?.stdAll||'KS', pr.shapeKey||m.profiles?.braceShape||'L', pr.sizeKey||m.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
+      const memberProfileNameLocal = (kind, model, memberId, memObj) => {
+        const prof = model?.profiles || {};
+        const overrides = model?.overrides || window.__prebimOverrides || {};
+        const ov = overrides?.[memberId] || null;
+
+        if(kind === 'column'){
+          if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')?.name || ov.sizeKey || '';
+          return __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'')?.name || prof.colSize || '';
         }
+        if(kind === 'beamX' || kind === 'beamY'){
+          if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')?.name || ov.sizeKey || '';
+          return __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'')?.name || prof.beamSize || '';
+        }
+        if(kind === 'subBeam'){
+          if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')?.name || ov.sizeKey || '';
+          return __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'')?.name || prof.subSize || '';
+        }
+        if(kind === 'brace'){
+          // brace may snapshot its own profile per panel
+          if(memObj?.profile && typeof memObj.profile === 'object'){
+            const pr = memObj.profile;
+            return __profiles?.getProfile?.(pr.stdKey||prof.stdAll||'KS', pr.shapeKey||prof.braceShape||'L', pr.sizeKey||prof.braceSize||'')?.name || pr.sizeKey || '';
+          }
+          return __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'')?.name || prof.braceSize || '';
+        }
+        return '';
+      };
+
+      const sectionPropsMmFromMember = (kind, memObj) => {
+        const profName = memberProfileNameLocal(kind, m, memObj.id, memObj);
         const d = parseProfileDimsMm(profName);
         const depth = Math.max(30, d.d||150);
         const width = Math.max(30, d.b||150);
