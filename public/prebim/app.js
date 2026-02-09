@@ -18,8 +18,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0324'),
-    import('/prebim/app_profiles.js?v=20260209-0324'),
+    import('/prebim/engine.js?v=20260209-0316'),
+    import('/prebim/app_profiles.js?v=20260209-0316'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1014,7 +1014,7 @@ async function createThreeView(container){
   const selected = new Set();
 
   const matByKind = {
-    column: new THREE.MeshStandardMaterial({ color: 0x334155, roughness:0.55, metalness:0.25 }),
+    column: new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness:0.55, metalness:0.25 }),
     beamX: new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness:0.55, metalness:0.22 }),
     beamY: new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness:0.55, metalness:0.22 }),
     subBeam: new THREE.MeshStandardMaterial({ color: 0xa78bfa, roughness:0.60, metalness:0.18 }),
