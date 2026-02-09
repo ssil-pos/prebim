@@ -604,8 +604,8 @@ function renderAnalysis(projectId){
   setTopbarSubtitle((p.name || 'project') + ' · analysis');
   document.title = `PreBIM-SteelStructure — ${p.name || 'project'} (Analysis)`;
   setTopbarActions(`
-    <a class="pill" href="#/editor/${encodeURIComponent(p.id)}">Back to editor</a>
-    <button class="pill" id="btnRunAnalysis" type="button">Run analysis</button>
+    <a class="pill" href="#/editor/${encodeURIComponent(p.id)}">Back</a>
+    <button class="pill" id="btnRunAnalysis" type="button">Run</button>
   `);
 
   const root = document.getElementById('app');
@@ -613,18 +613,9 @@ function renderAnalysis(projectId){
 
   root.innerHTML = `
     <section class="analysis-layout" aria-label="Analysis">
-      <aside class="pane tools">
-        <div class="pane-h"><b>Analysis</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">${BUILD}</span></div>
+      <aside class="pane tools" aria-label="Results">
+        <div class="pane-h"><b>Results</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">${BUILD}</span></div>
         <div class="pane-b">
-          <div class="note">This page is read-only. Change geometry in the Editor.</div>
-          <div class="note" style="margin-top:8px">Support mode is applied when you click <b>Run analysis</b>.</div>
-          <div class="note" style="margin-top:8px">Results: deformed shape + displacement colormap.</div>
-          <div class="row" style="margin-top:10px">
-            <label class="label" style="margin:0">Deformation scale</label>
-            <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
-          </div>
-
-          <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
           <div id="analysisResults"></div>
         </div>
       </aside>
@@ -673,11 +664,17 @@ function renderAnalysis(projectId){
 
           <label class="label">Supports (node ids)</label>
           <input class="input" id="supportNodes" placeholder="e.g. 1,2,3" />
+
+          <label class="label">Deformation scale</label>
+          <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
+
+          <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
+
           <div class="row" style="margin-top:8px; gap:8px">
             <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
             <button class="btn" id="btnHudRun" type="button">Run</button>
           </div>
-          <div class="note">Change settings then click <b>Run</b>.</div>
+          <div class="note">Read-only page. Edit geometry in Editor.</div>
         </div>
       </aside>
     </section>
