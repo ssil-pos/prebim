@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0255'),
-    import('/prebim/app_profiles.js?v=20260209-0255'),
+    import('/prebim/engine.js?v=20260209-0257'),
+    import('/prebim/app_profiles.js?v=20260209-0257'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1126,16 +1126,35 @@ async function createThreeView(container){
         const w = (dims.w/1000);
         const h = (dims.h/1000);
 
-        // box oriented along dir (Y axis)
-        const geom = new THREE.BoxGeometry(w, len, h);
-        const mesh = new THREE.Mesh(geom, mat.clone());
-        quat.setFromUnitVectors(yAxis, dir);
-        mesh.quaternion.copy(quat);
-        mesh.position.copy(mid);
+        const meshMat = mat.clone();
 
-        mesh.userData.memberId = mem.id;
-        mesh.userData.kind = mem.kind;
-        group.add(mesh);
+        // Vertical columns: keep along world Y.
+        // Horizontal beams: keep section vertical (world Y) and align length to dir.
+        const isMostlyVertical = Math.abs(dir.y) > 0.85;
+        if(isMostlyVertical){
+          // box oriented along dir (Y axis)
+          const geom = new THREE.BoxGeometry(w, len, h);
+          const mesh = new THREE.Mesh(geom, meshMat);
+          quat.setFromUnitVectors(yAxis, dir);
+          mesh.quaternion.copy(quat);
+          mesh.position.copy(mid);
+          mesh.userData.memberId = mem.id;
+          mesh.userData.kind = mem.kind;
+          group.add(mesh);
+        } else {
+          // beam/sub-beam: length along dir, height along world Y
+          const zAxis = new THREE.Vector3(0,0,1);
+          const geom = new THREE.BoxGeometry(w, h, len);
+          const mesh = new THREE.Mesh(geom, meshMat);
+          quat.setFromUnitVectors(zAxis, dir);
+          mesh.quaternion.copy(quat);
+          // place so TOP of member is on level line (member endpoints are on level)
+          mesh.position.copy(mid);
+          mesh.position.y -= (h/2);
+          mesh.userData.memberId = mem.id;
+          mesh.userData.kind = mem.kind;
+          group.add(mesh);
+        }
       } else {
         const geom = new THREE.BufferGeometry().setFromPoints([vA.clone(), vB.clone()]);
         const line = new THREE.Line(geom, mat);
