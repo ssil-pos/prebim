@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0640';
+const BUILD = '20260209-0655';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0640'),
-    import('/prebim/app_profiles.js?v=20260209-0640'),
+    import('/prebim/engine.js?v=20260209-0655'),
+    import('/prebim/app_profiles.js?v=20260209-0655'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1402,6 +1402,8 @@ function renderEditor(projectId){
     };
 
     const applyNow = (m) => {
+      __curModel = m;
+      updateUndoRedoUI();
       const members = __engine.generateMembers(m);
       view.setMembers(members, m);
 
@@ -1511,8 +1513,29 @@ function renderEditor(projectId){
       '1',String(text)
     ];
 
+    const dxfLwPolyline = (pts, layer='0', closed=false, constWidth=null) => {
+      const out = ['0','LWPOLYLINE','8',layer,'90',String(pts.length),'70',closed?'1':'0'];
+      if(constWidth!=null) out.push('43', String(constWidth));
+      for(const [x,y] of pts){
+        out.push('10',String(x),'20',String(y));
+      }
+      return out;
+    };
+
     const exportDxf = () => {
       const m = getForm();
+
+      const getDimsMm = (mem) => {
+        let profName = memberProfileName(mem.kind, m, mem.id);
+        if(mem.kind === 'brace' && mem.profile && typeof mem.profile === 'object'){
+          const pr = mem.profile;
+          profName = __profiles?.getProfile?.(pr.stdKey||m.profiles?.stdAll||'KS', pr.shapeKey||m.profiles?.braceShape||'L', pr.sizeKey||m.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
+        }
+        const d = parseProfileDimsMm(profName);
+        // parseProfileDimsMm returns meters-based dims elsewhere; here it returns mm via d/b/t, but stored in d/b
+        // In our parseProfileDimsMm, d and b are in mm.
+        return { b: Math.max(30, d.b||150), d: Math.max(30, d.d||150) };
+      };
       const spansX = m.grid?.spansXmm || [];
       const spansY = m.grid?.spansYmm || [];
       const xs=[0], ys=[0];
@@ -1563,18 +1586,37 @@ function renderEditor(projectId){
       out.push(...dxfLine(dimX, yMax, dimX2 - ext, yMax, 'DIM'));
       out.push(...dxfText(dimX2 + txtH*0.15, yMax/2, txtH, String(yMax), 'DIMTXT'));
 
-      // Member centerlines for Story 1 (layer MEMBER)
+      // Members for Story 1 (layer MEMBER) using approximate real profile widths
       const members = __engine.generateMembers(m);
       const yPlan = (m.levels?.[1] ?? 0);
       for(const mem of members){
-        if(mem.kind === 'column') continue;
         // use members that touch story1 level (simple filter)
         const aYmm = mem.a[1]*1000;
         const bYmm = mem.b[1]*1000;
-        if(Math.abs(aYmm - yPlan) > 1 && Math.abs(bYmm - yPlan) > 1) continue;
+        if(mem.kind !== 'column' && (Math.abs(aYmm - yPlan) > 1 && Math.abs(bYmm - yPlan) > 1)) continue;
+
+        if(mem.kind === 'column'){
+          // column section outline at plan (rectangle b×d)
+          const dims = getDimsMm(mem);
+          const cx = mem.a[0]*1000;
+          const cy = mem.a[2]*1000;
+          const hw = dims.b/2;
+          const hd = dims.d/2;
+          out.push(...dxfLwPolyline([
+            [cx-hw, cy-hd],
+            [cx+hw, cy-hd],
+            [cx+hw, cy+hd],
+            [cx-hw, cy+hd],
+          ], 'COLUMN', true));
+          continue;
+        }
+
+        // beam/sub/brace centerline with constant width = b
+        const dims = getDimsMm(mem);
         const x1 = mem.a[0]*1000, y1 = mem.a[2]*1000;
         const x2 = mem.b[0]*1000, y2 = mem.b[2]*1000;
-        out.push(...dxfLine(x1,y1,x2,y2,'MEMBER'));
+        const layer = (mem.kind==='beamX' || mem.kind==='beamY') ? 'BEAM' : (mem.kind==='subBeam' ? 'SUBBEAM' : (mem.kind==='brace' ? 'BRACE' : 'MEMBER'));
+        out.push(...dxfLwPolyline([[x1,y1],[x2,y2]], layer, false, dims.b));
       }
 
       // Section level dims (right side)
@@ -1635,11 +1677,13 @@ function renderEditor(projectId){
       if(!ok) alert('Copy failed');
     });
 
+    updateUndoRedoUI();
     apply(engineModel);
 
     // bracing panel selection mode (3D)
 
     const toggleBrace = (pick) => {
+      armHistory();
       const braces = Array.isArray(window.__prebimBraces) ? window.__prebimBraces : [];
       const idx = braces.findIndex(b => b.axis===pick.axis && b.line===pick.line && b.story===pick.story && b.bay===pick.bay);
       if(idx >= 0) braces.splice(idx,1);
@@ -1668,10 +1712,75 @@ function renderEditor(projectId){
 
     // Apply buttons removed; everything is realtime
 
+    // Undo/Redo (model edits only)
+    let __curModel = engineModel;
+    const __hist = [];
+    const __redo = [];
+    let __histTimer = 0;
+    let __histArmed = false;
+
+    const pushHistory = () => {
+      if(!__curModel) return;
+      __hist.push(structuredClone(__curModel));
+      if(__hist.length > 60) __hist.shift();
+      __redo.length = 0;
+      __histArmed = false;
+      updateUndoRedoUI();
+    };
+
+    const armHistory = () => {
+      if(__histArmed) return;
+      __histArmed = true;
+      // coalesce rapid edits
+      clearTimeout(__histTimer);
+      __histTimer = setTimeout(() => pushHistory(), 450);
+    };
+
+    const updateUndoRedoUI = () => {
+      const bu = document.getElementById('btnUndo');
+      const br = document.getElementById('btnRedo');
+      if(bu) bu.disabled = __hist.length === 0;
+      if(br) br.disabled = __redo.length === 0;
+    };
+
+    const restoreModel = (m) => {
+      const nm = __engine.normalizeModel(m);
+      window.__prebimBraces = Array.isArray(nm.braces) ? nm.braces.slice() : [];
+      window.__prebimOverrides = (nm.overrides && typeof nm.overrides==='object') ? structuredClone(nm.overrides) : {};
+      setForm(nm);
+      apply(nm);
+      __curModel = nm;
+      updateUndoRedoUI();
+    };
+
+    const undo = () => {
+      if(!__hist.length) return;
+      __redo.push(structuredClone(__curModel));
+      const prev = __hist.pop();
+      restoreModel(prev);
+    };
+
+    const redo = () => {
+      if(!__redo.length) return;
+      __hist.push(structuredClone(__curModel));
+      const next = __redo.pop();
+      restoreModel(next);
+    };
+
+    document.getElementById('btnUndo')?.addEventListener('click', undo);
+    document.getElementById('btnRedo')?.addEventListener('click', redo);
+
+    window.addEventListener('keydown', (ev) => {
+      const k = ev.key?.toLowerCase?.();
+      if(!(ev.ctrlKey || ev.metaKey)) return;
+      if(k === 'z' && !ev.shiftKey){ ev.preventDefault(); undo(); }
+      else if((k === 'y') || (k === 'z' && ev.shiftKey)){ ev.preventDefault(); redo(); }
+    });
+
     // Realtime auto-apply
     const wireRealtime = (id, ev='input') => {
       const el = document.getElementById(id);
-      el?.addEventListener(ev, () => scheduleApply());
+      el?.addEventListener(ev, () => { armHistory(); scheduleApply(); });
     };
 
     // grid
