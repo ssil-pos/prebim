@@ -1,10 +1,9 @@
-/* prebim app shell
- * Phase 0-1: project picker + fullscreen editor skeleton.
- * Future: replace storage with account-backed API.
+/* PreBIM‑SteelStructure
+ * Web-based steel structure concept modeler.
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0540';
+const BUILD = '20260209-0545';
 
 // lazy-loaded deps
 let __three = null;
@@ -21,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0540'),
-    import('/prebim/app_profiles.js?v=20260209-0540'),
+    import('/prebim/engine.js?v=20260209-0545'),
+    import('/prebim/app_profiles.js?v=20260209-0545'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -175,8 +174,8 @@ function renderProjects(){
     </section>
 
     <div class="footer">
-      <div>© 2026 prebim · app shell</div>
-      <div class="mono">/prebim · project picker · schema v1</div>
+      <div>© 2026 PreBIM‑SteelStructure</div>
+      <div class="mono">Steel structure pre‑design</div>
     </div>
   `;
 
