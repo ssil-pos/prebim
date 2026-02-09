@@ -91,6 +91,11 @@ export function normalizeModel(m){
           story: Math.max(0, parseInt(b.story,10)||0),
           bay: Math.max(0, parseInt(b.bay,10)||0),
           kind: (b.kind === 'S' || b.kind === 'HAT') ? b.kind : 'X',
+          profile: (b.profile && typeof b.profile === 'object') ? {
+            stdKey: String(b.profile.stdKey||''),
+            shapeKey: String(b.profile.shapeKey||''),
+            sizeKey: String(b.profile.sizeKey||''),
+          } : undefined,
         };
       }
 
@@ -100,6 +105,11 @@ export function normalizeModel(m){
         story: Math.max(0, parseInt(b.story,10)||0),
         bay: Math.max(0, parseInt(b.bay,10)||0),
         kind: (b.kind === 'S' || b.kind === 'HAT') ? b.kind : 'X',
+        profile: (b.profile && typeof b.profile === 'object') ? {
+          stdKey: String(b.profile.stdKey||''),
+          shapeKey: String(b.profile.shapeKey||''),
+          sizeKey: String(b.profile.sizeKey||''),
+        } : undefined,
       };
     });
 
@@ -211,19 +221,19 @@ export function generateMembers(model){
         const kind = br.kind || m.options.bracing.type;
         if(kind === 'S'){
           // single diagonal
-          members.push({ id:`braceS:${key}`, kind:'brace', a, b });
+          members.push({ id:`braceS:${key}`, kind:'brace', a, b, profile: br.profile });
           return;
         }
         if(kind === 'HAT'){
           // chevron (ㅅ): two diagonals meeting at mid-top
           const midTop = [ (a[0]+c[0])/2, z1, (a[2]+c[2])/2 ];
-          members.push({ id:`braceH1:${key}`, kind:'brace', a, b: midTop });
-          members.push({ id:`braceH2:${key}`, kind:'brace', a: c, b: midTop });
+          members.push({ id:`braceH1:${key}`, kind:'brace', a, b: midTop, profile: br.profile });
+          members.push({ id:`braceH2:${key}`, kind:'brace', a: c, b: midTop, profile: br.profile });
           return;
         }
         // X-brace
-        members.push({ id:`braceX1:${key}`, kind:'brace', a, b });
-        members.push({ id:`braceX2:${key}`, kind:'brace', a: c, b: d });
+        members.push({ id:`braceX1:${key}`, kind:'brace', a, b, profile: br.profile });
+        members.push({ id:`braceX2:${key}`, kind:'brace', a: c, b: d, profile: br.profile });
       };
 
       if(br.axis === 'Y'){

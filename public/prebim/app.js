@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0342';
+const BUILD = '20260209-0350';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0342'),
-    import('/prebim/app_profiles.js?v=20260209-0342'),
+    import('/prebim/engine.js?v=20260209-0350'),
+    import('/prebim/app_profiles.js?v=20260209-0350'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -463,8 +463,7 @@ function renderEditor(projectId){
             </select>
           </div>
           <div class="row" style="margin-top:8px">
-            <span class="badge">Pick panels in 3D</span>
-            <select id="braceStory" class="input" style="max-width:140px"></select>
+            <span class="badge">Pick panels in 3D (all stories)</span>
           </div>
           <div class="grid2">
             <div>
@@ -572,14 +571,7 @@ function renderEditor(projectId){
 
       document.getElementById('optBrace').checked = !!m.options.bracing.enabled;
       document.getElementById('braceType').value = m.options.bracing.type || 'X';
-      document.getElementById('braceStory').innerHTML = '';
-      const storyCount = Math.max(1, (m.levels?.length||2) - 1);
-      for(let i=0;i<storyCount;i++){
-        const opt = document.createElement('option');
-        opt.value = String(i);
-        opt.textContent = `Story ${i+1}`;
-        document.getElementById('braceStory').appendChild(opt);
-      }
+      // story selector removed; bracing panel pick works for all stories
       // brace selection mode is controlled by Bracing popup open/close
 
       // profiles (stored only for now)
@@ -770,7 +762,6 @@ function renderEditor(projectId){
     apply(engineModel);
 
     // bracing panel selection mode (3D)
-    const braceStoryEl = document.getElementById('braceStory');
 
     const toggleBrace = (pick) => {
       const braces = Array.isArray(window.__prebimBraces) ? window.__prebimBraces : [];
@@ -778,22 +769,26 @@ function renderEditor(projectId){
       if(idx >= 0) braces.splice(idx,1);
       else {
         const k = document.getElementById('braceType').value || 'X';
-        braces.push({ axis: pick.axis, line: pick.line, story: pick.story, bay: pick.bay, kind: (k==='S' || k==='HAT') ? k : 'X' });
+        const stdKey = document.getElementById('stdAll').value || 'KS';
+        const shapeKey = document.getElementById('braceShape')?.value || 'L';
+        const sizeKey = document.getElementById('braceSize')?.value || '';
+        braces.push({
+          axis: pick.axis, line: pick.line, story: pick.story, bay: pick.bay,
+          kind: (k==='S' || k==='HAT') ? k : 'X',
+          profile: { stdKey, shapeKey, sizeKey },
+        });
       }
       window.__prebimBraces = braces;
     };
 
     const updateBraceMode = (on) => {
       const m = getForm();
-      const story = parseInt(braceStoryEl?.value||'0',10) || 0;
-      view.setBraceMode?.(!!on, { ...m, braceStory: story }, (pick) => {
+      view.setBraceMode?.(!!on, m, (pick) => {
         toggleBrace(pick);
         scheduleApply(0);
       });
       scheduleApply(0);
     };
-
-    braceStoryEl?.addEventListener('change', () => updateBraceMode(popBr?.classList.contains('open')));
 
     // Apply buttons removed; everything is realtime
 
@@ -808,10 +803,10 @@ function renderEditor(projectId){
     // levels (list)
     document.getElementById('levelsList')?.addEventListener('input', () => scheduleApply());
     // toggles
-    ['optSub','subCount','optBrace','braceType'].forEach(id => wireRealtime(id, 'change'));
+    ['optSub','subCount','optBrace','braceType','braceShape','braceSize'].forEach(id => wireRealtime(id, 'change'));
 
     // profiles
-    ['stdAll','colShape','colSize','beamShape','beamSize','subShape','subSize','braceShape','braceSize'].forEach(id => wireRealtime(id, 'change'));
+    ['stdAll','colShape','colSize','beamShape','beamSize','subShape','subSize'].forEach(id => wireRealtime(id, 'change'));
 
     // mirror subSizeMirror whenever subSize changes
     document.getElementById('subSize')?.addEventListener('change', () => {
@@ -1117,11 +1112,10 @@ async function createThreeView(container){
     const nx = xs.length;
     const ny = ys.length;
 
-    const story = model.braceStory || 0;
-    const z0 = ((model.levels?.[story] ?? 0)/1000);
-    const z1 = ((model.levels?.[story+1] ?? (z0*1000 + 6000))/1000);
+    const levels = Array.isArray(model.levels) ? model.levels : [0,6000];
+    const storyCount = Math.max(1, levels.length - 1);
 
-    const addPanel = (axis, line, bay, w, h) => {
+    const addPanel = (axis, line, bay, story, w, h) => {
       const g = new THREE.PlaneGeometry(w, h);
       const mesh = new THREE.Mesh(g, faceMat.clone());
       mesh.userData.axis = axis;
@@ -1131,32 +1125,36 @@ async function createThreeView(container){
       return mesh;
     };
 
-    const hZ = z1 - z0;
+    for(let story=0; story<storyCount; story++){
+      const z0 = ((levels?.[story] ?? 0)/1000);
+      const z1 = ((levels?.[story+1] ?? ((levels?.[story]||0) + 6000))/1000);
+      const hZ = z1 - z0;
 
-    // Y-planes: for each grid line in Y (including internal), panels per X bay
-    for(let j=0; j<ny; j++){
-      const y = ys[j];
-      for(let ix=0; ix<nx-1; ix++){
-        const wX = xs[ix+1]-xs[ix];
-        const p = addPanel('Y', j, ix, wX, hZ);
-        p.position.set(xs[ix] + wX/2, z0 + hZ/2, y);
-        p.rotation.x = Math.PI;
-        // inner planes slightly lighter
-        if(j>0 && j<ny-1) p.material.opacity = 0.08;
-        faceGroup.add(p);
+      // Y-planes: for each grid line in Y, panels per X bay
+      for(let j=0; j<ny; j++){
+        const y = ys[j];
+        for(let ix=0; ix<nx-1; ix++){
+          const wX = xs[ix+1]-xs[ix];
+          const p = addPanel('Y', j, ix, story, wX, hZ);
+          p.position.set(xs[ix] + wX/2, z0 + hZ/2, y);
+          p.rotation.x = Math.PI;
+          // inner planes slightly lighter
+          if(j>0 && j<ny-1) p.material.opacity = 0.08;
+          faceGroup.add(p);
+        }
       }
-    }
 
-    // X-planes: for each grid line in X (including internal), panels per Y bay
-    for(let i=0; i<nx; i++){
-      const x = xs[i];
-      for(let iy=0; iy<ny-1; iy++){
-        const wY = ys[iy+1]-ys[iy];
-        const p = addPanel('X', i, iy, wY, hZ);
-        p.position.set(x, z0 + hZ/2, ys[iy] + wY/2);
-        p.rotation.y = (i===0) ? Math.PI/2 : (i===nx-1 ? -Math.PI/2 : Math.PI/2);
-        if(i>0 && i<nx-1) p.material.opacity = 0.08;
-        faceGroup.add(p);
+      // X-planes: for each grid line in X, panels per Y bay
+      for(let i=0; i<nx; i++){
+        const x = xs[i];
+        for(let iy=0; iy<ny-1; iy++){
+          const wY = ys[iy+1]-ys[iy];
+          const p = addPanel('X', i, iy, story, wY, hZ);
+          p.position.set(x, z0 + hZ/2, ys[iy] + wY/2);
+          p.rotation.y = (i===0) ? Math.PI/2 : (i===nx-1 ? -Math.PI/2 : Math.PI/2);
+          if(i>0 && i<nx-1) p.material.opacity = 0.08;
+          faceGroup.add(p);
+        }
       }
     }
   }
@@ -1184,7 +1182,11 @@ async function createThreeView(container){
 
       // 3D solid for column/beam/subBeam/brace. Keep joist as line for now.
       if(mem.kind === 'column' || mem.kind === 'beamX' || mem.kind === 'beamY' || mem.kind === 'subBeam' || mem.kind === 'brace'){
-        const profName = memberProfileName(mem.kind, model, mem.id);
+        let profName = memberProfileName(mem.kind, model, mem.id);
+        if(mem.kind === 'brace' && mem.profile && typeof mem.profile === 'object'){
+          const pr = mem.profile;
+          profName = __profiles?.getProfile?.(pr.stdKey||'KS', pr.shapeKey||'L', pr.sizeKey||'')?.name || pr.sizeKey || profName;
+        }
         const dims = parseProfileDimsMm(profName);
         const d = (Math.max(30, dims.d)/1000);
         const b = (Math.max(30, dims.b)/1000);
@@ -1512,7 +1514,12 @@ function summarizeMembers(members, model){
              : __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'');
     } else if(mem.kind === 'brace'){
       key = 'brace';
-      p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'');
+      if(mem.profile && typeof mem.profile === 'object'){
+        const pr = mem.profile;
+        p = __profiles?.getProfile?.(pr.stdKey||prof.stdAll||'KS', pr.shapeKey||prof.braceShape||'L', pr.sizeKey||prof.braceSize||'');
+      } else {
+        p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'');
+      }
     } else if(mem.kind === 'joist'){
       key = 'joist';
       p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
