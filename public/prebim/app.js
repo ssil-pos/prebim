@@ -15,7 +15,7 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0133'),
+    import('/prebim/engine.js?v=20260209-0136'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -327,49 +327,47 @@ function renderEditor(projectId){
   root.innerHTML = `
     <section class="editor" aria-label="Editor">
       <aside class="pane tools">
-        <div class="pane-h"><b>PRE BIM project</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
+        <div class="pane-h"><b>Tools</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
         <div class="pane-b">
-          <div class="note" style="margin-top:0">이름/저장 + 기본 구성 파라미터</div>
+          <div class="acc">
+            <button class="acc-btn" type="button" data-acc="grid">Grid <span class="chev" id="chevGrid">▾</span></button>
+            <div class="acc-panel open" id="panelGrid">
+              <div class="row" style="margin-top:0">
+                <input id="nx" class="input" style="max-width:110px" type="number" min="1" step="1" placeholder="nx" />
+                <input id="ny" class="input" style="max-width:110px" type="number" min="1" step="1" placeholder="ny" />
+              </div>
+              <div class="row" style="margin-top:8px">
+                <input id="sx" class="input" style="max-width:170px" type="number" min="1" step="100" placeholder="spacing X (mm)" />
+                <input id="sy" class="input" style="max-width:170px" type="number" min="1" step="100" placeholder="spacing Y (mm)" />
+              </div>
 
-          <div class="row" style="margin-top:10px">
-            <input id="prjName" class="input" value="${escapeHtml(p.name||'') }" placeholder="Project name" maxlength="80" />
-            <button class="btn" id="btnRename" type="button">Rename</button>
-          </div>
+              <div class="note" style="margin-top:10px">Options</div>
+              <div class="row" style="margin-top:8px">
+                <label class="badge" style="cursor:pointer"><input id="optSub" type="checkbox" style="margin:0 8px 0 0" /> sub-beams</label>
+                <input id="subCount" class="input" style="max-width:120px" type="number" min="0" step="1" placeholder="count" />
+              </div>
+              <div class="row" style="margin-top:8px">
+                <label class="badge" style="cursor:pointer"><input id="optJoist" type="checkbox" style="margin:0 8px 0 0" /> joists</label>
+                <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> bracing</label>
+                <select id="braceType" class="input" style="max-width:110px">
+                  <option value="X">X</option>
+                  <option value="S">S</option>
+                </select>
+              </div>
 
-          <div class="note" style="margin-top:10px">Grid</div>
-          <div class="row" style="margin-top:8px">
-            <input id="nx" class="input" style="max-width:110px" type="number" min="1" step="1" placeholder="nx" />
-            <input id="ny" class="input" style="max-width:110px" type="number" min="1" step="1" placeholder="ny" />
-          </div>
-          <div class="row" style="margin-top:8px">
-            <input id="sx" class="input" style="max-width:170px" type="number" min="1" step="100" placeholder="spacing X (mm)" />
-            <input id="sy" class="input" style="max-width:170px" type="number" min="1" step="100" placeholder="spacing Y (mm)" />
-          </div>
+              <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="btnApply" type="button">Apply</button>
+              </div>
+            </div>
 
-          <div class="note" style="margin-top:10px">Levels (mm)</div>
-          <div class="row" style="margin-top:8px">
-            <input id="levels" class="input" placeholder="e.g. 0, 6000, 12000" />
+            <button class="acc-btn" type="button" data-acc="levels">Level <span class="chev" id="chevLevels">▾</span></button>
+            <div class="acc-panel" id="panelLevels">
+              <div class="row" style="margin-top:0">
+                <input id="levels" class="input" placeholder="e.g. 0, 6000, 12000" />
+              </div>
+              <div class="note">Comma-separated elevations (mm).</div>
+            </div>
           </div>
-
-          <div class="note" style="margin-top:10px">Options</div>
-          <div class="row" style="margin-top:8px">
-            <label class="badge" style="cursor:pointer"><input id="optSub" type="checkbox" style="margin:0 8px 0 0" /> sub-beams</label>
-            <input id="subCount" class="input" style="max-width:120px" type="number" min="0" step="1" placeholder="count" />
-          </div>
-          <div class="row" style="margin-top:8px">
-            <label class="badge" style="cursor:pointer"><input id="optJoist" type="checkbox" style="margin:0 8px 0 0" /> joists</label>
-            <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> bracing</label>
-            <select id="braceType" class="input" style="max-width:110px">
-              <option value="X">X</option>
-              <option value="S">S</option>
-            </select>
-          </div>
-
-          <div class="row" style="margin-top:10px">
-            <button class="btn primary" id="btnApply" type="button">Apply</button>
-          </div>
-
-          <div class="note">(C 기능: sub-beams / joists / bracing 포함 — 지금은 MVP 라인 렌더)</div>
         </div>
       </aside>
 
@@ -474,17 +472,25 @@ function renderEditor(projectId){
 
     document.getElementById('btnApply')?.addEventListener('click', () => apply(getForm()));
 
-    document.getElementById('btnRename')?.addEventListener('click', () => {
-      const name = (document.getElementById('prjName').value||'').trim() || 'Untitled project';
-      const projects = loadProjects();
-      const idx = projects.findIndex(x => x.id === p.id);
-      if(idx >= 0){
-        projects[idx].name = name;
-        projects[idx].updatedAt = now();
-        saveProjects(projects);
-        setTopbarSubtitle(name);
-      }
-    });
+    // accordion toggles
+    const toggle = (which) => {
+      const g = document.getElementById('panelGrid');
+      const l = document.getElementById('panelLevels');
+      const cg = document.getElementById('chevGrid');
+      const cl = document.getElementById('chevLevels');
+      if(!g || !l) return;
+
+      const gridOpen = which === 'grid' ? !g.classList.contains('open') : false;
+      const levelsOpen = which === 'levels' ? !l.classList.contains('open') : false;
+
+      g.classList.toggle('open', gridOpen);
+      l.classList.toggle('open', levelsOpen);
+      if(cg) cg.textContent = gridOpen ? '▴' : '▾';
+      if(cl) cl.textContent = levelsOpen ? '▴' : '▾';
+    };
+
+    document.querySelectorAll('button.acc-btn[data-acc]')
+      .forEach(btn => btn.addEventListener('click', () => toggle(btn.getAttribute('data-acc'))));
 
     document.getElementById('btnSave')?.addEventListener('click', () => {
       const projects = loadProjects();

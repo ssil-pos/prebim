@@ -34,39 +34,42 @@ a{color:inherit; text-decoration:none}
 .topbar-inner{
   max-width: var(--max);
   margin:0 auto;
-  padding: 14px 18px;
+  padding: 8px 12px;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:12px;
+  gap:10px;
 }
 
 .brand{display:flex; align-items:center; gap:10px}
 .logo{
-  width:32px; height:32px; border-radius: 12px;
+  width:26px; height:26px; border-radius: 10px;
   display:grid; place-items:center;
   background: linear-gradient(135deg, var(--brandA), var(--brandB));
   color:#06203A;
   font-weight: 1000;
-  box-shadow: 0 10px 22px rgba(2,6,23,0.10);
+  font-size: 12px;
+  box-shadow: 0 8px 18px rgba(2,6,23,0.10);
 }
 .brand b{letter-spacing:0.2px}
 
 .actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
 .pill{
-  padding:10px 12px;
+  padding:7px 10px;
   border-radius: 999px;
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.60);
   font-weight: 900;
+  font-size: 12px;
 }
 .cta{
-  padding:10px 14px;
+  padding:7px 12px;
   border-radius: 999px;
   border: 1px solid rgba(11,27,58,0.12);
   background: linear-gradient(135deg, rgba(56,189,248,0.90), rgba(167,139,250,0.84));
   color:#06203A;
   font-weight: 1000;
+  font-size: 12px;
 }
 
 main{
@@ -85,7 +88,7 @@ body.mode-editor main{
   width: 100%;
   margin: 0;
   padding: 0;
-  height: calc(100vh - 61px);
+  height: calc(100vh - 44px);
 }
 
 .card{
@@ -204,7 +207,7 @@ h1{
 .editor{
   height: 100%;
   display:grid;
-  grid-template-columns: 220px 1fr 360px 220px;
+  grid-template-columns: 240px 1fr 360px 220px;
   grid-template-rows: 1fr;
   gap: 10px;
   padding: 10px;
@@ -226,7 +229,7 @@ h1{
   flex-direction:column;
 }
 .pane-h{
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--stroke);
   display:flex;
   justify-content:space-between;
@@ -235,7 +238,33 @@ h1{
   background: rgba(255,255,255,0.72);
 }
 .pane-h b{font-size: 12px; letter-spacing:0.02em}
-.pane-b{padding: 12px; flex:1; min-height: 0;}
+.pane-b{padding: 10px; flex:1; min-height: 0;}
+
+/* Accordion inside tools */
+.acc{display:grid; gap:8px}
+.acc-btn{
+  width:100%;
+  text-align:left;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.62);
+  font-weight: 1000;
+  cursor:pointer;
+}
+.acc-btn .chev{font-weight: 1000; color: rgba(11,27,58,0.55)}
+.acc-panel{
+  border-radius: 14px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.62);
+  padding: 10px;
+  display:none;
+}
+.acc-panel.open{display:block;}
 
 .right-split{display:grid; grid-template-rows: 1fr 220px; gap:10px}
 
