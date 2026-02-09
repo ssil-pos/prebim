@@ -301,7 +301,7 @@ function renderEditor(projectId){
   setTopbarActions(`
     <a class="pill" href="#/">Back</a>
     <button class="pill" id="btnSave" type="button">Save</button>
-    <button class="cta" id="btnExport" type="button">Export</button>
+    <button class="pill" id="btnHelp" type="button">Help</button>
   `);
 
   const root = document.getElementById('app');
@@ -366,9 +366,13 @@ function renderEditor(projectId){
     }
   });
 
-  document.getElementById('btnExport')?.addEventListener('click', () => {
-    const latest = findProjectById(p.id) || p;
-    download(`prebim-${(latest.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-${Date.now()}.json`, JSON.stringify(latest, null, 2));
+  document.getElementById('btnHelp')?.addEventListener('click', () => {
+    alert(
+      `PRE BIM (early shell)\n\n`+
+      `- Create/open projects locally for now\n`+
+      `- Steel Structure Draft engine will be ported into this editor\n\n`+
+      `Tip: Use Export from the Projects page to download JSON backups.`
+    );
   });
 }
 
