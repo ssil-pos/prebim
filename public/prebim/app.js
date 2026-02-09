@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0235'),
-    import('/prebim/app_profiles.js?v=20260209-0235'),
+    import('/prebim/engine.js?v=20260209-0245'),
+    import('/prebim/app_profiles.js?v=20260209-0245'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -983,8 +983,8 @@ async function createThreeView(container){
   controls.target.set(6, 3, 6);
 
   // lights
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.95));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
   dir.position.set(10, 20, 10);
   scene.add(dir);
 
@@ -1022,17 +1022,46 @@ async function createThreeView(container){
 
   // member selection
   const selectRay = new THREE.Raycaster();
-  selectRay.params.Line.threshold = 0.15;
   const selected = new Set();
 
   const matByKind = {
-    column: new THREE.LineBasicMaterial({ color: 0x0b1b3a, transparent:true, opacity:0.9 }),
-    beamX: new THREE.LineBasicMaterial({ color: 0x2563eb, transparent:true, opacity:0.85 }),
-    beamY: new THREE.LineBasicMaterial({ color: 0x2563eb, transparent:true, opacity:0.85 }),
-    subBeam: new THREE.LineBasicMaterial({ color: 0x7c3aed, transparent:true, opacity:0.6 }),
+    column: new THREE.MeshStandardMaterial({ color: 0x0b1b3a, roughness:0.65, metalness:0.15 }),
+    beamX: new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness:0.7, metalness:0.12 }),
+    beamY: new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness:0.7, metalness:0.12 }),
+    subBeam: new THREE.MeshStandardMaterial({ color: 0x7c3aed, roughness:0.72, metalness:0.10 }),
     joist: new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent:true, opacity:0.55 }),
     brace: new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent:true, opacity:0.65 }),
   };
+
+  function parseProfileDimsMm(name){
+    // Extract first two dimensions like 150x150 from "H 150x150x10x7"
+    const m = String(name||'').match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    const d = m ? parseFloat(m[1]) : 150;
+    const b = m ? parseFloat(m[2]) : 150;
+    // keep a minimum thickness so geometry is visible
+    const w = Math.max(30, b);
+    const h = Math.max(30, d);
+    return { w, h };
+  }
+
+  function memberProfileName(kind, model, memberId){
+    const prof = model?.profiles || {};
+    const ov = model?.overrides?.[memberId] || window.__prebimOverrides?.[memberId] || null;
+    if(kind === 'column'){
+      if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')?.name || ov.sizeKey;
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'')?.name || prof.colSize;
+    }
+    if(kind === 'beamX' || kind === 'beamY'){
+      if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')?.name || ov.sizeKey;
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'')?.name || prof.beamSize;
+    }
+    if(kind === 'subBeam'){
+      if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')?.name || ov.sizeKey;
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'')?.name || prof.subSize;
+    }
+    return '';
+  }
+
 
   function buildFacePlanes(model){
     while(faceGroup.children.length) faceGroup.remove(faceGroup.children[0]);
@@ -1097,16 +1126,48 @@ async function createThreeView(container){
   function setMembers(members, model){
     while(group.children.length) group.remove(group.children[0]);
 
+    const vA = new THREE.Vector3();
+    const vB = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const mid = new THREE.Vector3();
+    const yAxis = new THREE.Vector3(0,1,0);
+    const quat = new THREE.Quaternion();
+
     for(const mem of members){
-      const geom = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(mem.a[0], mem.a[1], mem.a[2]),
-        new THREE.Vector3(mem.b[0], mem.b[1], mem.b[2]),
-      ]);
       const mat = matByKind[mem.kind] || matByKind.beamX;
-      const line = new THREE.Line(geom, mat);
-      line.userData.memberId = mem.id;
-      line.userData.kind = mem.kind;
-      group.add(line);
+
+      vA.set(mem.a[0], mem.a[1], mem.a[2]);
+      vB.set(mem.b[0], mem.b[1], mem.b[2]);
+      dir.copy(vB).sub(vA);
+      const len = dir.length();
+      if(len <= 1e-6) continue;
+      dir.normalize();
+      mid.copy(vA).add(vB).multiplyScalar(0.5);
+
+      // 3D solid only for column/beam/subBeam. Keep joist/brace as lines for now.
+      if(mem.kind === 'column' || mem.kind === 'beamX' || mem.kind === 'beamY' || mem.kind === 'subBeam'){
+        const profName = memberProfileName(mem.kind, model, mem.id);
+        const dims = parseProfileDimsMm(profName);
+        const w = (dims.w/1000);
+        const h = (dims.h/1000);
+
+        // box oriented along dir (Y axis)
+        const geom = new THREE.BoxGeometry(w, len, h);
+        const mesh = new THREE.Mesh(geom, mat.clone());
+        quat.setFromUnitVectors(yAxis, dir);
+        mesh.quaternion.copy(quat);
+        mesh.position.copy(mid);
+
+        mesh.userData.memberId = mem.id;
+        mesh.userData.kind = mem.kind;
+        group.add(mesh);
+      } else {
+        const geom = new THREE.BufferGeometry().setFromPoints([vA.clone(), vB.clone()]);
+        const line = new THREE.Line(geom, mat);
+        line.userData.memberId = mem.id;
+        line.userData.kind = mem.kind;
+        group.add(line);
+      }
     }
 
     if(braceMode) buildFacePlanes(model);
@@ -1175,12 +1236,17 @@ async function createThreeView(container){
       selected.add(id);
     }
 
-    // visual highlight: increase opacity
+    // visual highlight (solid meshes)
     group.children.forEach(ch => {
       const sel = selected.has(ch.userData.memberId);
       const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
-      ch.material = baseMat.clone();
-      ch.material.opacity = sel ? 1.0 : baseMat.opacity;
+      if(ch.material && ch.material.isMaterial){
+        ch.material = baseMat.clone();
+        if('emissive' in ch.material){
+          ch.material.emissive = new THREE.Color(sel ? 0x38bdf8 : 0x000000);
+          ch.material.emissiveIntensity = sel ? 0.35 : 0;
+        }
+      }
     });
 
     onSel && onSel(Array.from(selected));
@@ -1309,6 +1375,7 @@ function renderQtyTable(q, model){
           <td>${escapeHtml(String(r.name || meta.prof))}</td>
           <td class="num">${r.len.toFixed(3)}</td>
           <td class="num">${r.count}</td>
+          <td class="num">${(kgm==null)?'-':kgm.toFixed(2)}</td>
           <td class="num">${loadCell}</td>
         </tr>
       `;
@@ -1323,17 +1390,19 @@ function renderQtyTable(q, model){
           <th>Member type</th>
           <th class="num">Length (m)</th>
           <th class="num">Count</th>
+          <th class="num">Unit wt (kg/m)</th>
           <th class="num">Load</th>
         </tr>
       </thead>
       <tbody>
-        ${rows || '<tr><td colspan="5">-</td></tr>'}
+        ${rows || '<tr><td colspan="6">-</td></tr>'}
       </tbody>
       <tfoot>
         <tr>
           <td colspan="2">Total</td>
           <td class="num">${q.totalLen.toFixed(3)}</td>
           <td class="num">${q.totalCount}</td>
+          <td class="num">-</td>
           <td class="num">-</td>
         </tr>
       </tfoot>
