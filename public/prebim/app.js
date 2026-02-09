@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0406';
+const BUILD = '20260209-0412';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0406'),
-    import('/prebim/app_profiles.js?v=20260209-0406'),
+    import('/prebim/engine.js?v=20260209-0412'),
+    import('/prebim/app_profiles.js?v=20260209-0412'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -513,9 +513,13 @@ function renderEditor(projectId){
           </div>
           <div class="pane-b" style="display:flex; flex-direction:column; gap:8px">
             <div class="card" style="padding:8px">
-              <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Plan</div>
+              <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+                <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Plan</div>
+                <button class="pill" id="btnPlanRot" type="button">Rotate</button>
+              </div>
               <div class="row" style="margin-top:6px">
                 <span class="badge">Story 1</span>
+                <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
               </div>
               <div id="planHost" style="height:180px; margin-top:6px"></div>
             </div>
@@ -528,6 +532,7 @@ function renderEditor(projectId){
                   <option value="Y">Y</option>
                 </select>
                 <select id="secLine" class="input" style="max-width:120px"></select>
+                <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">wheel=zoom · drag=pan</span>
               </div>
               <div id="secHost" style="height:180px; margin-top:6px"></div>
             </div>
@@ -688,6 +693,57 @@ function renderEditor(projectId){
     const view = await createThreeView(view3dEl);
 
     // 2D plan/section helpers
+    let __planRot = 0; // degrees: 0/90/180/270
+
+    const svgPanZoom = (svg, getBaseViewBox) => {
+      if(!svg) return;
+      let vb = getBaseViewBox();
+      const setVB = (next) => {
+        vb = next;
+        svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+      };
+      setVB(vb);
+
+      let panning = false;
+      let start = null;
+      svg.addEventListener('pointerdown', (ev) => {
+        // left button pan only when not clicking a member
+        if(ev.button !== 0) return;
+        if(ev.target?.closest?.('[data-id]')) return;
+        panning = true;
+        start = { x: ev.clientX, y: ev.clientY, vb: { ...vb } };
+        svg.setPointerCapture(ev.pointerId);
+      });
+      svg.addEventListener('pointerup', (ev) => {
+        panning = false;
+        try{ svg.releasePointerCapture(ev.pointerId); }catch{}
+      });
+      svg.addEventListener('pointermove', (ev) => {
+        if(!panning || !start) return;
+        const rect = svg.getBoundingClientRect();
+        const dxPx = ev.clientX - start.x;
+        const dyPx = ev.clientY - start.y;
+        const dx = (dxPx / rect.width) * start.vb.w;
+        const dy = (dyPx / rect.height) * start.vb.h;
+        setVB({ x: start.vb.x - dx, y: start.vb.y - dy, w: start.vb.w, h: start.vb.h });
+      });
+
+      svg.addEventListener('wheel', (ev) => {
+        ev.preventDefault();
+        const rect = svg.getBoundingClientRect();
+        const mx = (ev.clientX - rect.left) / rect.width;
+        const my = (ev.clientY - rect.top) / rect.height;
+
+        const zoomFactor = Math.pow(1.0015, ev.deltaY);
+        const newW = vb.w * zoomFactor;
+        const newH = vb.h * zoomFactor;
+        const nx = vb.x + (vb.w - newW) * mx;
+        const ny = vb.y + (vb.h - newH) * my;
+        setVB({ x: nx, y: ny, w: newW, h: newH });
+      }, { passive:false });
+
+      return { reset: () => setVB(getBaseViewBox()) };
+    };
     const computeGrid = (m) => {
       const xs=[0], zs=[0];
       for(const s of (m.grid?.spansXmm||[])) xs.push(xs[xs.length-1] + (s/1000));
@@ -751,13 +807,25 @@ function renderEditor(projectId){
     const renderPlan = (members, m) => {
       if(!planHost) return;
       const { xs, zs } = computeGrid(m);
-      const xMax = xs[xs.length-1] || 1;
-      const zMax = zs[zs.length-1] || 1;
+      const xMax0 = xs[xs.length-1] || 1;
+      const zMax0 = zs[zs.length-1] || 1;
 
       const yPlan = ((m.levels?.[1] ?? 0)/1000); // Story 1
       const eps = 1e-6;
 
       const sel = new Set(view.getSelection?.()||[]);
+
+      // rotation mapping (x,z) -> (u,v)
+      const map = (x,z) => {
+        const rot = (__planRot % 360 + 360) % 360;
+        if(rot===90) return { u: z, v: xMax0 - x };
+        if(rot===180) return { u: xMax0 - x, v: zMax0 - z };
+        if(rot===270) return { u: zMax0 - z, v: x };
+        return { u: x, v: z };
+      };
+      const uMax = ( (__planRot%180)===90 ) ? zMax0 : xMax0;
+      const vMax = ( (__planRot%180)===90 ) ? xMax0 : zMax0;
+
       const memLines = members
         .filter(mem => ['beamX','beamY','subBeam','brace'].includes(mem.kind))
         .filter(mem => {
@@ -766,55 +834,68 @@ function renderEditor(projectId){
         })
         .map(mem => {
           const { b } = getDimsM(mem, m);
-          const x1 = mem.a[0], z1 = mem.a[2];
-          const x2 = mem.b[0], z2 = mem.b[2];
-          return { id: mem.id, kind: mem.kind, x1,z1,x2,z2, w: Math.max(0.03, b) };
+          const p1 = map(mem.a[0], mem.a[2]);
+          const p2 = map(mem.b[0], mem.b[2]);
+          return { id: mem.id, kind: mem.kind, x1:p1.u,y1:p1.v,x2:p2.u,y2:p2.v, w: Math.max(0.03, b) };
         });
 
       const cols = members
         .filter(mem => mem.kind==='column')
         .map(mem => {
-          // show column at intersection with plan level
           const y0 = Math.min(mem.a[1], mem.b[1]);
           const y1 = Math.max(mem.a[1], mem.b[1]);
           if(!(yPlan >= y0-eps && yPlan <= y1+eps)) return null;
           const { b } = getDimsM(mem, m);
-          return { id: mem.id, x: mem.a[0], z: mem.a[2], r: Math.max(0.05, b*0.45) };
+          const p = map(mem.a[0], mem.a[2]);
+          return { id: mem.id, x: p.u, y: p.v, r: Math.max(0.05, b*0.45) };
         }).filter(Boolean);
 
       const pad = 0.4;
-      const vb = { x:-pad, y:-pad, w:xMax+pad*2, h:zMax+pad*2 };
+      const baseVB = { x:-pad, y:-pad, w:uMax+pad*2, h:vMax+pad*2 };
 
       const gridLines = [
-        xs.map(x => `<line class="grid" x1="${x}" y1="0" x2="${x}" y2="${zMax}" />`).join(''),
-        zs.map(z => `<line class="grid" x1="0" y1="${z}" x2="${xMax}" y2="${z}" />`).join(''),
+        xs.map(x => {
+          const a = map(x, 0);
+          const b = map(x, zMax0);
+          return `<line class="grid" x1="${a.u}" y1="${a.v}" x2="${b.u}" y2="${b.v}" />`;
+        }).join(''),
+        zs.map(z => {
+          const a = map(0, z);
+          const b = map(xMax0, z);
+          return `<line class="grid" x1="${a.u}" y1="${a.v}" x2="${b.u}" y2="${b.v}" />`;
+        }).join(''),
       ].join('');
 
       const lines = memLines.map(l => {
         const cls = sel.has(l.id) ? 'mem sel' : 'mem';
-        return `<line class="${cls}" data-id="${escapeHtml(l.id)}" x1="${l.x1}" y1="${l.z1}" x2="${l.x2}" y2="${l.z2}" stroke-width="${l.w}" />`;
+        return `<line class="${cls}" data-id="${escapeHtml(l.id)}" x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke-width="${l.w}" />`;
       }).join('');
 
       const colEls = cols.map(c => {
         const isSel = sel.has(c.id);
         const extra = isSel ? ' stroke="rgba(56,189,248,0.95)"' : '';
-        return `<circle class="col" data-id="${escapeHtml(c.id)}" cx="${c.x}" cy="${c.z}" r="${c.r}"${extra} />`;
+        return `<circle class="col" data-id="${escapeHtml(c.id)}" cx="${c.x}" cy="${c.y}" r="${c.r}"${extra} />`;
       }).join('');
 
       planHost.innerHTML = `
-        <svg class="prebim2d" id="svgPlan" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">
+        <svg class="prebim2d" id="svgPlan" viewBox="${baseVB.x} ${baseVB.y} ${baseVB.w} ${baseVB.h}" preserveAspectRatio="xMidYMid meet">
           ${gridLines}
           ${lines}
           ${colEls}
         </svg>
       `;
 
-      planHost.querySelector('#svgPlan')?.addEventListener('click', (ev) => {
+      const svg = planHost.querySelector('#svgPlan');
+      const pz = svgPanZoom(svg, () => baseVB);
+
+      svg?.addEventListener('click', (ev) => {
         const el = ev.target?.closest?.('[data-id]');
         const id = el?.getAttribute?.('data-id');
         if(!id) return;
         view.setSelection?.([id]);
       });
+
+      return { reset: () => pz?.reset?.() };
     };
 
     const ensureSectionUI = (m) => {
@@ -847,14 +928,59 @@ function renderEditor(projectId){
       const yMax = ((m.levels?.[m.levels.length-1] ?? 6000)/1000);
 
       const sel = new Set(view.getSelection?.()||[]);
-      const tol = 1e-6;
+
+      const vbW = (dir==='X') ? zMax : xMax;
+      const pad = 0.4;
+      const baseVB = { x:-pad, y:-pad, w:vbW+pad*2, h:yMax+pad*2 };
+
+      const yDraw = (y) => (yMax - y); // FIX: flip vertical so up is up
 
       const levelLines = (m.levels||[]).map(lv => {
-        const y = (lv/1000);
-        return `<line class="level" x1="0" y1="${y}" x2="${(dir==='X')?zMax:xMax}" y2="${y}" />`;
+        const y = yDraw(lv/1000);
+        return `<line class="level" x1="0" y1="${y}" x2="${vbW}" y2="${y}" />`;
       }).join('');
 
-      const lines = members
+      // Detailed 2D member rendering (approx profile in section): flanges/web for H/I, etc.
+      const sectionStrip = (mem) => {
+        const isSel = sel.has(mem.id);
+        const cls = isSel ? 'mem sel' : 'mem';
+        const { b, d } = getDimsM(mem, m);
+
+        const h1 = (dir==='X') ? mem.a[2] : mem.a[0];
+        const h2 = (dir==='X') ? mem.b[2] : mem.b[0];
+        const v1 = yDraw(mem.a[1]);
+        const v2 = yDraw(mem.b[1]);
+
+        // Angle of member in section plane
+        const dx = h2 - h1;
+        const dy = v2 - v1;
+        const L = Math.sqrt(dx*dx + dy*dy) || 1;
+        const ux = dx / L;
+        const uy = dy / L;
+        // perpendicular (to make thickness)
+        const px = -uy;
+        const py = ux;
+        const t = Math.max(0.03, d);
+
+        // polygon of a thick strip (simpler than full profile, but with inner detail lines)
+        const ax = h1 + px*(t/2), ay = v1 + py*(t/2);
+        const bx = h2 + px*(t/2), by = v2 + py*(t/2);
+        const cx = h2 - px*(t/2), cy = v2 - py*(t/2);
+        const dx2= h1 - px*(t/2), dy2= v1 - py*(t/2);
+
+        // inner web hint line at center
+        const wx1 = h1, wy1 = v1;
+        const wx2 = h2, wy2 = v2;
+
+        return `
+          <g data-id="${escapeHtml(mem.id)}">
+            <polygon class="${cls}" points="${ax},${ay} ${bx},${by} ${cx},${cy} ${dx2},${dy2}" fill="rgba(255,255,255,0.25)" />
+            <line class="${cls}" x1="${wx1}" y1="${wy1}" x2="${wx2}" y2="${wy2}" stroke-width="${Math.max(0.02, t*0.08)}" opacity="0.55" />
+          </g>
+        `;
+      };
+
+      const strips = members
         .filter(mem => ['column','beamX','beamY','subBeam','brace'].includes(mem.kind))
         .filter(mem => {
           if(dir==='X'){
@@ -864,37 +990,36 @@ function renderEditor(projectId){
           const z0 = zs[Math.min(zs.length-1, Math.max(0, idx))];
           return (Math.abs(mem.a[2]-z0) < 1e-5) && (Math.abs(mem.b[2]-z0) < 1e-5);
         })
-        .map(mem => {
-          const { d } = getDimsM(mem, m);
-          const cls = sel.has(mem.id) ? 'mem sel' : 'mem';
-          // section coordinates: horiz = (dir==='X') ? z : x ; vert = y
-          const h1 = (dir==='X') ? mem.a[2] : mem.a[0];
-          const h2 = (dir==='X') ? mem.b[2] : mem.b[0];
-          const v1 = mem.a[1];
-          const v2 = mem.b[1];
-          return `<line class="${cls}" data-id="${escapeHtml(mem.id)}" x1="${h1}" y1="${v1}" x2="${h2}" y2="${v2}" stroke-width="${Math.max(0.03, d)}" />`;
-        }).join('');
-
-      const vbW = (dir==='X') ? zMax : xMax;
-      const vb = { x:-0.4, y:-0.4, w:vbW+0.8, h:yMax+0.8 };
+        .map(sectionStrip)
+        .join('');
 
       secHost.innerHTML = `
-        <svg class="prebim2d" id="svgSec" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">
+        <svg class="prebim2d" id="svgSec" viewBox="${baseVB.x} ${baseVB.y} ${baseVB.w} ${baseVB.h}" preserveAspectRatio="xMidYMid meet">
           ${levelLines}
-          ${lines}
+          ${strips}
         </svg>
       `;
 
-      secHost.querySelector('#svgSec')?.addEventListener('click', (ev) => {
+      const svg = secHost.querySelector('#svgSec');
+      const pz = svgPanZoom(svg, () => baseVB);
+
+      svg?.addEventListener('click', (ev) => {
         const el = ev.target?.closest?.('[data-id]');
         const id = el?.getAttribute?.('data-id');
         if(!id) return;
         view.setSelection?.([id]);
       });
+
+      return { reset: () => pz?.reset?.() };
     };
 
     secDirEl?.addEventListener('change', () => scheduleApply(0));
     secLineEl?.addEventListener('change', () => scheduleApply(0));
+
+    document.getElementById('btnPlanRot')?.addEventListener('click', () => {
+      __planRot = (__planRot + 90) % 360;
+      scheduleApply(0);
+    });
 
     // 3D toggles
     // (realistic/outline toggles removed)
