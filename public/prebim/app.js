@@ -72,7 +72,38 @@ function parseImportFile(file){
   });
 }
 
-function render(){
+function setMode(mode){
+  document.body.classList.toggle('mode-editor', mode === 'editor');
+}
+
+function setTopbarSubtitle(text){
+  const el = document.getElementById('topbarSub');
+  if(el) el.textContent = text;
+}
+
+function setTopbarActions(html){
+  const el = document.getElementById('topbarActions');
+  if(el) el.innerHTML = html;
+}
+
+function go(hash){
+  location.hash = hash;
+}
+
+function findProjectById(id){
+  const projects = loadProjects();
+  return projects.find(p => p.id === id) || null;
+}
+
+function renderProjects(){
+  setMode('projects');
+  setTopbarSubtitle('projects');
+  setTopbarActions(`
+    <a class="pill" href="/">Home</a>
+    <a class="pill" href="/blog/">Blog</a>
+    <a class="cta" href="#start">New project</a>
+  `);
+
   const root = document.getElementById('app');
   if(!root) return;
 
@@ -88,7 +119,7 @@ function render(){
           Later, projects will sync to your account.
         </p>
 
-        <div class="row">
+        <div class="row" id="start">
           <input id="newName" class="input" placeholder="New project name (e.g. Pipe rack A)" maxlength="80" />
           <button class="btn primary" id="btnCreate">New project</button>
         </div>
@@ -105,7 +136,7 @@ function render(){
       </div>
 
       <div class="card preview">
-        <div class="frame">
+        <div class="panel">
           <div class="mono" style="font-size:12px; color:rgba(11,27,58,0.62)">projects</div>
           <div class="list" id="list"></div>
         </div>
@@ -235,7 +266,7 @@ function render(){
         if(!confirm(`Delete project "${p.name}"?`)) return;
         projects.splice(idx, 1);
         saveProjects(projects);
-        render();
+        renderProjects();
         return;
       }
 
@@ -245,19 +276,120 @@ function render(){
       }
 
       if(action === 'open'){
-        // Phase 1+: route to actual editor. For now, show lightweight detail.
-        alert(`Open: ${p.name}\n\n(Engine not yet ported — this will open the editor later.)`);
+        go(`#/editor/${encodeURIComponent(p.id)}`);
         return;
       }
     });
   });
 }
 
-function boot(){
-  render();
+function renderEditor(projectId){
+  setMode('editor');
+  const p = findProjectById(projectId);
+  if(!p){
+    setTopbarSubtitle('projects');
+    setTopbarActions(`
+      <a class="pill" href="#/">Back</a>
+      <a class="pill" href="/">Home</a>
+    `);
+    const root = document.getElementById('app');
+    if(root) root.innerHTML = `<div class="card panel" style="margin:10px">Project not found.</div>`;
+    return;
+  }
 
-  // topbar "Start model" CTA: focus input
-  document.querySelector('a[href="#start"]')?.addEventListener('click', () => {
+  setTopbarSubtitle(p.name || 'project');
+  setTopbarActions(`
+    <a class="pill" href="#/">Back</a>
+    <button class="pill" id="btnSave" type="button">Save</button>
+    <button class="cta" id="btnExport" type="button">Export</button>
+  `);
+
+  const root = document.getElementById('app');
+  if(!root) return;
+
+  root.innerHTML = `
+    <section class="editor" aria-label="Editor">
+      <aside class="pane tools">
+        <div class="pane-h"><b>Tools</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
+        <div class="pane-b">
+          <div class="note" style="margin-top:0">각 기능 버튼 배치</div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" type="button" disabled>Grid</button>
+            <button class="btn" type="button" disabled>Levels</button>
+            <button class="btn" type="button" disabled>Members</button>
+            <button class="btn" type="button" disabled>Bracing</button>
+          </div>
+          <div class="note">(엔진 포팅 후 활성화)</div>
+        </div>
+      </aside>
+
+      <section class="pane view3d">
+        <div class="pane-h"><b>3D View</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">placeholder</span></div>
+        <div class="pane-b">
+          <div class="placeholder">3D 뷰</div>
+        </div>
+      </section>
+
+      <section class="right-split">
+        <section class="pane plan">
+          <div class="pane-h"><b>Plan / Section</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">placeholder</span></div>
+          <div class="pane-b">
+            <div class="placeholder">Plan / Section view</div>
+          </div>
+        </section>
+        <section class="pane qty">
+          <div class="pane-h"><b>Quantities</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">placeholder</span></div>
+          <div class="pane-b">
+            <div class="placeholder">물량 합계</div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="pane notes">
+        <div class="pane-h"><b>Notes / Status</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">later</span></div>
+        <div class="pane-b">
+          <div class="note" style="margin-top:0">주석/상태 관련 기능 (추후 추가)</div>
+          <div class="note">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
+        </div>
+      </aside>
+    </section>
+  `;
+
+  document.getElementById('btnSave')?.addEventListener('click', () => {
+    const projects = loadProjects();
+    const idx = projects.findIndex(x => x.id === p.id);
+    if(idx >= 0){
+      projects[idx].updatedAt = now();
+      saveProjects(projects);
+      setTopbarSubtitle((projects[idx].name || 'project') + ' · saved');
+      setTimeout(() => setTopbarSubtitle(projects[idx].name || 'project'), 900);
+    }
+  });
+
+  document.getElementById('btnExport')?.addEventListener('click', () => {
+    const latest = findProjectById(p.id) || p;
+    download(`prebim-${(latest.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-${Date.now()}.json`, JSON.stringify(latest, null, 2));
+  });
+}
+
+function route(){
+  const hash = location.hash || '#/';
+  const m = hash.match(/^#\/editor\/([^/?#]+)/);
+  if(m){
+    renderEditor(decodeURIComponent(m[1]));
+    return;
+  }
+  renderProjects();
+}
+
+function boot(){
+  window.addEventListener('hashchange', route);
+  route();
+
+  // topbar "New project" CTA: focus input (projects page)
+  document.addEventListener('click', (ev) => {
+    const a = /** @type {HTMLElement|null} */(ev.target)?.closest('a[href="#start"]');
+    if(!a) return;
     setTimeout(() => {
       const el = document.getElementById('newName');
       if(el) el.focus();
