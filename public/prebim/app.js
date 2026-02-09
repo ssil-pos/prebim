@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0627';
+const BUILD = '20260209-0630';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0627'),
-    import('/prebim/app_profiles.js?v=20260209-0627'),
+    import('/prebim/engine.js?v=20260209-0630'),
+    import('/prebim/app_profiles.js?v=20260209-0630'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -2518,28 +2518,32 @@ function summarizeMembers(members, model){
     if(mem.kind === 'column'){
       p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')
              : __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'');
+      const nm = p?.name || p?.key || (ov?.sizeKey) || prof.colSize || 'column';
+      key = `column:${nm}`;
     } else if(mem.kind === 'beamX' || mem.kind === 'beamY'){
-      key = 'beam';
       p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')
              : __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
+      const nm = p?.name || p?.key || (ov?.sizeKey) || prof.beamSize || 'beam';
+      key = `beam:${nm}`;
     } else if(mem.kind === 'subBeam'){
-      key = 'subBeam';
       p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')
              : __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'');
+      const nm = p?.name || p?.key || (ov?.sizeKey) || prof.subSize || 'subBeam';
+      key = `subBeam:${nm}`;
     } else if(mem.kind === 'brace'){
-      // IMPORTANT: braces may have different profiles per panel.
-      // Group quantities by profile name so different brace specs show as separate rows.
+      // Braces may have different profiles per panel.
       if(mem.profile && typeof mem.profile === 'object'){
         const pr = mem.profile;
         p = __profiles?.getProfile?.(pr.stdKey||prof.stdAll||'KS', pr.shapeKey||prof.braceShape||'L', pr.sizeKey||prof.braceSize||'');
       } else {
         p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'');
       }
-      const braceName = p?.name || p?.key || prof.braceSize || 'brace';
-      key = `brace:${braceName}`;
+      const nm = p?.name || p?.key || prof.braceSize || 'brace';
+      key = `brace:${nm}`;
     } else if(mem.kind === 'joist'){
-      key = 'joist';
       p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
+      const nm = p?.name || p?.key || prof.beamSize || 'joist';
+      key = `joist:${nm}`;
     }
 
     const cur = byKind[key] || { len:0, count:0, kgm: p?.kgm ?? null, name: p?.name ?? null, baseKind: mem.kind };
