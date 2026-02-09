@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0700';
+const BUILD = '20260209-0715';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0700'),
-    import('/prebim/app_profiles.js?v=20260209-0700'),
+    import('/prebim/engine.js?v=20260209-0715'),
+    import('/prebim/app_profiles.js?v=20260209-0715'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -362,8 +362,6 @@ function renderEditor(projectId){
   document.title = `PreBIM-SteelStructure — ${p.name || 'project'}`;
   setTopbarActions(`
     <a class="pill" href="#/">Back</a>
-    <button class="pill" id="btnUndo" type="button">Undo</button>
-    <button class="pill" id="btnRedo" type="button">Redo</button>
     <button class="pill" id="btnToggleQty" type="button">Quantities</button>
     <button class="pill" id="btnExportStaad" type="button">STAAD Export</button>
     <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
@@ -847,23 +845,24 @@ function renderEditor(projectId){
       secApply();
     });
 
-    // Plan/Section Three.js view (replaces SVG)
-    // expose deps for ps_view.js
-    window.__three = __three;
-    window.__OrbitControls = __OrbitControls;
-    window.__csg = __csg;
-
-    const psMod = await import('/prebim/ps_view.js');
-    const psView = await psMod.createPlanSectionView({
-      planHost,
-      secHost,
-      secDirEl,
-      secLineEl,
-      btnModePlan,
-      btnModeSec,
-      planCard,
-      secCard,
-    });
+    // Plan/Section is hidden for now; avoid creating extra WebGL contexts.
+    let psView = null;
+    if(!document.body.classList.contains('ps-hidden')){
+      window.__three = __three;
+      window.__OrbitControls = __OrbitControls;
+      window.__csg = __csg;
+      const psMod = await import('/prebim/ps_view.js');
+      psView = await psMod.createPlanSectionView({
+        planHost,
+        secHost,
+        secDirEl,
+        secLineEl,
+        btnModePlan,
+        btnModeSec,
+        planCard,
+        secCard,
+      });
+    }
 
     // 2D plan/section helpers
     let __planRot = 0; // degrees: 0/90/180/270
@@ -1402,15 +1401,15 @@ function renderEditor(projectId){
     };
 
     const applyNow = (m) => {
-      __curModel = m;
-      updateUndoRedoUI();
       const members = __engine.generateMembers(m);
       view.setMembers(members, m);
 
       // Plan/Section (Three.js)
       __lastMembers = members;
       __lastModel = m;
-      try{ psView?.setModel?.(members, m); }catch(e){ console.warn('plan/section render failed', e); }
+      if(psView){
+        try{ psView.setModel?.(members, m); }catch(e){ console.warn('plan/section render failed', e); }
+      }
 
       const q = summarizeMembers(members, m);
       __lastQty = q;
@@ -1677,13 +1676,11 @@ function renderEditor(projectId){
       if(!ok) alert('Copy failed');
     });
 
-    updateUndoRedoUI();
     apply(engineModel);
 
     // bracing panel selection mode (3D)
 
     const toggleBrace = (pick) => {
-      armHistory();
       const braces = Array.isArray(window.__prebimBraces) ? window.__prebimBraces : [];
       const idx = braces.findIndex(b => b.axis===pick.axis && b.line===pick.line && b.story===pick.story && b.bay===pick.bay);
       if(idx >= 0) braces.splice(idx,1);
@@ -1712,75 +1709,10 @@ function renderEditor(projectId){
 
     // Apply buttons removed; everything is realtime
 
-    // Undo/Redo (model edits only)
-    let __curModel = engineModel;
-    const __hist = [];
-    const __redo = [];
-    let __histTimer = 0;
-    let __histArmed = false;
-
-    const pushHistory = () => {
-      if(!__curModel) return;
-      __hist.push(structuredClone(__curModel));
-      if(__hist.length > 60) __hist.shift();
-      __redo.length = 0;
-      __histArmed = false;
-      updateUndoRedoUI();
-    };
-
-    const armHistory = () => {
-      if(__histArmed) return;
-      __histArmed = true;
-      // coalesce rapid edits
-      clearTimeout(__histTimer);
-      __histTimer = setTimeout(() => pushHistory(), 450);
-    };
-
-    const updateUndoRedoUI = () => {
-      const bu = document.getElementById('btnUndo');
-      const br = document.getElementById('btnRedo');
-      if(bu) bu.disabled = __hist.length === 0;
-      if(br) br.disabled = __redo.length === 0;
-    };
-
-    const restoreModel = (m) => {
-      const nm = __engine.normalizeModel(m);
-      window.__prebimBraces = Array.isArray(nm.braces) ? nm.braces.slice() : [];
-      window.__prebimOverrides = (nm.overrides && typeof nm.overrides==='object') ? structuredClone(nm.overrides) : {};
-      setForm(nm);
-      apply(nm);
-      __curModel = nm;
-      updateUndoRedoUI();
-    };
-
-    const undo = () => {
-      if(!__hist.length) return;
-      __redo.push(structuredClone(__curModel));
-      const prev = __hist.pop();
-      restoreModel(prev);
-    };
-
-    const redo = () => {
-      if(!__redo.length) return;
-      __hist.push(structuredClone(__curModel));
-      const next = __redo.pop();
-      restoreModel(next);
-    };
-
-    document.getElementById('btnUndo')?.addEventListener('click', undo);
-    document.getElementById('btnRedo')?.addEventListener('click', redo);
-
-    window.addEventListener('keydown', (ev) => {
-      const k = ev.key?.toLowerCase?.();
-      if(!(ev.ctrlKey || ev.metaKey)) return;
-      if(k === 'z' && !ev.shiftKey){ ev.preventDefault(); undo(); }
-      else if((k === 'y') || (k === 'z' && ev.shiftKey)){ ev.preventDefault(); redo(); }
-    });
-
     // Realtime auto-apply
     const wireRealtime = (id, ev='input') => {
       const el = document.getElementById(id);
-      el?.addEventListener(ev, () => { armHistory(); scheduleApply(); });
+      el?.addEventListener(ev, () => scheduleApply());
     };
 
     // grid

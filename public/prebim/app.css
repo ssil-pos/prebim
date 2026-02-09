@@ -66,6 +66,14 @@ a{color:inherit; text-decoration:none}
 .actions .pill{background: rgba(255,255,255,0.66)}
 .actions .pill:hover{background: rgba(255,255,255,0.82)}
 
+/* Global hover/press affordance */
+.pill{transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 60ms ease;}
+.pill:hover{box-shadow: 0 6px 14px rgba(2,6,23,0.10); transform: translateY(-1px);}
+.pill:active{transform: translateY(0); box-shadow: 0 2px 8px rgba(2,6,23,0.10);}
+.acc-btn{transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 60ms ease;}
+.acc-btn:hover{box-shadow: 0 6px 14px rgba(2,6,23,0.08); transform: translateY(-1px);}
+.acc-btn:active{transform: translateY(0);}
+
 #btnToggleQty{background: rgba(56,189,248,0.14); border-color: rgba(56,189,248,0.24)}
 #btnExportStaad{background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.22)}
 #btnExportIfc{background: rgba(167,139,250,0.14); border-color: rgba(167,139,250,0.24)}
