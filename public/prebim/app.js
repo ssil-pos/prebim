@@ -341,6 +341,390 @@ function renderProjects(){
   });
 }
 
+function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
+  // Build analysis request payload from engine model.
+  const m = __engine.normalizeModel(model);
+  const members = __engine.generateMembers(m);
+
+  // unique joints
+  const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
+  const joints = new Map();
+  const jointList = [];
+  const ensureJoint = (pt) => {
+    const k = keyOf(pt);
+    if(joints.has(k)) return joints.get(k);
+    const id = String(jointList.length + 1);
+    joints.set(k, id);
+    jointList.push({ id, pt });
+    return id;
+  };
+
+  const memList = members.map((mem, idx) => {
+    const j1 = ensureJoint(mem.a);
+    const j2 = ensureJoint(mem.b);
+    return { id: String(idx+1), kind: mem.kind, j1, j2, mem };
+  });
+
+  // grid helpers (for tributary widths)
+  const spansXmm = m.grid?.spansXmm || [];
+  const spansYmm = m.grid?.spansYmm || [];
+  const xs=[0], ys=[0];
+  for(const s of spansXmm) xs.push(xs[xs.length-1] + (s/1000));
+  for(const s of spansYmm) ys.push(ys[ys.length-1] + (s/1000));
+
+  const findIdx = (arr, v) => {
+    for(let i=0;i<arr.length;i++) if(Math.abs(arr[i]-v) < 1e-5) return i;
+    return -1;
+  };
+
+  const tribWidthForBeamX = (z) => {
+    const j = findIdx(ys, z);
+    if(j < 0) return 0;
+    const wPrev = (j>0) ? (ys[j]-ys[j-1]) : 0;
+    const wNext = (j<ys.length-1) ? (ys[j+1]-ys[j]) : 0;
+    return 0.5*wPrev + 0.5*wNext;
+  };
+
+  const tribWidthForBeamY = (x) => {
+    const i = findIdx(xs, x);
+    if(i < 0) return 0;
+    const wPrev = (i>0) ? (xs[i]-xs[i-1]) : 0;
+    const wNext = (i<xs.length-1) ? (xs[i+1]-xs[i]) : 0;
+    return 0.5*wPrev + 0.5*wNext;
+  };
+
+  const rectPropsMm = (w, h) => {
+    const A = w*h;
+    const Iy = h*Math.pow(w,3)/12;
+    const Iz = w*Math.pow(h,3)/12;
+    const a = Math.max(w,h);
+    const b = Math.min(w,h);
+    const J = (a*Math.pow(b,3))*(1/3 - 0.21*(b/a)*(1 - Math.pow(b,4)/(12*Math.pow(a,4))));
+    return { A, Iy, Iz, J };
+  };
+
+  const iSectionPropsMm = (b, d, tw, tf) => {
+    const webH = Math.max(0, d - 2*tf);
+    const Af = b*tf;
+    const Aw = tw*webH;
+    const A = 2*Af + Aw;
+    const IyFlange = tf*Math.pow(b,3)/12;
+    const IyWeb = webH*Math.pow(tw,3)/12;
+    const Iy = 2*IyFlange + IyWeb;
+    const IzFlangeLocal = b*Math.pow(tf,3)/12;
+    const yOff = (d/2 - tf/2);
+    const IzFlange = IzFlangeLocal + Af*Math.pow(yOff,2);
+    const IzWeb = tw*Math.pow(webH,3)/12;
+    const Iz = 2*IzFlange + IzWeb;
+    const J = (2*b*Math.pow(tf,3) + webH*Math.pow(tw,3))/3;
+    return { A, Iy, Iz, J };
+  };
+
+  const memberProfileNameLocal = (kind, memberId, memObj) => {
+    const prof = m?.profiles || {};
+    const overrides = m?.overrides || window.__prebimOverrides || {};
+    const ov = overrides?.[memberId] || null;
+
+    if(kind === 'column'){
+      if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')?.name || ov.sizeKey || '';
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'')?.name || prof.colSize || '';
+    }
+    if(kind === 'beamX' || kind === 'beamY'){
+      if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')?.name || ov.sizeKey || '';
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'')?.name || prof.beamSize || '';
+    }
+    if(kind === 'subBeam'){
+      if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')?.name || ov.sizeKey || '';
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'')?.name || prof.subSize || '';
+    }
+    if(kind === 'brace'){
+      if(memObj?.profile && typeof memObj.profile === 'object'){
+        const pr = memObj.profile;
+        return __profiles?.getProfile?.(pr.stdKey||prof.stdAll||'KS', pr.shapeKey||prof.braceShape||'L', pr.sizeKey||prof.braceSize||'')?.name || pr.sizeKey || '';
+      }
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'')?.name || prof.braceSize || '';
+    }
+    return '';
+  };
+
+  const parseProfileDimsMmLocal = (name) => {
+    const s0 = String(name||'').trim().replaceAll('X','x');
+    const s = s0.replaceAll('×','x');
+    const shapeKey = (s.split(/\s+/)[0] || 'BOX').toUpperCase();
+
+    const mL = s.match(/^L\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mL) return { shape:'L', d:+mL[1], b:+mL[2], tw:+mL[3], tf:+mL[3], lip:0, t:+mL[3] };
+
+    const mHI = s.match(/^(H|I)\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mHI) return { shape:mHI[1].toUpperCase(), d:+mHI[2], b:+mHI[3], tw:+mHI[4], tf:+mHI[5], lip:0 };
+
+    const mC = s.match(/^C\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mC) return { shape:'C', d:+mC[1], b:+mC[2], tw:+mC[3], tf:+mC[4], lip:0 };
+
+    const mLC = s.match(/^LC\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mLC) return { shape:'LC', d:+mLC[1], b:+mLC[2], tw:+mLC[4], tf:+mLC[4], lip:+mLC[3] };
+
+    const mT2 = s.match(/^T\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mT2){ const b=+mT2[1], d=+mT2[2]; const t=Math.max(6, Math.min(b,d)*0.10); return { shape:'T', d, b, tw:t, tf:t, lip:0, t }; }
+
+    const m2 = s.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    const d = m2 ? parseFloat(m2[1]) : 150;
+    const b = m2 ? parseFloat(m2[2]) : 150;
+    const t = Math.max(6, Math.min(b,d)*0.08);
+    return { shape: shapeKey, d, b, tw:t, tf:t, lip:0, t };
+  };
+
+  const sectionPropsMmFromMember = (kind, memObj) => {
+    const profName = memberProfileNameLocal(kind, memObj.id, memObj);
+    const d = parseProfileDimsMmLocal(profName);
+    const depth = Math.max(30, d.d||150);
+    const width = Math.max(30, d.b||150);
+    const tf = d.tf || d.t || 12;
+    const tw = d.tw || d.t || 8;
+    if((d.tf || d.tw) && depth > 2*tf + 1 && width > tw + 1) return iSectionPropsMm(width, depth, tw, tf);
+    return rectPropsMm(width, depth);
+  };
+
+  // supports: minY joints
+  const supportJoints = new Set();
+  let minY = Infinity;
+  for(const mm of memList){
+    const mem = mm.mem;
+    minY = Math.min(minY, mem.a[1], mem.b[1]);
+  }
+  const yEps = 1e-6;
+  for(const mm of memList){
+    const mem = mm.mem;
+    if(Math.abs(mem.a[1] - minY) < yEps) supportJoints.add(mm.j1);
+    if(Math.abs(mem.b[1] - minY) < yEps) supportJoints.add(mm.j2);
+  }
+
+  // loads
+  const liveLoads = [];
+  const story1m = (m.levels?.[1] ?? 0)/1000;
+  const subCount = m.options?.subBeams?.countPerBay || 0;
+  for(const mm of memList){
+    const mem = mm.mem;
+    if(!(mem.kind==='beamX' || mem.kind==='beamY' || mem.kind==='subBeam')) continue;
+    if(Math.abs(mem.a[1]-story1m) > 1e-6 || Math.abs(mem.b[1]-story1m) > 1e-6) continue;
+    let trib = 0;
+    if(mem.kind==='beamX') trib = tribWidthForBeamX(mem.a[2]);
+    else if(mem.kind==='beamY') trib = tribWidthForBeamY(mem.a[0]);
+    else {
+      const mId = String(mem.id||'');
+      const mSub = mId.match(/^sub:(\d+),(\d+),(\d+),(\d+)/);
+      if(mSub){
+        const iy = parseInt(mSub[2],10) || 0;
+        const bayW = (ys[iy+1]??ys[iy]) - (ys[iy]??0);
+        trib = bayW / (Math.max(1, subCount)+1);
+      } else trib = tribWidthForBeamX(mem.a[2]);
+    }
+    const w = qLive * trib;
+    if(w>0) liveLoads.push({ memberId: mm.id, dir:'GY', w: -w });
+  }
+
+  // properties in meter/kN
+  const E = 2.05e8;
+  const nu = 0.3;
+  const G = E/(2*(1+nu));
+
+  const nodes = jointList.map(j => ({ id: j.id, x: j.pt[0], y: j.pt[1], z: j.pt[2] }));
+  const amembers = memList.map(mm => {
+    const Pmm = sectionPropsMmFromMember(mm.kind, mm.mem);
+    return {
+      id: mm.id,
+      i: mm.j1,
+      j: mm.j2,
+      type: (mm.kind==='brace') ? 'truss' : 'frame',
+      E,
+      G,
+      A: Pmm.A * 1e-6,
+      Iy: Pmm.Iy * 1e-12,
+      Iz: Pmm.Iz * 1e-12,
+      J: Pmm.J * 1e-12,
+    };
+  });
+
+  const fixed = String(supportMode).toUpperCase() === 'FIXED';
+  let supports = Array.from(supportJoints).map(id => ({ nodeId: id, fix: { DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
+  if(!supports.length && jointList.length){
+    supports = [{ nodeId: jointList[0].id, fix: { DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }];
+  }
+
+  return {
+    units: { length:'m', force:'kN' },
+    nodes,
+    members: amembers,
+    supports,
+    loads: {
+      selfweightY: -1,
+      memberUDL: liveLoads,
+    }
+  };
+}
+
+function renderAnalysis(projectId){
+  setMode('editor');
+  document.body.classList.add('qty-collapsed');
+  document.body.classList.add('ps-hidden');
+
+  const p = findProjectById(projectId);
+  if(!p){
+    setTopbarSubtitle('projects');
+    setTopbarActions(`
+      <a class="pill" href="#/">Back</a>
+      <a class="pill" href="/">Home</a>
+    `);
+    const root = document.getElementById('app');
+    if(root) root.innerHTML = `<div class="card panel" style="margin:10px">Project not found.</div>`;
+    return;
+  }
+
+  setTopbarSubtitle((p.name || 'project') + ' · analysis');
+  document.title = `PreBIM-SteelStructure — ${p.name || 'project'} (Analysis)`;
+  setTopbarActions(`
+    <a class="pill" href="#/editor/${encodeURIComponent(p.id)}">Back to editor</a>
+    <button class="pill" id="btnRunAnalysis" type="button">Run analysis</button>
+    <span class="badge" style="background: rgba(148,163,184,0.14); border-color: rgba(148,163,184,0.26)">Support</span>
+    <select class="input" id="supportMode" style="max-width:140px; height:30px; padding:4px 10px">
+      <option value="PINNED" selected>PINNED</option>
+      <option value="FIXED">FIXED</option>
+    </select>
+    <span class="badge" style="background: rgba(34,211,238,0.10); border-color: rgba(34,211,238,0.18)">Live</span>
+    <input class="input" id="qLive" value="3.0" style="max-width:90px; height:30px; padding:4px 10px" title="kN/m^2" />
+  `);
+
+  const root = document.getElementById('app');
+  if(!root) return;
+
+  root.innerHTML = `
+    <section class="editor" aria-label="Analysis">
+      <aside class="pane tools">
+        <div class="pane-h"><b>Analysis</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">${BUILD}</span></div>
+        <div class="pane-b">
+          <div class="note">This page is read-only. Change geometry in the Editor.</div>
+          <div class="note" style="margin-top:8px">Support mode is applied when you click <b>Run analysis</b>.</div>
+          <div class="note" style="margin-top:8px">Results: deformed shape + displacement colormap.</div>
+          <div class="row" style="margin-top:10px">
+            <label class="label" style="margin:0">Deformation scale</label>
+            <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
+          </div>
+          <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
+        </div>
+      </aside>
+
+      <div class="splitter" id="splitterT" title="Drag to resize"></div>
+
+      <section class="pane view3d">
+        <div class="pane-h">
+          <b>3D View</b>
+          <div class="row" style="margin-top:0; gap:6px">
+            <button class="pill" id="btn3dGuides" type="button">Guides</button>
+            <button class="pill" id="btn3dSection" type="button">Section Box</button>
+          </div>
+        </div>
+        <div class="pane-b" id="view3d">
+          <div class="analysis-overlay" id="analysisOverlay" hidden>
+            <div class="analysis-overlay-card">
+              <div class="spinner"></div>
+              <div style="font-weight:800">Running analysis…</div>
+              <div class="mono" style="font-size:12px; color:rgba(11,27,58,0.65)">Solving 3D frame model</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+  `;
+
+  (async () => {
+    const view3dEl = document.getElementById('view3d');
+    const view = await createThreeView(view3dEl);
+
+    // Load model + show initial geometry
+    const model = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || p.data);
+    const members = __engine.generateMembers(model);
+    view.setMembers(members, model);
+
+    document.getElementById('btn3dGuides')?.addEventListener('click', () => {
+      const on = view.toggleGuides?.();
+      const btn = document.getElementById('btn3dGuides');
+      if(btn) btn.classList.toggle('active', !!on);
+    });
+
+    document.getElementById('btn3dSection')?.addEventListener('click', () => {
+      // toggle section box UI is editor-only; keep a simple toggle to clip full extents
+      // (future: reuse existing popover)
+      const on = !(document.body.classList.contains('secbox-on'));
+      document.body.classList.toggle('secbox-on', on);
+      view.setSectionBox?.(on, {x0:0,x1:1,y0:0,y1:1,z0:0,z1:1}, model);
+      const btn = document.getElementById('btn3dSection');
+      if(btn) btn.classList.toggle('active', on);
+    });
+
+    const setStatus = (t) => {
+      const el = document.getElementById('analysisStatus');
+      if(el) el.textContent = 'status: ' + t;
+    };
+
+    const run = async () => {
+      setStatus('building payload…');
+      const ov = document.getElementById('analysisOverlay');
+      if(ov) ov.hidden = false;
+
+      try{
+        const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
+        const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
+
+        // build payload (reuse logic from STAAD export style)
+        const payload = buildAnalysisPayload(model, qLive, supportMode);
+        setStatus('calling solver…');
+
+        const r = await fetch('/prebim/api/analyze', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const res = await r.json().catch(() => null);
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        if(!res || res.ok !== true){
+          alert(res?.note || 'Analysis failed.');
+          setStatus('failed');
+          return;
+        }
+
+        setStatus('rendering results…');
+        view.setAnalysisResult?.(res, payload);
+        const sc = Number(document.getElementById('analysisScale2')?.value || 120);
+        view.setAnalysisScale?.(sc);
+
+        // mark support nodes in 3D
+        view.setSupportMarkers?.(payload.supports, payload.nodes, supportMode);
+
+        setStatus(`done (max ${(Number(res?.maxDisp?.value)||0).toFixed(6)} m)`);
+      } catch (e) {
+        console.error(e);
+        alert('Analysis failed: ' + (e?.message || e));
+        setStatus('failed');
+      } finally {
+        const ov = document.getElementById('analysisOverlay');
+        if(ov) ov.hidden = true;
+      }
+    };
+
+    document.getElementById('btnRunAnalysis')?.addEventListener('click', run);
+    document.getElementById('analysisScale2')?.addEventListener('input', (ev) => {
+      const v = Number(ev.target?.value || 120);
+      view.setAnalysisScale?.(v);
+    });
+
+    // support markers shown even before run (based on default base supports)
+    try{
+      const payload0 = buildAnalysisPayload(model, parseFloat(document.getElementById('qLive')?.value||'3')||0, (document.getElementById('supportMode')?.value||'PINNED'));
+      view.setSupportMarkers?.(payload0.supports, payload0.nodes, (document.getElementById('supportMode')?.value||'PINNED'));
+    }catch{}
+  })();
+}
+
 function renderEditor(projectId){
   setMode('editor');
   // default UI state
@@ -1455,30 +1839,6 @@ function renderEditor(projectId){
       download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-data.json`, JSON.stringify(payload, null, 2));
     };
 
-    const runAnalysis = async () => {
-      const qLive = parseFloat(prompt('Live load (kN/m^2) for Story 1 beams/sub-beams (analysis)', '3.0')||'3') || 0;
-
-      // Show non-intrusive analysis state (topbar subtitle + 3D overlay)
-      setTopbarSubtitle((p.name || 'project') + ' · analyzing…');
-      const ov = document.getElementById('analysisOverlay');
-      if(ov){ ov.hidden = false; }
-
-      try{
-        const m = getForm();
-        const members = __engine.generateMembers(m);
-
-      // unique joints
-      const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
-      const joints = new Map();
-      const jointList = [];
-      const ensureJoint = (pt) => {
-        const k = keyOf(pt);
-        if(joints.has(k)) return joints.get(k);
-        const id = String(jointList.length + 1);
-        joints.set(k, id);
-        jointList.push({ id, pt });
-        return id;
-      };
 
       const memList = members.map((mem, idx) => {
         const j1 = ensureJoint(mem.a);
@@ -1712,27 +2072,7 @@ function renderEditor(projectId){
         return;
       }
 
-      // Visualize in 3D
-      try{ view.setAnalysisResult?.(res, payload); }catch(e){ console.warn('analysis visualize failed', e); }
-
-      // Update topbar subtitle summary
-      try{
-        const md = res?.maxDisp;
-        if(md && md.value!=null){
-          setTopbarSubtitle((p.name || 'project') + ` · max disp ${(Number(md.value)||0).toFixed(6)} m`);
-          setTimeout(() => setTopbarSubtitle(p.name || 'project'), 1800);
-        } else {
-          setTopbarSubtitle(p.name || 'project');
-        }
-      }catch{ setTopbarSubtitle(p.name || 'project'); }
-      } catch (e) {
-        if(ov) ov.hidden = true;
-        if(ov) ov.hidden = true;
-        setTopbarSubtitle(p.name || 'project');
-        alert('Analysis failed: ' + (e?.message || e));
-        console.error(e);
-      }
-    };
+    // Analysis now lives on a dedicated page (#/analysis/:id)
 
     const exportStaad = () => {
       const m = getForm();
@@ -2194,7 +2534,9 @@ function renderEditor(projectId){
     };
 
     document.getElementById('btnExportData')?.addEventListener('click', exportData);
-    document.getElementById('btnAnalysis')?.addEventListener('click', runAnalysis);
+    document.getElementById('btnAnalysis')?.addEventListener('click', () => {
+      go(`#/analysis/${encodeURIComponent(p.id)}`);
+    });
     document.getElementById('btnExportStaad')?.addEventListener('click', exportStaad);
     document.getElementById('btnExportIfc')?.addEventListener('click', exportIfc);
     document.getElementById('btnExportDxf')?.addEventListener('click', exportDxf);
@@ -2452,6 +2794,10 @@ async function createThreeView(container){
   scene.add(analysisGroup);
   let analysisLine = null;
   let analysisState = null;
+
+  // support markers
+  const supportGroup = new THREE.Group();
+  scene.add(supportGroup);
 
   // 3D guide lines (grid outline + level outlines)
   const guideGroup = new THREE.Group();
@@ -3242,6 +3588,27 @@ async function createThreeView(container){
     setAnalysisResult(analysisState.result, analysisState.payload);
   }
 
+  function setSupportMarkers(supports, nodes, supportMode='PINNED'){
+    while(supportGroup.children.length) supportGroup.remove(supportGroup.children[0]);
+    if(!supports || !nodes) return;
+
+    const nodeMap = new Map((nodes||[]).map(n => [String(n.id), n]));
+    const fixed = String(supportMode).toUpperCase() === 'FIXED';
+
+    const mat = new THREE.MeshBasicMaterial({ color: fixed ? 0x7c3aed : 0x0ea5e9, transparent:true, opacity:0.85, depthWrite:false });
+    const geom = new THREE.ConeGeometry(0.10, 0.20, 16);
+
+    for(const s of supports){
+      const n = nodeMap.get(String(s.nodeId));
+      if(!n) continue;
+      const mesh = new THREE.Mesh(geom, mat);
+      // point upward from base
+      mesh.position.set(n.x, n.y - 0.05, n.z);
+      mesh.rotation.x = Math.PI;
+      supportGroup.add(mesh);
+    }
+  }
+
   function setSectionBox(on, box01, model){
     secBoxOn = !!on;
     if(box01) secBox = { ...secBox, ...box01 };
@@ -3256,6 +3623,7 @@ async function createThreeView(container){
     setAnalysisResult,
     clearAnalysis,
     setAnalysisScale,
+    setSupportMarkers,
     resize: doResize,
     getSelection,
     setSelection,
@@ -3466,11 +3834,19 @@ function renderQtyTable(q, model){
 
 function route(){
   const hash = location.hash || '#/';
-  const m = hash.match(/^#\/editor\/([^/?#]+)/);
+
+  let m = hash.match(/^#\/editor\/([^/?#]+)/);
   if(m){
     renderEditor(decodeURIComponent(m[1]));
     return;
   }
+
+  m = hash.match(/^#\/analysis\/([^/?#]+)/);
+  if(m){
+    renderAnalysis(decodeURIComponent(m[1]));
+    return;
+  }
+
   renderProjects();
 }
 
