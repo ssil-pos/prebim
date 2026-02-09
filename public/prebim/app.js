@@ -703,6 +703,15 @@ function renderAnalysis(projectId){
     const members = __engine.generateMembers(model);
     view.setMembers(members, model);
 
+    // 3D click -> table sync
+    view.onSelectionChange?.((sel) => {
+      const id = sel?.[0];
+      if(id) {
+        saveAnalysisSettings(p.id, { selectedMemberId: id });
+        try{ highlightMemberRow(id); }catch{}
+      }
+    });
+
     document.getElementById('btn3dGuides')?.addEventListener('click', () => {
       const on = view.toggleGuides?.();
       const btn = document.getElementById('btn3dGuides');
@@ -724,6 +733,18 @@ function renderAnalysis(projectId){
       if(el) el.textContent = 'status: ' + t;
       const el2 = document.getElementById('analysisHudState');
       if(el2) el2.textContent = t;
+    };
+
+    const highlightMemberRow = (id) => {
+      const host = document.getElementById('analysisResults');
+      if(!host) return;
+      host.querySelectorAll('.analysis-mem.sel').forEach(el => el.classList.remove('sel'));
+      if(!id) return;
+      const row = host.querySelector(`.analysis-mem[data-mem="${CSS.escape(String(id))}"]`);
+      if(row){
+        row.classList.add('sel');
+        row.scrollIntoView({ block:'center', behavior:'smooth' });
+      }
     };
 
     const renderResultsTable = (res) => {
@@ -776,15 +797,17 @@ function renderAnalysis(projectId){
           const id = tr.getAttribute('data-mem');
           if(!id) return;
           view.setSelection?.([id]);
-          // persist selection
           saveAnalysisSettings(p.id, { selectedMemberId: id });
+          highlightMemberRow(id);
         });
       });
 
-      // restore last selection
       const saved = loadAnalysisSettings(p.id);
       if(saved?.selectedMemberId){
-        try{ view.setSelection?.([String(saved.selectedMemberId)]); }catch{}
+        try{
+          view.setSelection?.([String(saved.selectedMemberId)]);
+          highlightMemberRow(String(saved.selectedMemberId));
+        }catch{}
       }
     };
 
@@ -2768,6 +2791,7 @@ async function createThreeView(container){
   const analysisGroup = new THREE.Group();
   scene.add(analysisGroup);
   let analysisLine = null;
+  let analysisMaxMarker = null;
   let analysisState = null;
 
   // support markers
@@ -3467,6 +3491,21 @@ async function createThreeView(container){
       analysisLine.material?.dispose?.();
       analysisLine = null;
     }
+    if(analysisMaxMarker){
+      analysisGroup.remove(analysisMaxMarker);
+      // dispose children
+      try{
+        analysisMaxMarker.traverse?.((o) => {
+          o.geometry?.dispose?.();
+          if(o.material){
+            if(Array.isArray(o.material)) o.material.forEach(m=>m.dispose?.());
+            else o.material.dispose?.();
+          }
+          o.texture?.dispose?.();
+        });
+      }catch{}
+      analysisMaxMarker = null;
+    }
   }
 
   const colorRamp = (t) => {
@@ -3554,6 +3593,80 @@ async function createThreeView(container){
     };
 
     build();
+
+    // max disp marker
+    try{
+      const maxId = String(result?.maxDisp?.nodeId || '');
+      if(maxId && nodePos.has(maxId)){
+        const p0 = nodePos.get(maxId);
+        const d0 = disp[maxId] || {dx:0,dy:0,dz:0};
+        const scale = analysisState.scale;
+        const px = p0[0] + (d0.dx||0)*scale;
+        const py = p0[1] + (d0.dy||0)*scale;
+        const pz = p0[2] + (d0.dz||0)*scale;
+
+        // estimate model scale
+        let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+        for(const n of payload.nodes){
+          minX=Math.min(minX,n.x); minY=Math.min(minY,n.y); minZ=Math.min(minZ,n.z);
+          maxX=Math.max(maxX,n.x); maxY=Math.max(maxY,n.y); maxZ=Math.max(maxZ,n.z);
+        }
+        const diag = Math.hypot(maxX-minX, maxY-minY, maxZ-minZ) || 10;
+        const rr = Math.max(0.14, diag*0.012);
+
+        const g = new THREE.Group();
+        const sph = new THREE.Mesh(
+          new THREE.SphereGeometry(rr, 20, 20),
+          new THREE.MeshBasicMaterial({ color: 0xef4444, transparent:true, opacity:0.92, depthWrite:false })
+        );
+        sph.position.set(px,py,pz);
+        sph.renderOrder = 25;
+        g.add(sph);
+
+        // simple text sprite using canvas
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const txt = `max disp\nnode ${maxId}`;
+        const lines = txt.split('\n');
+        const pad = 10;
+        const fs = 22;
+        ctx.font = `800 ${fs}px ui-sans-serif, system-ui`;
+        let wText = 0;
+        for(const l of lines){ wText = Math.max(wText, ctx.measureText(l).width); }
+        const w = Math.ceil(wText + pad*2);
+        const h = fs*lines.length + pad*2 + 6;
+        canvas.width = w; canvas.height = h;
+        ctx.font = `800 ${fs}px ui-sans-serif, system-ui`;
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.strokeStyle = 'rgba(2,6,23,0.25)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        const r = 14;
+        ctx.moveTo(r,0);
+        ctx.arcTo(w,0,w,h,r);
+        ctx.arcTo(w,h,0,h,r);
+        ctx.arcTo(0,h,0,0,r);
+        ctx.arcTo(0,0,w,0,r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(11,27,58,0.9)';
+        ctx.textBaseline = 'top';
+        let y = pad;
+        for(const l of lines){ ctx.fillText(l, pad, y); y += fs; }
+
+        const tex = new THREE.CanvasTexture(canvas);
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent:true, depthWrite:false }));
+        spr.position.set(px, py + rr*2.4, pz);
+        const sprScale = Math.max(0.6, diag*0.06);
+        spr.scale.set(sprScale*(w/h), sprScale, 1);
+        spr.renderOrder = 26;
+        g.add(spr);
+
+        analysisMaxMarker = g;
+        analysisGroup.add(g);
+      }
+    }catch(e){ console.warn('max marker failed', e); }
   }
 
   function setAnalysisScale(scale){
