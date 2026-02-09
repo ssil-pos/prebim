@@ -1,0 +1,7 @@
+services:
+  prebim-analysis:
+    build: .
+    container_name: prebim-analysis
+    ports:
+      - "8009:8000"
+    restart: unless-stopped

@@ -363,6 +363,7 @@ function renderEditor(projectId){
   setTopbarActions(`
     <a class="pill" href="#/">Back</a>
     <button class="pill" id="btnToggleQty" type="button">Quantities</button>
+    <button class="pill" id="btnAnalysis" type="button">Analysis</button>
     <button class="pill" id="btnExportStaad" type="button">STAAD Export</button>
     <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
     <button class="pill" id="btnExportData" type="button">DATA Export</button>
@@ -1434,7 +1435,7 @@ function renderEditor(projectId){
 
     const apply = (m) => applyNow(m);
 
-    // Exports
+    // Exports / Analysis
     const exportData = () => {
       const m = getForm();
       const payload = {
@@ -1444,6 +1445,198 @@ function renderEditor(projectId){
         engineModel: m,
       };
       download(`prebim-${(p.name||'project').replace(/[^a-z0-9_-]+/gi,'_')}-data.json`, JSON.stringify(payload, null, 2));
+    };
+
+    const runAnalysis = async () => {
+      const m = getForm();
+      const members = __engine.generateMembers(m);
+
+      const qLive = parseFloat(prompt('Live load (kN/m^2) for Story 1 beams/sub-beams (analysis)', '3.0')||'3') || 0;
+
+      // unique joints
+      const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
+      const joints = new Map();
+      const jointList = [];
+      const ensureJoint = (pt) => {
+        const k = keyOf(pt);
+        if(joints.has(k)) return joints.get(k);
+        const id = String(jointList.length + 1);
+        joints.set(k, id);
+        jointList.push({ id, pt });
+        return id;
+      };
+
+      const memList = members.map((mem, idx) => {
+        const j1 = ensureJoint(mem.a);
+        const j2 = ensureJoint(mem.b);
+        return { id: String(idx+1), kind: mem.kind, j1, j2, mem };
+      });
+
+      // grid helpers (for tributary widths)
+      const spansXmm = m.grid?.spansXmm || [];
+      const spansYmm = m.grid?.spansYmm || [];
+      const xs=[0], ys=[0];
+      for(const s of spansXmm) xs.push(xs[xs.length-1] + (s/1000));
+      for(const s of spansYmm) ys.push(ys[ys.length-1] + (s/1000));
+
+      const findIdx = (arr, v) => {
+        for(let i=0;i<arr.length;i++) if(Math.abs(arr[i]-v) < 1e-5) return i;
+        return -1;
+      };
+
+      const tribWidthForBeamX = (z) => {
+        const j = findIdx(ys, z);
+        if(j < 0) return 0;
+        const wPrev = (j>0) ? (ys[j]-ys[j-1]) : 0;
+        const wNext = (j<ys.length-1) ? (ys[j+1]-ys[j]) : 0;
+        return 0.5*wPrev + 0.5*wNext;
+      };
+
+      const tribWidthForBeamY = (x) => {
+        const i = findIdx(xs, x);
+        if(i < 0) return 0;
+        const wPrev = (i>0) ? (xs[i]-xs[i-1]) : 0;
+        const wNext = (i<xs.length-1) ? (xs[i+1]-xs[i]) : 0;
+        return 0.5*wPrev + 0.5*wNext;
+      };
+
+      const rectPropsMm = (w, h) => {
+        const A = w*h;
+        const Iy = h*Math.pow(w,3)/12;
+        const Iz = w*Math.pow(h,3)/12;
+        const a = Math.max(w,h);
+        const b = Math.min(w,h);
+        const J = (a*Math.pow(b,3))*(1/3 - 0.21*(b/a)*(1 - Math.pow(b,4)/(12*Math.pow(a,4))));
+        return { A, Iy, Iz, J };
+      };
+
+      const iSectionPropsMm = (b, d, tw, tf) => {
+        const webH = Math.max(0, d - 2*tf);
+        const Af = b*tf;
+        const Aw = tw*webH;
+        const A = 2*Af + Aw;
+        const IyFlange = tf*Math.pow(b,3)/12;
+        const IyWeb = webH*Math.pow(tw,3)/12;
+        const Iy = 2*IyFlange + IyWeb;
+        const IzFlangeLocal = b*Math.pow(tf,3)/12;
+        const yOff = (d/2 - tf/2);
+        const IzFlange = IzFlangeLocal + Af*Math.pow(yOff,2);
+        const IzWeb = tw*Math.pow(webH,3)/12;
+        const Iz = 2*IzFlange + IzWeb;
+        const J = (2*b*Math.pow(tf,3) + webH*Math.pow(tw,3))/3;
+        return { A, Iy, Iz, J };
+      };
+
+      const sectionPropsMmFromMember = (kind, memObj) => {
+        let profName = memberProfileName(kind, m, memObj.id);
+        if(kind==='brace' && memObj.profile && typeof memObj.profile==='object'){
+          const pr = memObj.profile;
+          profName = __profiles?.getProfile?.(pr.stdKey||m.profiles?.stdAll||'KS', pr.shapeKey||m.profiles?.braceShape||'L', pr.sizeKey||m.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
+        }
+        const d = parseProfileDimsMm(profName);
+        const depth = Math.max(30, d.d||150);
+        const width = Math.max(30, d.b||150);
+        const tf = d.tf || d.t || 12;
+        const tw = d.tw || d.t || 8;
+        if((d.tf || d.tw) && depth > 2*tf + 1 && width > tw + 1) return iSectionPropsMm(width, depth, tw, tf);
+        return rectPropsMm(width, depth);
+      };
+
+      // supports (base pinned)
+      const supportJoints = new Set();
+      for(const mm of memList){
+        const mem = mm.mem;
+        if(mem.kind==='column'){
+          const ya = mem.a[1], yb = mem.b[1];
+          const jLow = (ya<yb) ? mm.j1 : mm.j2;
+          const yLow = Math.min(ya,yb);
+          if(Math.abs(yLow - 0) < 1e-8) supportJoints.add(jLow);
+        }
+      }
+
+      // loads (1 case = DEAD+LIVE)
+      const liveLoads = [];
+      const story1m = (m.levels?.[1] ?? 0)/1000;
+      const subCount = m.options?.subBeams?.countPerBay || 0;
+      for(const mm of memList){
+        const mem = mm.mem;
+        if(!(mem.kind==='beamX' || mem.kind==='beamY' || mem.kind==='subBeam')) continue;
+        if(Math.abs(mem.a[1]-story1m) > 1e-6 || Math.abs(mem.b[1]-story1m) > 1e-6) continue;
+        let trib = 0;
+        if(mem.kind==='beamX') trib = tribWidthForBeamX(mem.a[2]);
+        else if(mem.kind==='beamY') trib = tribWidthForBeamY(mem.a[0]);
+        else {
+          const mId = String(mem.id||'');
+          const mSub = mId.match(/^sub:(\d+),(\d+),(\d+),(\d+)/);
+          if(mSub){
+            const iy = parseInt(mSub[2],10) || 0;
+            const bayW = (ys[iy+1]??ys[iy]) - (ys[iy]??0);
+            trib = bayW / (Math.max(1, subCount)+1);
+          } else trib = tribWidthForBeamX(mem.a[2]);
+        }
+        const w = qLive * trib; // kN/m
+        if(w>0) liveLoads.push({ memberId: mm.id, dir:'GY', w: -w });
+      }
+
+      // Assemble analysis model
+      const E = 2.05e8; // kN/m^2 (matches STAAD export)
+      const nu = 0.3;
+      const G = E/(2*(1+nu));
+
+      const nodes = jointList.map(j => ({ id: j.id, x: j.pt[0], y: j.pt[1], z: j.pt[2] }));
+      const amembers = memList.map(mm => {
+        const Pmm = sectionPropsMmFromMember(mm.kind, mm.mem);
+        return {
+          id: mm.id,
+          i: mm.j1,
+          j: mm.j2,
+          type: (mm.kind==='brace') ? 'truss' : 'frame',
+          E,
+          G,
+          A: Pmm.A * 1e-6,
+          Iy: Pmm.Iy * 1e-12,
+          Iz: Pmm.Iz * 1e-12,
+          J: Pmm.J * 1e-12,
+        };
+      });
+
+      const supports = Array.from(supportJoints).map(id => ({ nodeId: id, fix: { DX:true,DY:true,DZ:true,RX:false,RY:false,RZ:false } }));
+
+      const payload = {
+        units: { length:'m', force:'kN' },
+        nodes,
+        members: amembers,
+        supports,
+        loads: {
+          selfweightY: -1,
+          memberUDL: liveLoads,
+        }
+      };
+
+      // Call analysis API (expects reverse-proxy at /prebim/api/analyze)
+      let res;
+      try{
+        const r = await fetch('/prebim/api/analyze', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        res = await r.json();
+      } catch (e) {
+        alert('Analysis API is not reachable yet. Server needs /prebim/api/analyze proxy to the analysis container.');
+        console.warn('analysis failed', e);
+        return;
+      }
+
+      if(!res || res.ok !== true){
+        alert('Analysis failed. Check server logs.');
+        console.warn('analysis response', res);
+        return;
+      }
+
+      // Visualize in 3D
+      try{ view.setAnalysisResult?.(res, payload); }catch(e){ console.warn('analysis visualize failed', e); }
     };
 
     const exportStaad = () => {
@@ -1906,6 +2099,7 @@ function renderEditor(projectId){
     };
 
     document.getElementById('btnExportData')?.addEventListener('click', exportData);
+    document.getElementById('btnAnalysis')?.addEventListener('click', runAnalysis);
     document.getElementById('btnExportStaad')?.addEventListener('click', exportStaad);
     document.getElementById('btnExportIfc')?.addEventListener('click', exportIfc);
     document.getElementById('btnExportDxf')?.addEventListener('click', exportDxf);
@@ -2157,6 +2351,12 @@ async function createThreeView(container){
   // brace face selection overlays
   const faceGroup = new THREE.Group();
   scene.add(faceGroup);
+
+  // analysis overlay (deformed shape + displacement colormap)
+  const analysisGroup = new THREE.Group();
+  scene.add(analysisGroup);
+  let analysisLine = null;
+  let analysisState = null;
 
   // 3D guide lines (grid outline + level outlines)
   const guideGroup = new THREE.Group();
@@ -2451,6 +2651,7 @@ async function createThreeView(container){
   function setMembers(members, model){
     while(group.children.length) group.remove(group.children[0]);
     while(guideGroup.children.length) guideGroup.remove(guideGroup.children[0]);
+    clearAnalysis();
 
     const vA = new THREE.Vector3();
     const vB = new THREE.Vector3();
@@ -2842,6 +3043,110 @@ async function createThreeView(container){
     return guidesOn;
   }
 
+  function clearAnalysis(){
+    analysisState = null;
+    if(analysisLine){
+      analysisGroup.remove(analysisLine);
+      analysisLine.geometry?.dispose?.();
+      analysisLine.material?.dispose?.();
+      analysisLine = null;
+    }
+  }
+
+  const colorRamp = (t) => {
+    // blue -> cyan -> green -> yellow -> red
+    t = Math.max(0, Math.min(1, t));
+    const stops = [
+      [0.00, [0.23,0.51,0.96]],
+      [0.25, [0.13,0.82,0.93]],
+      [0.50, [0.16,0.84,0.55]],
+      [0.75, [0.98,0.84,0.22]],
+      [1.00, [0.94,0.27,0.27]],
+    ];
+    for(let i=0;i<stops.length-1;i++){
+      const a=stops[i], b=stops[i+1];
+      if(t>=a[0] && t<=b[0]){
+        const u=(t-a[0])/(b[0]-a[0]||1);
+        return [
+          a[1][0] + (b[1][0]-a[1][0])*u,
+          a[1][1] + (b[1][1]-a[1][1])*u,
+          a[1][2] + (b[1][2]-a[1][2])*u,
+        ];
+      }
+    }
+    return stops[stops.length-1][1];
+  };
+
+  function setAnalysisResult(result, payload){
+    const prevScale = analysisState?.scale ?? 120;
+    clearAnalysis();
+    if(!result?.nodes || !payload?.members || !payload?.nodes) return;
+
+    const disp = result.nodes; // {nodeId:{dx,dy,dz}}
+    const nodePos = new Map(payload.nodes.map(n => [String(n.id), [n.x,n.y,n.z]]));
+
+    // precompute max displacement magnitude
+    let maxD = 0;
+    for(const [nid, d] of Object.entries(disp)){
+      const mag = Math.hypot(d.dx||0, d.dy||0, d.dz||0);
+      if(mag > maxD) maxD = mag;
+    }
+    maxD = maxD || 1e-9;
+
+    analysisState = { result, payload, maxD, scale: prevScale };
+
+    const build = () => {
+      if(!analysisState) return;
+      const scale = analysisState.scale;
+
+      const positions = [];
+      const colors = [];
+
+      for(const mem of payload.members){
+        const i = String(mem.i), j = String(mem.j);
+        const pi = nodePos.get(i); const pj = nodePos.get(j);
+        if(!pi || !pj) continue;
+        const di = disp[i] || {dx:0,dy:0,dz:0};
+        const dj = disp[j] || {dx:0,dy:0,dz:0};
+
+        const xi = pi[0] + (di.dx||0)*scale;
+        const yi = pi[1] + (di.dy||0)*scale;
+        const zi = pi[2] + (di.dz||0)*scale;
+        const xj = pj[0] + (dj.dx||0)*scale;
+        const yj = pj[1] + (dj.dy||0)*scale;
+        const zj = pj[2] + (dj.dz||0)*scale;
+
+        positions.push(xi,yi,zi, xj,yj,zj);
+
+        const mi = Math.hypot(di.dx||0, di.dy||0, di.dz||0);
+        const mj = Math.hypot(dj.dx||0, dj.dy||0, dj.dz||0);
+        const t = (0.5*(mi+mj)) / analysisState.maxD;
+        const c = colorRamp(t);
+        colors.push(c[0],c[1],c[2], c[0],c[1],c[2]);
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+      const mat = new THREE.LineBasicMaterial({ vertexColors:true, transparent:true, opacity:0.95 });
+      const line = new THREE.LineSegments(geom, mat);
+      line.renderOrder = 20;
+
+      analysisLine = line;
+      analysisGroup.add(line);
+    };
+
+    build();
+  }
+
+  function setAnalysisScale(scale){
+    if(!analysisState) return;
+    analysisState.scale = scale;
+    // rebuild
+    setAnalysisResult(analysisState.result, analysisState.payload);
+  }
+
   function setSectionBox(on, box01, model){
     secBoxOn = !!on;
     if(box01) secBox = { ...secBox, ...box01 };
@@ -2853,6 +3158,9 @@ async function createThreeView(container){
     setBraceMode,
     toggleGuides,
     setSectionBox,
+    setAnalysisResult,
+    clearAnalysis,
+    setAnalysisScale,
     resize: doResize,
     getSelection,
     setSelection,
