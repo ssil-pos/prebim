@@ -376,6 +376,20 @@ function renderEditor(projectId){
   if(!root) return;
 
   root.innerHTML = `
+    <div class="analysis-top" id="analysisTop" aria-label="Analysis">
+      <div class="analysis-top-inner">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
+          <b>Analysis mode</b>
+          <button class="pill" id="btnAnalysisClose" type="button">Close</button>
+        </div>
+        <div class="row" style="margin-top:8px; gap:10px; flex-wrap:wrap">
+          <span class="badge">Displacement</span>
+          <label class="label" style="margin:0">Deformation scale</label>
+          <input id="analysisScale" type="range" min="10" max="400" value="120" style="width:220px" />
+          <span class="mono" id="analysisMaxDisp" style="font-size:12px; color:rgba(11,27,58,0.75)">max: -</span>
+        </div>
+      </div>
+    </div>
     <section class="editor" aria-label="Editor">
       <aside class="pane tools">
         <div class="pane-h"><b>Tools</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">v0</span></div>
@@ -489,7 +503,15 @@ function renderEditor(projectId){
             <button class="pill" id="btnPopOv" type="button">Override</button>
           </div>
         </div>
-        <div class="pane-b" id="view3d"></div>
+        <div class="pane-b" id="view3d">
+          <div class="analysis-overlay" id="analysisOverlay" hidden>
+            <div class="analysis-overlay-card">
+              <div class="spinner"></div>
+              <div style="font-weight:800">Running analysis…</div>
+              <div class="mono" style="font-size:12px; color:rgba(11,27,58,0.65)">Solving 3D frame model</div>
+            </div>
+          </div>
+        </div>
 
         <div class="popwrap" id="popBr"><div class="popcard">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
@@ -1613,6 +1635,11 @@ function renderEditor(projectId){
         }
       };
 
+      // Enter analysis mode UI
+      document.body.classList.add('analysis-open');
+      const ov = document.getElementById('analysisOverlay');
+      if(ov){ ov.hidden = false; }
+
       // Call analysis API (expects reverse-proxy at /prebim/api/analyze)
       let res;
       try{
@@ -1624,10 +1651,12 @@ function renderEditor(projectId){
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         res = await r.json();
       } catch (e) {
-        alert('Analysis API is not reachable yet. Server needs /prebim/api/analyze proxy to the analysis container.');
+        if(ov) ov.hidden = true;
+        alert('Analysis API failed.');
         console.warn('analysis failed', e);
         return;
       }
+      if(ov) ov.hidden = true;
 
       if(!res || res.ok !== true){
         alert('Analysis failed. Check server logs.');
@@ -1637,6 +1666,15 @@ function renderEditor(projectId){
 
       // Visualize in 3D
       try{ view.setAnalysisResult?.(res, payload); }catch(e){ console.warn('analysis visualize failed', e); }
+
+      // Update analysis UI summary
+      try{
+        const maxEl = document.getElementById('analysisMaxDisp');
+        const md = res?.maxDisp;
+        if(maxEl && md && md.value!=null){
+          maxEl.textContent = `max: ${(Number(md.value)||0).toFixed(6)} m`;
+        }
+      }catch{}
     };
 
     const exportStaad = () => {
@@ -2100,6 +2138,14 @@ function renderEditor(projectId){
 
     document.getElementById('btnExportData')?.addEventListener('click', exportData);
     document.getElementById('btnAnalysis')?.addEventListener('click', runAnalysis);
+    document.getElementById('btnAnalysisClose')?.addEventListener('click', () => {
+      document.body.classList.remove('analysis-open');
+      try{ view.clearAnalysis?.(); }catch{}
+    });
+    document.getElementById('analysisScale')?.addEventListener('input', (ev) => {
+      const v = Number(ev.target?.value || 120);
+      try{ view.setAnalysisScale?.(v); }catch{}
+    });
     document.getElementById('btnExportStaad')?.addEventListener('click', exportStaad);
     document.getElementById('btnExportIfc')?.addEventListener('click', exportIfc);
     document.getElementById('btnExportDxf')?.addEventListener('click', exportDxf);
