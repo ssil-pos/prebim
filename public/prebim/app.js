@@ -1470,10 +1470,16 @@ function renderEditor(projectId){
     };
 
     const runAnalysis = async () => {
-      const m = getForm();
-      const members = __engine.generateMembers(m);
-
       const qLive = parseFloat(prompt('Live load (kN/m^2) for Story 1 beams/sub-beams (analysis)', '3.0')||'3') || 0;
+
+      // Enter analysis mode UI immediately (so user sees mode change even if compute is slow)
+      document.body.classList.add('analysis-open');
+      const ov = document.getElementById('analysisOverlay');
+      if(ov){ ov.hidden = false; }
+
+      try{
+        const m = getForm();
+        const members = __engine.generateMembers(m);
 
       // unique joints
       const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
@@ -1635,11 +1641,6 @@ function renderEditor(projectId){
         }
       };
 
-      // Enter analysis mode UI
-      document.body.classList.add('analysis-open');
-      const ov = document.getElementById('analysisOverlay');
-      if(ov){ ov.hidden = false; }
-
       // Call analysis API (expects reverse-proxy at /prebim/api/analyze)
       let res;
       try{
@@ -1675,6 +1676,11 @@ function renderEditor(projectId){
           maxEl.textContent = `max: ${(Number(md.value)||0).toFixed(6)} m`;
         }
       }catch{}
+      } catch (e) {
+        if(ov) ov.hidden = true;
+        alert('Analysis failed: ' + (e?.message || e));
+        console.error(e);
+      }
     };
 
     const exportStaad = () => {
