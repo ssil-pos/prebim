@@ -18,8 +18,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0316'),
-    import('/prebim/app_profiles.js?v=20260209-0316'),
+    import('/prebim/engine.js?v=20260209-0338'),
+    import('/prebim/app_profiles.js?v=20260209-0338'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -457,11 +457,12 @@ function renderEditor(projectId){
             <label class="badge" style="cursor:pointer"><input id="optBrace" type="checkbox" style="margin:0 8px 0 0" /> Enable</label>
             <select id="braceType" class="input" style="max-width:110px">
               <option value="X">X</option>
-              <option value="S">S</option>
+              <option value="S">/</option>
+              <option value="HAT">ㅅ</option>
             </select>
           </div>
           <div class="row" style="margin-top:8px">
-            <label class="badge" style="cursor:pointer"><input id="braceMode" type="checkbox" style="margin:0 8px 0 0" /> Panel-select in 3D</label>
+            <span class="badge">Pick panels in 3D</span>
             <select id="braceStory" class="input" style="max-width:140px"></select>
           </div>
           <div class="grid2">
@@ -521,6 +522,13 @@ function renderEditor(projectId){
         <div class="pane-b">
           <div class="note" style="margin-top:0">Use the Bracing / Override buttons on the 3D View header.</div>
           <div class="note">Project ID: <span class="mono">${escapeHtml(p.id)}</span></div>
+          <div class="card panel" style="margin-top:10px; padding:10px">
+            <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Quantities (total)</div>
+            <div style="display:flex; justify-content:space-between; gap:10px; margin-top:6px">
+              <b>Total weight</b>
+              <span class="mono" id="qtyTotalWeight">-</span>
+            </div>
+          </div>
         </div>
       </aside>
     </section>
@@ -570,7 +578,7 @@ function renderEditor(projectId){
         opt.textContent = `Story ${i+1}`;
         document.getElementById('braceStory').appendChild(opt);
       }
-      document.getElementById('braceMode').checked = false;
+      // brace selection mode is controlled by Bracing popup open/close
 
       // profiles (stored only for now)
       // Note: profile selectors are populated by fillProfileSelectors() using steel_data.js
@@ -683,13 +691,14 @@ function renderEditor(projectId){
     document.getElementById('btnPopBr')?.addEventListener('click', () => {
       popOv?.classList.remove('open');
       popBr?.classList.toggle('open');
+      updateBraceMode(popBr?.classList.contains('open'));
     });
     document.getElementById('btnPopOv')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
       popOv?.classList.toggle('open');
     });
-    document.getElementById('btnPopBrClose')?.addEventListener('click', closeAll);
-    document.getElementById('btnPopOvClose')?.addEventListener('click', closeAll);
+    document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
+    document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
 
     // resizable splitters
     const splitterT = document.getElementById('splitterT');
@@ -736,6 +745,8 @@ function renderEditor(projectId){
       view.setMembers(members, m);
       const q = summarizeMembers(members, m);
       if(qtyEl) qtyEl.innerHTML = renderQtyTable(q, m);
+      const tw = document.getElementById('qtyTotalWeight');
+      if(tw) tw.textContent = (q.totalWeightKg!=null && Number.isFinite(q.totalWeightKg)) ? `${q.totalWeightKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(q.totalWeightKg/1000).toFixed(3)} t)` : '-';
 
       // persist into project
       const projects = loadProjects();
@@ -757,30 +768,30 @@ function renderEditor(projectId){
     apply(engineModel);
 
     // bracing panel selection mode (3D)
-    const braceModeEl = document.getElementById('braceMode');
     const braceStoryEl = document.getElementById('braceStory');
 
     const toggleBrace = (pick) => {
       const braces = Array.isArray(window.__prebimBraces) ? window.__prebimBraces : [];
       const idx = braces.findIndex(b => b.axis===pick.axis && b.line===pick.line && b.story===pick.story && b.bay===pick.bay);
       if(idx >= 0) braces.splice(idx,1);
-      else braces.push({ axis: pick.axis, line: pick.line, story: pick.story, bay: pick.bay, kind: (document.getElementById('braceType').value||'X') === 'S' ? 'S' : 'X' });
+      else {
+        const k = document.getElementById('braceType').value || 'X';
+        braces.push({ axis: pick.axis, line: pick.line, story: pick.story, bay: pick.bay, kind: (k==='S' || k==='HAT') ? k : 'X' });
+      }
       window.__prebimBraces = braces;
     };
 
-    const updateBraceMode = () => {
-      const on = !!braceModeEl?.checked;
+    const updateBraceMode = (on) => {
       const m = getForm();
       const story = parseInt(braceStoryEl?.value||'0',10) || 0;
-      view.setBraceMode?.(on, { ...m, braceStory: story }, (pick) => {
+      view.setBraceMode?.(!!on, { ...m, braceStory: story }, (pick) => {
         toggleBrace(pick);
         scheduleApply(0);
       });
       scheduleApply(0);
     };
 
-    braceModeEl?.addEventListener('change', updateBraceMode);
-    braceStoryEl?.addEventListener('change', updateBraceMode);
+    braceStoryEl?.addEventListener('change', () => updateBraceMode(popBr?.classList.contains('open')));
 
     // Apply buttons removed; everything is realtime
 
@@ -1469,6 +1480,7 @@ function summarizeMembers(members, model){
   const byKind = {};
   let totalLen = 0;
   let totalCount = 0;
+  let totalWeightKg = 0;
 
   const overrides = model?.overrides || window.__prebimOverrides || {};
   for(const mem of members){
@@ -1507,12 +1519,13 @@ function summarizeMembers(members, model){
     const cur = byKind[key] || { len:0, count:0, kgm: p?.kgm ?? null, name: p?.name ?? null };
     cur.len += len;
     cur.count += 1;
+    if(p?.kgm != null && Number.isFinite(p.kgm)) totalWeightKg += (p.kgm * len);
     // keep kgm/name if present
     if(cur.kgm == null && p?.kgm != null) cur.kgm = p.kgm;
     if(!cur.name && p?.name) cur.name = p.name;
     byKind[key] = cur;
   }
-  return { byKind, totalLen, totalCount };
+  return { byKind, totalLen, totalCount, totalWeightKg };
 }
 
 function renderQtyTable(q, model){
@@ -1573,7 +1586,7 @@ function renderQtyTable(q, model){
           <td class="num">${q.totalLen.toFixed(3)}</td>
           <td class="num">${q.totalCount}</td>
           <td class="num">-</td>
-          <td class="num">-</td>
+          <td class="num">${(q.totalWeightKg!=null && Number.isFinite(q.totalWeightKg)) ? `${q.totalWeightKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(q.totalWeightKg/1000).toFixed(3)} t)` : '-'}</td>
         </tr>
       </tfoot>
     </table>

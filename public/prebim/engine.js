@@ -74,7 +74,7 @@ export function normalizeModel(m){
   out.levels = out.levels.map(x => Math.max(0, parseFloat(x)||0)).sort((a,b)=>a-b);
   if(out.levels.length < 2) out.levels = [0, 6000];
   out.options.subBeams.countPerBay = Math.max(0, parseInt(out.options.subBeams.countPerBay,10)||0);
-  out.options.bracing.type = (out.options.bracing.type === 'S') ? 'S' : 'X';
+  out.options.bracing.type = (out.options.bracing.type === 'S' || out.options.bracing.type === 'HAT') ? out.options.bracing.type : 'X';
 
   // braces normalization (panel-based)
   if(!Array.isArray(out.braces)) out.braces = [];
@@ -90,7 +90,7 @@ export function normalizeModel(m){
           line,
           story: Math.max(0, parseInt(b.story,10)||0),
           bay: Math.max(0, parseInt(b.bay,10)||0),
-          kind: (b.kind === 'S') ? 'S' : 'X',
+          kind: (b.kind === 'S' || b.kind === 'HAT') ? b.kind : 'X',
         };
       }
 
@@ -99,7 +99,7 @@ export function normalizeModel(m){
         line: Math.max(0, parseInt(b.line,10)||0),
         story: Math.max(0, parseInt(b.story,10)||0),
         bay: Math.max(0, parseInt(b.bay,10)||0),
-        kind: (b.kind === 'S') ? 'S' : 'X',
+        kind: (b.kind === 'S' || b.kind === 'HAT') ? b.kind : 'X',
       };
     });
 
@@ -210,11 +210,20 @@ export function generateMembers(model){
       const addXBrace = (a,b,c,d, key) => {
         const kind = br.kind || m.options.bracing.type;
         if(kind === 'S'){
+          // single diagonal
           members.push({ id:`braceS:${key}`, kind:'brace', a, b });
-        } else {
-          members.push({ id:`braceX1:${key}`, kind:'brace', a, b });
-          members.push({ id:`braceX2:${key}`, kind:'brace', a: c, b: d });
+          return;
         }
+        if(kind === 'HAT'){
+          // chevron (ㅅ): two diagonals meeting at mid-top
+          const midTop = [ (a[0]+c[0])/2, z1, (a[2]+c[2])/2 ];
+          members.push({ id:`braceH1:${key}`, kind:'brace', a, b: midTop });
+          members.push({ id:`braceH2:${key}`, kind:'brace', a: c, b: midTop });
+          return;
+        }
+        // X-brace
+        members.push({ id:`braceX1:${key}`, kind:'brace', a, b });
+        members.push({ id:`braceX2:${key}`, kind:'brace', a: c, b: d });
       };
 
       if(br.axis === 'Y'){
