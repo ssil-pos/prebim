@@ -18,8 +18,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0315'),
-    import('/prebim/app_profiles.js?v=20260209-0315'),
+    import('/prebim/engine.js?v=20260209-0324'),
+    import('/prebim/app_profiles.js?v=20260209-0324'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -442,8 +442,6 @@ function renderEditor(projectId){
         <div class="pane-h">
           <b>3D View</b>
           <div class="row" style="margin-top:0; gap:6px">
-            <button class="pill" id="btn3dReal" type="button">Realistic</button>
-            <button class="pill" id="btn3dOutline" type="button">Outline</button>
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
           </div>
@@ -676,8 +674,7 @@ function renderEditor(projectId){
     const view = await createThreeView(view3dEl);
 
     // 3D toggles
-    document.getElementById('btn3dReal')?.addEventListener('click', () => view.toggleRealistic?.());
-    document.getElementById('btn3dOutline')?.addEventListener('click', () => view.toggleOutline?.());
+    // (realistic/outline toggles removed)
 
     // popovers
     const popBr = document.getElementById('popBr');
@@ -1017,17 +1014,25 @@ async function createThreeView(container){
   const selected = new Set();
 
   const matByKind = {
-    column: new THREE.MeshStandardMaterial({ color: 0x0b1b3a, roughness:0.65, metalness:0.15 }),
-    beamX: new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness:0.7, metalness:0.12 }),
-    beamY: new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness:0.7, metalness:0.12 }),
-    subBeam: new THREE.MeshStandardMaterial({ color: 0x7c3aed, roughness:0.72, metalness:0.10 }),
+    column: new THREE.MeshStandardMaterial({ color: 0x334155, roughness:0.55, metalness:0.25 }),
+    beamX: new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness:0.55, metalness:0.22 }),
+    beamY: new THREE.MeshStandardMaterial({ color: 0x60a5fa, roughness:0.55, metalness:0.22 }),
+    subBeam: new THREE.MeshStandardMaterial({ color: 0xa78bfa, roughness:0.60, metalness:0.18 }),
     joist: new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent:true, opacity:0.55 }),
-    brace: new THREE.LineBasicMaterial({ color: 0x0ea5e9, transparent:true, opacity:0.65 }),
+    brace: new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness:0.55, metalness:0.20 }),
   };
 
   function parseProfileDimsMm(name){
-    const s = String(name||'').trim().replaceAll('X','x');
+    const s0 = String(name||'').trim().replaceAll('X','x');
+    const s = s0.replaceAll('×','x');
     const shapeKey = (s.split(/\s+/)[0] || 'BOX').toUpperCase();
+
+    // L: a x b x t
+    const mL = s.match(/^L\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+    if(mL){
+      const a=+mL[1], b=+mL[2], t=+mL[3];
+      return { shape:'L', d:a, b, tw:t, tf:t, lip:0 };
+    }
 
     // H/I: d x b x tw x tf
     const mHI = s.match(/^(H|I)\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
@@ -1078,6 +1083,9 @@ async function createThreeView(container){
     if(kind === 'subBeam'){
       if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')?.name || ov.sizeKey;
       return __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'')?.name || prof.subSize;
+    }
+    if(kind === 'brace'){
+      return __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'')?.name || prof.braceSize;
     }
     return '';
   }
@@ -1161,8 +1169,8 @@ async function createThreeView(container){
       dir.normalize();
       mid.copy(vA).add(vB).multiplyScalar(0.5);
 
-      // 3D solid only for column/beam/subBeam. Keep joist/brace as lines for now.
-      if(mem.kind === 'column' || mem.kind === 'beamX' || mem.kind === 'beamY' || mem.kind === 'subBeam'){
+      // 3D solid for column/beam/subBeam/brace. Keep joist as line for now.
+      if(mem.kind === 'column' || mem.kind === 'beamX' || mem.kind === 'beamY' || mem.kind === 'subBeam' || mem.kind === 'brace'){
         const profName = memberProfileName(mem.kind, model, mem.id);
         const dims = parseProfileDimsMm(profName);
         const d = (Math.max(30, dims.d)/1000);
@@ -1194,6 +1202,16 @@ async function createThreeView(container){
             const gStem = new THREE.BoxGeometry(tw, stemH, len);
             gStem.translate(0, -(tf)/2, 0);
             geoms.push(gFl, gStem);
+            return __threeUtils.mergeGeometries(geoms, false);
+          }
+
+          if(dims.shape === 'L'){
+            // Angle: two legs
+            const g1 = new THREE.BoxGeometry(b, tf, len);
+            g1.translate(0, (d - tf)/2, 0);
+            const g2 = new THREE.BoxGeometry(tw, d, len);
+            g2.translate(-(b/2) + (tw/2), 0, 0);
+            geoms.push(g1, g2);
             return __threeUtils.mergeGeometries(geoms, false);
           }
 
@@ -1426,23 +1444,8 @@ async function createThreeView(container){
   let onSel = null;
   function onSelectionChange(fn){ onSel = fn; }
 
-  let realistic = false;
-  let outlines = true;
-
-  function toggleRealistic(){
-    realistic = !realistic;
-    scene.background = new THREE.Color(realistic ? 0xf7f8fb : 0xffffff);
-    renderer.toneMappingExposure = realistic ? 1.15 : 1.05;
-  }
-
-  function toggleOutline(){
-    outlines = !outlines;
-    group.traverse(obj => {
-      if(obj.userData && obj.userData.isEdge){
-        obj.visible = outlines;
-      }
-    });
-  }
+  // Outlines are always on (per request)
+  const outlines = true;
 
   return {
     setMembers,
@@ -1451,8 +1454,6 @@ async function createThreeView(container){
     getSelection,
     clearSelection,
     onSelectionChange,
-    toggleRealistic,
-    toggleOutline,
     dispose(){
 
       cancelAnimationFrame(raf);
