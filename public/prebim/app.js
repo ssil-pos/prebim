@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0352';
+const BUILD = '20260209-0401';
 
 // lazy-loaded deps
 let __three = null;
@@ -19,8 +19,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('/prebim/engine.js?v=20260209-0352'),
-    import('/prebim/app_profiles.js?v=20260209-0352'),
+    import('/prebim/engine.js?v=20260209-0401'),
+    import('/prebim/app_profiles.js?v=20260209-0401'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -506,9 +506,32 @@ function renderEditor(projectId){
 
       <section class="right-split">
         <section class="pane plan">
-          <div class="pane-h"><b>Plan / Section</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">next</span></div>
-          <div class="pane-b">
-            <div class="placeholder">Plan / Section view</div>
+          <div class="pane-h">
+            <b>Plan / Section</b>
+            <div class="row" style="margin-top:0; gap:6px">
+              <span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">mvp</span>
+            </div>
+          </div>
+          <div class="pane-b" style="display:flex; flex-direction:column; gap:8px">
+            <div class="card" style="padding:8px">
+              <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Plan</div>
+              <div class="row" style="margin-top:6px">
+                <span class="badge">Story 1</span>
+              </div>
+              <div id="planHost" style="height:180px; margin-top:6px"></div>
+            </div>
+
+            <div class="card" style="padding:8px">
+              <div class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">Section</div>
+              <div class="row" style="margin-top:6px">
+                <select id="secDir" class="input" style="max-width:90px">
+                  <option value="X">X</option>
+                  <option value="Y">Y</option>
+                </select>
+                <select id="secLine" class="input" style="max-width:120px"></select>
+              </div>
+              <div id="secHost" style="height:180px; margin-top:6px"></div>
+            </div>
           </div>
         </section>
         <section class="pane qty">
@@ -672,8 +695,221 @@ function renderEditor(projectId){
 
     const view3dEl = document.getElementById('view3d');
     const qtyEl = document.getElementById('qty');
+    const planHost = document.getElementById('planHost');
+    const secHost = document.getElementById('secHost');
+    const secDirEl = document.getElementById('secDir');
+    const secLineEl = document.getElementById('secLine');
 
     const view = await createThreeView(view3dEl);
+
+    // 2D plan/section helpers
+    const computeGrid = (m) => {
+      const xs=[0], zs=[0];
+      for(const s of (m.grid?.spansXmm||[])) xs.push(xs[xs.length-1] + (s/1000));
+      for(const s of (m.grid?.spansYmm||[])) zs.push(zs[zs.length-1] + (s/1000));
+      return { xs, zs };
+    };
+
+    const parseProfileDimsMm2 = (name) => {
+      const s0 = String(name||'').trim().replaceAll('X','x');
+      const s = s0.replaceAll('×','x');
+      const shapeKey = (s.split(/\s+/)[0] || 'BOX').toUpperCase();
+      const mL = s.match(/^L\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+      if(mL) return { shape:'L', d:+mL[1], b:+mL[2], tw:+mL[3], tf:+mL[3], lip:0 };
+      const mHI = s.match(/^(H|I)\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+      if(mHI) return { shape:mHI[1].toUpperCase(), d:+mHI[2], b:+mHI[3], tw:+mHI[4], tf:+mHI[5], lip:0 };
+      const mC = s.match(/^C\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+      if(mC) return { shape:'C', d:+mC[1], b:+mC[2], tw:+mC[3], tf:+mC[4], lip:0 };
+      const mLC = s.match(/^LC\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+      if(mLC) return { shape:'LC', d:+mLC[1], b:+mLC[2], tw:+mLC[4], tf:+mLC[4], lip:+mLC[3] };
+      const mT2 = s.match(/^T\s*(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+      if(mT2){ const b=+mT2[1], d=+mT2[2]; const t=Math.max(6, Math.min(b,d)*0.10); return { shape:'T', d, b, tw:t, tf:t, lip:0 }; }
+      const m2 = s.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/i);
+      const d = m2 ? parseFloat(m2[1]) : 150;
+      const b = m2 ? parseFloat(m2[2]) : 150;
+      const t = Math.max(6, Math.min(b,d)*0.08);
+      return { shape: shapeKey, d, b, tw:t, tf:t, lip:0 };
+    };
+
+    const memberProfileName2 = (kind, model, memberId) => {
+      const prof = model?.profiles || {};
+      const ov = model?.overrides?.[memberId] || window.__prebimOverrides?.[memberId] || null;
+      if(kind === 'column'){
+        if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')?.name || ov.sizeKey;
+        return __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'')?.name || prof.colSize;
+      }
+      if(kind === 'beamX' || kind === 'beamY'){
+        if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')?.name || ov.sizeKey;
+        return __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'')?.name || prof.beamSize;
+      }
+      if(kind === 'subBeam'){
+        if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')?.name || ov.sizeKey;
+        return __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'')?.name || prof.subSize;
+      }
+      if(kind === 'brace'){
+        return __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'')?.name || prof.braceSize;
+      }
+      return '';
+    };
+
+    const getDimsM = (mem, model) => {
+      // returns {b,d} in meters
+      let name = memberProfileName2(mem.kind, model, mem.id);
+      if(mem.kind==='brace' && mem.profile && typeof mem.profile==='object'){
+        const pr = mem.profile;
+        name = __profiles?.getProfile?.(pr.stdKey||'KS', pr.shapeKey||'L', pr.sizeKey||'')?.name || pr.sizeKey || name;
+      }
+      const dims = parseProfileDimsMm2(name);
+      return { b: Math.max(30, dims.b)/1000, d: Math.max(30, dims.d)/1000 };
+    };
+
+    const renderPlan = (members, m) => {
+      if(!planHost) return;
+      const { xs, zs } = computeGrid(m);
+      const xMax = xs[xs.length-1] || 1;
+      const zMax = zs[zs.length-1] || 1;
+
+      const yPlan = ((m.levels?.[1] ?? 0)/1000); // Story 1
+      const eps = 1e-6;
+
+      const sel = new Set(view.getSelection?.()||[]);
+      const memLines = members
+        .filter(mem => ['beamX','beamY','subBeam','brace'].includes(mem.kind))
+        .filter(mem => {
+          if(mem.kind==='brace') return true;
+          return (Math.abs(mem.a[1]-yPlan) < 1e-5) && (Math.abs(mem.b[1]-yPlan) < 1e-5);
+        })
+        .map(mem => {
+          const { b } = getDimsM(mem, m);
+          const x1 = mem.a[0], z1 = mem.a[2];
+          const x2 = mem.b[0], z2 = mem.b[2];
+          return { id: mem.id, kind: mem.kind, x1,z1,x2,z2, w: Math.max(0.03, b) };
+        });
+
+      const cols = members
+        .filter(mem => mem.kind==='column')
+        .map(mem => {
+          // show column at intersection with plan level
+          const y0 = Math.min(mem.a[1], mem.b[1]);
+          const y1 = Math.max(mem.a[1], mem.b[1]);
+          if(!(yPlan >= y0-eps && yPlan <= y1+eps)) return null;
+          const { b } = getDimsM(mem, m);
+          return { id: mem.id, x: mem.a[0], z: mem.a[2], r: Math.max(0.05, b*0.45) };
+        }).filter(Boolean);
+
+      const pad = 0.4;
+      const vb = { x:-pad, y:-pad, w:xMax+pad*2, h:zMax+pad*2 };
+
+      const gridLines = [
+        xs.map(x => `<line class="grid" x1="${x}" y1="0" x2="${x}" y2="${zMax}" />`).join(''),
+        zs.map(z => `<line class="grid" x1="0" y1="${z}" x2="${xMax}" y2="${z}" />`).join(''),
+      ].join('');
+
+      const lines = memLines.map(l => {
+        const cls = sel.has(l.id) ? 'mem sel' : 'mem';
+        return `<line class="${cls}" data-id="${escapeHtml(l.id)}" x1="${l.x1}" y1="${l.z1}" x2="${l.x2}" y2="${l.z2}" stroke-width="${l.w}" />`;
+      }).join('');
+
+      const colEls = cols.map(c => {
+        const isSel = sel.has(c.id);
+        const extra = isSel ? ' stroke="rgba(56,189,248,0.95)"' : '';
+        return `<circle class="col" data-id="${escapeHtml(c.id)}" cx="${c.x}" cy="${c.z}" r="${c.r}"${extra} />`;
+      }).join('');
+
+      planHost.innerHTML = `
+        <svg class="prebim2d" id="svgPlan" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">
+          ${gridLines}
+          ${lines}
+          ${colEls}
+        </svg>
+      `;
+
+      planHost.querySelector('#svgPlan')?.addEventListener('click', (ev) => {
+        const el = ev.target?.closest?.('[data-id]');
+        const id = el?.getAttribute?.('data-id');
+        if(!id) return;
+        view.setSelection?.([id]);
+      });
+    };
+
+    const ensureSectionUI = (m) => {
+      if(!secDirEl || !secLineEl) return;
+      const { xs, zs } = computeGrid(m);
+      const dir = secDirEl.value || 'X';
+      const count = (dir==='X') ? xs.length : zs.length;
+      const cur = secLineEl.value;
+      secLineEl.innerHTML='';
+      for(let i=0;i<count;i++){
+        const o = document.createElement('option');
+        o.value = String(i);
+        o.textContent = `${dir}${i+1}`;
+        secLineEl.appendChild(o);
+      }
+      if(cur && Array.from(secLineEl.options).some(o=>o.value===cur)) secLineEl.value = cur;
+      else secLineEl.value = '0';
+    };
+
+    const renderSection = (members, m) => {
+      if(!secHost || !secDirEl || !secLineEl) return;
+      ensureSectionUI(m);
+
+      const { xs, zs } = computeGrid(m);
+      const dir = secDirEl.value || 'X';
+      const idx = parseInt(secLineEl.value||'0',10) || 0;
+
+      const xMax = xs[xs.length-1] || 1;
+      const zMax = zs[zs.length-1] || 1;
+      const yMax = ((m.levels?.[m.levels.length-1] ?? 6000)/1000);
+
+      const sel = new Set(view.getSelection?.()||[]);
+      const tol = 1e-6;
+
+      const levelLines = (m.levels||[]).map(lv => {
+        const y = (lv/1000);
+        return `<line class="level" x1="0" y1="${y}" x2="${(dir==='X')?zMax:xMax}" y2="${y}" />`;
+      }).join('');
+
+      const lines = members
+        .filter(mem => ['column','beamX','beamY','subBeam','brace'].includes(mem.kind))
+        .filter(mem => {
+          if(dir==='X'){
+            const x0 = xs[Math.min(xs.length-1, Math.max(0, idx))];
+            return (Math.abs(mem.a[0]-x0) < 1e-5) && (Math.abs(mem.b[0]-x0) < 1e-5);
+          }
+          const z0 = zs[Math.min(zs.length-1, Math.max(0, idx))];
+          return (Math.abs(mem.a[2]-z0) < 1e-5) && (Math.abs(mem.b[2]-z0) < 1e-5);
+        })
+        .map(mem => {
+          const { d } = getDimsM(mem, m);
+          const cls = sel.has(mem.id) ? 'mem sel' : 'mem';
+          // section coordinates: horiz = (dir==='X') ? z : x ; vert = y
+          const h1 = (dir==='X') ? mem.a[2] : mem.a[0];
+          const h2 = (dir==='X') ? mem.b[2] : mem.b[0];
+          const v1 = mem.a[1];
+          const v2 = mem.b[1];
+          return `<line class="${cls}" data-id="${escapeHtml(mem.id)}" x1="${h1}" y1="${v1}" x2="${h2}" y2="${v2}" stroke-width="${Math.max(0.03, d)}" />`;
+        }).join('');
+
+      const vbW = (dir==='X') ? zMax : xMax;
+      const vb = { x:-0.4, y:-0.4, w:vbW+0.8, h:yMax+0.8 };
+
+      secHost.innerHTML = `
+        <svg class="prebim2d" id="svgSec" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">
+          ${levelLines}
+          ${lines}
+        </svg>
+      `;
+
+      secHost.querySelector('#svgSec')?.addEventListener('click', (ev) => {
+        const el = ev.target?.closest?.('[data-id]');
+        const id = el?.getAttribute?.('data-id');
+        if(!id) return;
+        view.setSelection?.([id]);
+      });
+    };
+
+    secDirEl?.addEventListener('change', () => scheduleApply(0));
+    secLineEl?.addEventListener('change', () => scheduleApply(0));
 
     // 3D toggles
     // (realistic/outline toggles removed)
@@ -737,6 +973,11 @@ function renderEditor(projectId){
     const applyNow = (m) => {
       const members = __engine.generateMembers(m);
       view.setMembers(members, m);
+
+      // 2D plan/section
+      try{ renderPlan(members, m); }catch(e){ console.warn('plan render failed', e); }
+      try{ renderSection(members, m); }catch(e){ console.warn('section render failed', e); }
+
       const q = summarizeMembers(members, m);
       if(qtyEl) qtyEl.innerHTML = renderQtyTable(q, m);
       const tw = document.getElementById('qtyTotalWeight');
@@ -1455,7 +1696,24 @@ async function createThreeView(container){
   ro.observe(container);
 
   function getSelection(){ return Array.from(selected); }
-  function clearSelection(){ selected.clear(); onSel && onSel([]); }
+  function setSelection(ids){
+    selected.clear();
+    (ids||[]).forEach(id => id && selected.add(id));
+    // update highlight (solid meshes)
+    group.children.forEach(ch => {
+      const sel = selected.has(ch.userData.memberId);
+      const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
+      if(ch.material && ch.material.isMaterial){
+        ch.material = baseMat.clone();
+        if('emissive' in ch.material){
+          ch.material.emissive = new THREE.Color(sel ? 0x38bdf8 : 0x000000);
+          ch.material.emissiveIntensity = sel ? 0.35 : 0;
+        }
+      }
+    });
+    onSel && onSel(Array.from(selected));
+  }
+  function clearSelection(){ setSelection([]); }
   let onSel = null;
   function onSelectionChange(fn){ onSel = fn; }
 
@@ -1467,6 +1725,7 @@ async function createThreeView(container){
     setBraceMode,
     resize: doResize,
     getSelection,
+    setSelection,
     clearSelection,
     onSelectionChange,
     dispose(){
