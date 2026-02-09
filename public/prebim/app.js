@@ -599,7 +599,7 @@ function renderAnalysis(projectId){
   if(!root) return;
 
   root.innerHTML = `
-    <section class="editor" aria-label="Analysis">
+    <section class="analysis-layout" aria-label="Analysis">
       <aside class="pane tools">
         <div class="pane-h"><b>Analysis</b><span class="mono" style="font-size:11px; color:rgba(11,27,58,0.55)">${BUILD}</span></div>
         <div class="pane-b">
@@ -628,47 +628,6 @@ function renderAnalysis(projectId){
         </div>
         <div class="pane-b" id="view3dWrap" style="position:relative">
           <div id="view3d"></div>
-
-          <div class="card" id="analysisHud" style="position:absolute; right:12px; top:12px; z-index:15; padding:10px; min-width:240px; max-width:320px; background: rgba(255,255,255,0.88); border:1px solid rgba(148,163,184,0.35); border-radius:14px; box-shadow: 0 10px 24px rgba(2,6,23,0.10); backdrop-filter: blur(8px);">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
-              <b style="font-size:12px">Analysis settings</b>
-              <span class="mono" id="analysisHudState" style="font-size:11px; opacity:.65">idle</span>
-            </div>
-
-            <div class="row" style="margin-top:8px">
-              <label class="label" style="margin:0; font-size:11px">Support</label>
-              <select class="input" id="supportMode" style="max-width:140px; height:30px; padding:4px 10px">
-                <option value="PINNED" selected>PINNED</option>
-                <option value="FIXED">FIXED</option>
-              </select>
-            </div>
-
-            <div class="row" style="margin-top:8px">
-              <label class="label" style="margin:0; font-size:11px">Combo</label>
-              <select class="input" id="comboMode" style="max-width:140px; height:30px; padding:4px 10px">
-                <option value="D+L" selected>D+L</option>
-                <option value="D">D</option>
-              </select>
-            </div>
-
-            <div class="row" style="margin-top:8px">
-              <label class="label" style="margin:0; font-size:11px">Live load (kN/m²)</label>
-              <input class="input" id="qLive" value="3.0" style="max-width:120px; height:30px; padding:4px 10px" />
-            </div>
-
-            <div class="row" style="margin-top:8px">
-              <label class="label" style="margin:0; font-size:11px">Supports (node ids)</label>
-              <input class="input" id="supportNodes" placeholder="e.g. 1,2,3" style="width:100%" />
-            </div>
-
-            <div class="row" style="margin-top:8px; gap:8px">
-              <button class="btn" id="btnSupportsAuto" type="button">Auto supports</button>
-              <button class="btn" id="btnHudRun" type="button">Run</button>
-            </div>
-
-            <div class="note" style="margin-top:8px; font-size:11px">Change settings then click <b>Run</b>.</div>
-          </div>
-
           <div class="analysis-overlay" id="analysisOverlay" hidden>
             <div class="analysis-overlay-card">
               <div class="spinner"></div>
@@ -678,6 +637,36 @@ function renderAnalysis(projectId){
           </div>
         </div>
       </section>
+
+      <div class="splitter" id="splitterAR" title="Drag to resize"></div>
+
+      <aside class="pane tools" aria-label="Settings">
+        <div class="pane-h"><b>Settings</b><span class="mono" id="analysisHudState" style="font-size:11px; opacity:.65">idle</span></div>
+        <div class="pane-b">
+          <label class="label">Support</label>
+          <select class="input" id="supportMode">
+            <option value="PINNED" selected>PINNED</option>
+            <option value="FIXED">FIXED</option>
+          </select>
+
+          <label class="label">Combo</label>
+          <select class="input" id="comboMode">
+            <option value="D+L" selected>D+L</option>
+            <option value="D">D</option>
+          </select>
+
+          <label class="label">Live load (kN/m²)</label>
+          <input class="input" id="qLive" value="3.0" />
+
+          <label class="label">Supports (node ids)</label>
+          <input class="input" id="supportNodes" placeholder="e.g. 1,2,3" />
+          <div class="row" style="margin-top:8px; gap:8px">
+            <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
+            <button class="btn" id="btnHudRun" type="button">Run</button>
+          </div>
+          <div class="note">Change settings then click <b>Run</b>.</div>
+        </div>
+      </aside>
     </section>
   `;
 
