@@ -391,3 +391,5 @@ svg.prebim2d text{font-family: ui-sans-serif, system-ui; fill: rgba(11,27,58,0.6
 .qty-table th{font-size:11px; color: rgba(11,27,58,0.62)}
 .qty-table td.num, .qty-table th.num{text-align:right}
 .qty-table tfoot td{font-weight:1000}
+.qty-subtotal td{font-weight:1000; color: rgba(11,27,58,0.72); background: rgba(11,27,58,0.03)}
+.qty-subtotal td:first-child{border-left: 3px solid rgba(56,189,248,0.35)}

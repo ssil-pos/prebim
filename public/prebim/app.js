@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260209-0630';
+const BUILD = '20260209-0634';
 
 // lazy-loaded deps
 let __three = null;
@@ -20,8 +20,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260209-0630'),
-    import('/prebim/app_profiles.js?v=20260209-0630'),
+    import('/prebim/engine.js?v=20260209-0634'),
+    import('/prebim/app_profiles.js?v=20260209-0634'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1304,26 +1304,67 @@ function renderEditor(projectId){
         brace: { cat:'Brace', prof: pBrace?.name || prof.braceSize || '-' , kgm: pBrace?.kgm ?? null },
       };
 
-      const rows = Object.entries(q.byKind)
+      const catOrder = ['Column','Beam','Sub beam','Brace','Joist'];
+
+      const rowsData = Object.entries(q.byKind)
         .map(([kind, v]) => {
           const baseKind = v.baseKind || (kind.includes(':') ? kind.split(':')[0] : kind);
-          return ({ kind, baseKind, ...v });
-        })
-        .sort((a,b)=>b.len-a.len)
-        .map(r => {
-          const meta = kindLabel[r.baseKind] || { cat:r.baseKind, prof:r.name || '-' , kgm: r.kgm ?? null };
-          const kgm = (r.kgm != null) ? r.kgm : meta.kgm;
-          const loadKg = (kgm!=null) ? (kgm * r.len) : null;
-          return [
-            meta.cat,
-            String(r.name || meta.prof),
-            r.len.toFixed(3),
-            String(r.count),
-            (kgm==null)?'':kgm.toFixed(2),
-            (loadKg==null)?'':loadKg.toFixed(1),
-            (loadKg==null)?'':(loadKg/1000).toFixed(3),
-          ];
+          const meta = kindLabel[baseKind] || { cat:baseKind, prof:v.name || '-' , kgm: v.kgm ?? null };
+          const kgm = (v.kgm != null) ? v.kgm : meta.kgm;
+          const loadKg = (kgm!=null) ? (kgm * v.len) : null;
+          return {
+            cat: meta.cat,
+            prof: String(v.name || meta.prof),
+            len: v.len,
+            count: v.count,
+            kgm,
+            loadKg,
+          };
         });
+
+      rowsData.sort((a,b)=>{
+        const ai=catOrder.indexOf(a.cat), bi=catOrder.indexOf(b.cat);
+        if(ai!==bi) return (ai<0?999:ai)-(bi<0?999:bi);
+        return a.prof.localeCompare(b.prof);
+      });
+
+      const rows = [];
+      let curCat = null;
+      let st = null;
+      const pushSubtotal = () => {
+        if(!curCat || !st) return;
+        rows.push([
+          `${curCat} subtotal`,
+          '',
+          st.len.toFixed(3),
+          String(st.count),
+          '',
+          st.hasLoad ? st.loadKg.toFixed(1) : '',
+          st.hasLoad ? (st.loadKg/1000).toFixed(3) : '',
+        ]);
+      };
+
+      for(const r of rowsData){
+        if(curCat && r.cat !== curCat){
+          pushSubtotal();
+          st = null;
+        }
+        if(!st){ curCat = r.cat; st = { len:0, count:0, loadKg:0, hasLoad:false }; }
+        st.len += r.len;
+        st.count += r.count;
+        if(r.loadKg!=null){ st.loadKg += r.loadKg; st.hasLoad=true; }
+
+        rows.push([
+          r.cat,
+          r.prof,
+          r.len.toFixed(3),
+          String(r.count),
+          (r.kgm==null)?'':r.kgm.toFixed(2),
+          (r.loadKg==null)?'':r.loadKg.toFixed(1),
+          (r.loadKg==null)?'':(r.loadKg/1000).toFixed(3),
+        ]);
+      }
+      pushSubtotal();
 
       const header = ['Category','Member type','Length (m)','Count','Unit wt (kg/m)','Load (kg)','Load (t)'];
       const total = ['Total','',q.totalLen.toFixed(3), String(q.totalCount), '', (q.totalWeightKg??0).toFixed(1), ((q.totalWeightKg??0)/1000).toFixed(3) ];
@@ -2574,28 +2615,88 @@ function renderQtyTable(q, model){
     brace: { cat:'Brace', prof: pBrace?.name || prof.braceSize || '-' , kgm: pBrace?.kgm ?? null },
   };
 
-  const rows = Object.entries(q.byKind)
+  const catOrder = ['Column','Beam','Sub beam','Brace','Joist'];
+
+  const rowsData = Object.entries(q.byKind)
     .map(([kind, v]) => {
       const baseKind = v.baseKind || (kind.includes(':') ? kind.split(':')[0] : kind);
-      return ({ kind, baseKind, ...v });
-    })
-    .sort((a,b)=>b.len-a.len)
-    .map(r => {
-      const meta = kindLabel[r.baseKind] || { cat:r.baseKind, prof:r.name || '-' , kgm: r.kgm ?? null };
-      const kgm = (r.kgm != null) ? r.kgm : meta.kgm;
-      const loadKg = (kgm!=null) ? (kgm * r.len) : null;
-      const loadCell = (loadKg==null) ? '-' : `${loadKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(loadKg/1000).toFixed(3)} t)`;
-      return `
-        <tr>
-          <td>${escapeHtml(meta.cat)}</td>
-          <td>${escapeHtml(String(r.name || meta.prof))}</td>
-          <td class="num">${r.len.toFixed(3)}</td>
-          <td class="num">${r.count}</td>
-          <td class="num">${(kgm==null)?'-':kgm.toFixed(2)}</td>
-          <td class="num">${loadCell}</td>
+      const meta = kindLabel[baseKind] || { cat:baseKind, prof:v.name || '-' , kgm: v.kgm ?? null };
+      const kgm = (v.kgm != null) ? v.kgm : meta.kgm;
+      const loadKg = (kgm!=null) ? (kgm * v.len) : null;
+      return {
+        kind,
+        baseKind,
+        cat: meta.cat,
+        prof: String(v.name || meta.prof || '-'),
+        len: v.len,
+        count: v.count,
+        kgm,
+        loadKg,
+      };
+    });
+
+  rowsData.sort((a,b) => {
+    const ai = catOrder.indexOf(a.cat); const bi = catOrder.indexOf(b.cat);
+    if(ai !== bi) return (ai<0?999:ai) - (bi<0?999:bi);
+    // then by profile name
+    return a.prof.localeCompare(b.prof);
+  });
+
+  // Build HTML with subtotals per category
+  const subtotalByCat = new Map();
+  for(const r of rowsData){
+    const cur = subtotalByCat.get(r.cat) || { len:0, count:0, loadKg:0, hasLoad:false };
+    cur.len += r.len;
+    cur.count += r.count;
+    if(r.loadKg != null){ cur.loadKg += r.loadKg; cur.hasLoad = true; }
+    subtotalByCat.set(r.cat, cur);
+  }
+
+  let rows = '';
+  let lastCat = null;
+  for(const r of rowsData){
+    if(lastCat && r.cat !== lastCat){
+      const st = subtotalByCat.get(lastCat);
+      const stCell = (st?.hasLoad) ? `${st.loadKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(st.loadKg/1000).toFixed(3)} t)` : '-';
+      rows += `
+        <tr class="qty-subtotal">
+          <td colspan="2">${escapeHtml(lastCat)} subtotal</td>
+          <td class="num">${st.len.toFixed(3)}</td>
+          <td class="num">${st.count}</td>
+          <td class="num">-</td>
+          <td class="num">${stCell}</td>
         </tr>
       `;
-    }).join('');
+    }
+
+    const loadCell = (r.loadKg==null) ? '-' : `${r.loadKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(r.loadKg/1000).toFixed(3)} t)`;
+    rows += `
+      <tr>
+        <td>${escapeHtml(r.cat)}</td>
+        <td>${escapeHtml(r.prof)}</td>
+        <td class="num">${r.len.toFixed(3)}</td>
+        <td class="num">${r.count}</td>
+        <td class="num">${(r.kgm==null)?'-':r.kgm.toFixed(2)}</td>
+        <td class="num">${loadCell}</td>
+      </tr>
+    `;
+
+    lastCat = r.cat;
+  }
+
+  if(lastCat){
+    const st = subtotalByCat.get(lastCat);
+    const stCell = (st?.hasLoad) ? `${st.loadKg.toLocaleString('en-US',{maximumFractionDigits:1})} kg (${(st.loadKg/1000).toFixed(3)} t)` : '-';
+    rows += `
+      <tr class="qty-subtotal">
+        <td colspan="2">${escapeHtml(lastCat)} subtotal</td>
+        <td class="num">${st.len.toFixed(3)}</td>
+        <td class="num">${st.count}</td>
+        <td class="num">-</td>
+        <td class="num">${stCell}</td>
+      </tr>
+    `;
+  }
 
   return `
     <div class="qty-title">Total quantities</div>
