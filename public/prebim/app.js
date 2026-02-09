@@ -16,8 +16,8 @@ async function loadDeps(){
   const [threeMod, controlsMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('/prebim/engine.js?v=20260209-0246'),
-    import('/prebim/app_profiles.js?v=20260209-0246'),
+    import('/prebim/engine.js?v=20260209-0300'),
+    import('/prebim/app_profiles.js?v=20260209-0300'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -778,9 +778,9 @@ function renderEditor(projectId){
 
     const toggleBrace = (pick) => {
       const braces = Array.isArray(window.__prebimBraces) ? window.__prebimBraces : [];
-      const idx = braces.findIndex(b => b.faceKey===pick.faceKey && b.story===pick.story && b.bay===pick.bay);
+      const idx = braces.findIndex(b => b.axis===pick.axis && b.line===pick.line && b.story===pick.story && b.bay===pick.bay);
       if(idx >= 0) braces.splice(idx,1);
-      else braces.push({ faceKey: pick.faceKey, story: pick.story, bay: pick.bay, kind: (document.getElementById('braceType').value||'X') === 'S' ? 'S' : 'X' });
+      else braces.push({ axis: pick.axis, line: pick.line, story: pick.story, bay: pick.bay, kind: (document.getElementById('braceType').value||'X') === 'S' ? 'S' : 'X' });
       window.__prebimBraces = braces;
     };
 
@@ -1081,10 +1081,11 @@ async function createThreeView(container){
     const z0 = ((model.levels?.[story] ?? 0)/1000);
     const z1 = ((model.levels?.[story+1] ?? (z0*1000 + 6000))/1000);
 
-    const addPanel = (faceKey, bay, w, h) => {
+    const addPanel = (axis, line, bay, w, h) => {
       const g = new THREE.PlaneGeometry(w, h);
       const mesh = new THREE.Mesh(g, faceMat.clone());
-      mesh.userData.faceKey = faceKey;
+      mesh.userData.axis = axis;
+      mesh.userData.line = line;
       mesh.userData.bay = bay;
       mesh.userData.story = story;
       return mesh;
@@ -1092,35 +1093,31 @@ async function createThreeView(container){
 
     const hZ = z1 - z0;
 
-    // Y0 / Y1: panels per X bay
-    const y0 = ys[0];
-    const y1 = ys[ny-1];
-    for(let ix=0; ix<nx-1; ix++){
-      const wX = xs[ix+1]-xs[ix];
-      const p0 = addPanel('Y0', ix, wX, hZ);
-      p0.position.set(xs[ix] + wX/2, z0 + hZ/2, y0);
-      p0.rotation.x = Math.PI;
-      faceGroup.add(p0);
-
-      const p1 = addPanel('Y1', ix, wX, hZ);
-      p1.position.set(xs[ix] + wX/2, z0 + hZ/2, y1);
-      faceGroup.add(p1);
+    // Y-planes: for each grid line in Y (including internal), panels per X bay
+    for(let j=0; j<ny; j++){
+      const y = ys[j];
+      for(let ix=0; ix<nx-1; ix++){
+        const wX = xs[ix+1]-xs[ix];
+        const p = addPanel('Y', j, ix, wX, hZ);
+        p.position.set(xs[ix] + wX/2, z0 + hZ/2, y);
+        p.rotation.x = Math.PI;
+        // inner planes slightly lighter
+        if(j>0 && j<ny-1) p.material.opacity = 0.08;
+        faceGroup.add(p);
+      }
     }
 
-    // X0 / X1: panels per Y bay
-    const x0 = xs[0];
-    const x1 = xs[nx-1];
-    for(let iy=0; iy<ny-1; iy++){
-      const wY = ys[iy+1]-ys[iy];
-      const p0 = addPanel('X0', iy, wY, hZ);
-      p0.position.set(x0, z0 + hZ/2, ys[iy] + wY/2);
-      p0.rotation.y = Math.PI/2;
-      faceGroup.add(p0);
-
-      const p1 = addPanel('X1', iy, wY, hZ);
-      p1.position.set(x1, z0 + hZ/2, ys[iy] + wY/2);
-      p1.rotation.y = -Math.PI/2;
-      faceGroup.add(p1);
+    // X-planes: for each grid line in X (including internal), panels per Y bay
+    for(let i=0; i<nx; i++){
+      const x = xs[i];
+      for(let iy=0; iy<ny-1; iy++){
+        const wY = ys[iy+1]-ys[iy];
+        const p = addPanel('X', i, iy, wY, hZ);
+        p.position.set(x, z0 + hZ/2, ys[iy] + wY/2);
+        p.rotation.y = (i===0) ? Math.PI/2 : (i===nx-1 ? -Math.PI/2 : Math.PI/2);
+        if(i>0 && i<nx-1) p.material.opacity = 0.08;
+        faceGroup.add(p);
+      }
     }
   }
 
@@ -1209,11 +1206,12 @@ async function createThreeView(container){
         if(hot && hot.material) hot.material = faceMat.clone();
         hot = obj;
         if(hot.material) hot.material = faceMatHot.clone();
-        const faceKey = obj.userData.faceKey;
+        const axis = obj.userData.axis;
+        const line = obj.userData.line;
         const bay = obj.userData.bay;
         const story = obj.userData.story;
-        if(faceKey != null && bay != null && story != null && onFaceSelect){
-          onFaceSelect({ faceKey: String(faceKey), bay: Number(bay), story: Number(story) });
+        if(axis != null && line != null && bay != null && story != null && onFaceSelect){
+          onFaceSelect({ axis: String(axis), line: Number(line), bay: Number(bay), story: Number(story) });
         }
       }
       return;

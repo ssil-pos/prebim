@@ -79,12 +79,28 @@ export function normalizeModel(m){
   if(!Array.isArray(out.braces)) out.braces = [];
   out.braces = out.braces
     .filter(b => b && typeof b === 'object')
-    .map(b => ({
-      faceKey: ['Y0','Y1','X0','X1'].includes(b.faceKey) ? b.faceKey : 'Y0',
-      story: Math.max(0, parseInt(b.story,10)||0),
-      bay: Math.max(0, parseInt(b.bay,10)||0),
-      kind: (b.kind === 'S') ? 'S' : 'X',
-    }));
+    .map(b => {
+      // Back-compat: old faceKey (Y0/Y1/X0/X1)
+      if(typeof b.faceKey === 'string' && /^[YX][01]$/.test(b.faceKey)){
+        const axis = b.faceKey.startsWith('Y') ? 'Y' : 'X';
+        const line = parseInt(b.faceKey.slice(1),10) || 0;
+        return {
+          axis,
+          line,
+          story: Math.max(0, parseInt(b.story,10)||0),
+          bay: Math.max(0, parseInt(b.bay,10)||0),
+          kind: (b.kind === 'S') ? 'S' : 'X',
+        };
+      }
+
+      return {
+        axis: (b.axis === 'X') ? 'X' : 'Y',
+        line: Math.max(0, parseInt(b.line,10)||0),
+        story: Math.max(0, parseInt(b.story,10)||0),
+        bay: Math.max(0, parseInt(b.bay,10)||0),
+        kind: (b.kind === 'S') ? 'S' : 'X',
+      };
+    });
 
   // overrides normalization (kept as-is; validated in UI)
   if(!out.overrides || typeof out.overrides !== 'object') out.overrides = {};
@@ -200,27 +216,27 @@ export function generateMembers(model){
         }
       };
 
-      if(br.faceKey === 'Y0' || br.faceKey === 'Y1'){
-        const y = (br.faceKey === 'Y0') ? ys[0] : ys[ny-1];
+      if(br.axis === 'Y'){
+        const y = ys[Math.min(ny-1, Math.max(0, br.line))];
         const ix = br.bay;
         if(ix >= 0 && ix < nx-1){
           const a = [xs[ix], z0, y];
           const b = [xs[ix+1], z1, y];
           const c = [xs[ix+1], z0, y];
           const d = [xs[ix], z1, y];
-          addXBrace(a,b,c,d, `${br.faceKey}:${iz}:${ix}`);
+          addXBrace(a,b,c,d, `Y:${br.line}:${iz}:${ix}`);
         }
       }
 
-      if(br.faceKey === 'X0' || br.faceKey === 'X1'){
-        const x = (br.faceKey === 'X0') ? xs[0] : xs[nx-1];
+      if(br.axis === 'X'){
+        const x = xs[Math.min(nx-1, Math.max(0, br.line))];
         const iy = br.bay;
         if(iy >= 0 && iy < ny-1){
           const a = [x, z0, ys[iy]];
           const b = [x, z1, ys[iy+1]];
           const c = [x, z0, ys[iy+1]];
           const d = [x, z1, ys[iy]];
-          addXBrace(a,b,c,d, `${br.faceKey}:${iz}:${iy}`);
+          addXBrace(a,b,c,d, `X:${br.line}:${iz}:${iy}`);
         }
       }
     }
