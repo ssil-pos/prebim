@@ -746,12 +746,17 @@ function renderEditor(projectId){
   document.title = `PreBIM-SteelStructure — ${p.name || 'project'}`;
   setTopbarActions(`
     <a class="pill" href="#/">Back</a>
-    <button class="pill" id="btnToggleQty" type="button">Quantities</button>
-    <button class="pill" id="btnAnalysis" type="button">Analysis</button>
-    <button class="pill" id="btnExportStaad" type="button">STAAD Export</button>
-    <button class="pill" id="btnExportIfc" type="button">IFC Export</button>
-    <button class="pill" id="btnExportData" type="button">DATA Export</button>
-    <button class="pill" id="btnExportDxf" type="button">DXF Export</button>
+
+    <span class="export-wrap" style="position:relative; display:inline-block">
+      <button class="pill" id="btnExportMenu" type="button">Export ▾</button>
+      <div class="export-menu" id="exportMenu" hidden>
+        <button class="btn" id="btnExportStaad" type="button">STAAD Export</button>
+        <button class="btn" id="btnExportIfc" type="button">IFC Export</button>
+        <button class="btn" id="btnExportData" type="button">DATA Export</button>
+        <button class="btn" id="btnExportDxf" type="button">DXF Export</button>
+      </div>
+    </span>
+
     <button class="pill" id="btnManual" type="button">Manual</button>
     <button class="pill" id="btnSave" type="button">Save</button>
   `);
@@ -858,6 +863,10 @@ function renderEditor(projectId){
               <div class="note">Profiles are stored in the project. Changes apply automatically.</div>
             </div>
           </div>
+
+          <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
+            <button class="btn" id="btnToggleQty2" type="button">Quantities</button>
+          </div>
         </div>
       </aside>
 
@@ -874,6 +883,7 @@ function renderEditor(projectId){
           </div>
         </div>
         <div class="pane-b" id="view3d">
+          <button class="pill" id="btnAnalysis" type="button" style="position:absolute; right:12px; bottom:12px; z-index:12">Analysis</button>
           <div class="analysis-overlay" id="analysisOverlay" hidden>
             <div class="analysis-overlay-card">
               <div class="spinner"></div>
@@ -2533,13 +2543,31 @@ function renderEditor(projectId){
       alert('IFC Export is currently a placeholder file (IFC4 header only).');
     };
 
-    document.getElementById('btnExportData')?.addEventListener('click', exportData);
+    const exportMenu = document.getElementById('exportMenu');
+    const toggleExportMenu = (force) => {
+      if(!exportMenu) return;
+      const open = (typeof force==='boolean') ? force : exportMenu.hidden;
+      exportMenu.hidden = !open;
+      const btn = document.getElementById('btnExportMenu');
+      if(btn) btn.classList.toggle('active', open);
+    };
+
+    document.getElementById('btnExportMenu')?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleExportMenu();
+    });
+
+    document.addEventListener('click', () => toggleExportMenu(false));
+
+    document.getElementById('btnExportData')?.addEventListener('click', () => { toggleExportMenu(false); exportData(); });
+    document.getElementById('btnExportStaad')?.addEventListener('click', () => { toggleExportMenu(false); exportStaad(); });
+    document.getElementById('btnExportIfc')?.addEventListener('click', () => { toggleExportMenu(false); exportIfc(); });
+    document.getElementById('btnExportDxf')?.addEventListener('click', () => { toggleExportMenu(false); exportDxf(); });
+
     document.getElementById('btnAnalysis')?.addEventListener('click', () => {
       go(`#/analysis/${encodeURIComponent(p.id)}`);
     });
-    document.getElementById('btnExportStaad')?.addEventListener('click', exportStaad);
-    document.getElementById('btnExportIfc')?.addEventListener('click', exportIfc);
-    document.getElementById('btnExportDxf')?.addEventListener('click', exportDxf);
 
     // copy quantities to clipboard (Excel-friendly TSV)
     btnQtyCopy?.addEventListener('click', async () => {
@@ -2711,7 +2739,7 @@ function renderEditor(projectId){
     document.querySelectorAll('button.acc-btn[data-acc]')
       .forEach(btn => btn.addEventListener('click', () => toggle(btn.getAttribute('data-acc'))));
 
-    document.getElementById('btnToggleQty')?.addEventListener('click', () => {
+    document.getElementById('btnToggleQty2')?.addEventListener('click', () => {
       document.body.classList.toggle('qty-collapsed');
     });
 
