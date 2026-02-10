@@ -755,10 +755,16 @@ function renderAnalysis(projectId){
       if(!host) return;
       host.querySelectorAll('.analysis-mem.sel').forEach(el => el.classList.remove('sel'));
       if(!id) return;
-      const row = host.querySelector(`.analysis-mem[data-mem="${CSS.escape(String(id))}"]`);
-      if(row){
-        row.classList.add('sel');
-        row.scrollIntoView({ block:'center', behavior:'smooth' });
+
+      const sid = String(id);
+      // Avoid CSS.escape dependency (some environments don't expose it)
+      const rows = host.querySelectorAll('.analysis-mem[data-mem]');
+      for(const row of rows){
+        if(row.getAttribute('data-mem') === sid){
+          row.classList.add('sel');
+          row.scrollIntoView({ block:'center', behavior:'smooth' });
+          break;
+        }
       }
     };
 
