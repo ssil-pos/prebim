@@ -566,11 +566,17 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     joist: 'PIN',
   };
 
-  const releasesForMode = (mode) => {
-    // Release rotations about member local axes (approx). MVP: release all rotations for PIN.
+  const releasesForMode = (mode, end='i') => {
+    // End release convention (approx):
+    // - FIXED: no rotational releases
+    // - PIN: release bending rotations (about local y & z), keep torsion about x to reduce mechanisms
     const m = String(mode||'FIXED').toUpperCase();
-    if(m === 'PIN') return { Rxi:true,Ryi:true,Rzi:true, Rxj:true,Ryj:true,Rzj:true };
-    return { Rxi:false,Ryi:false,Rzi:false, Rxj:false,Ryj:false,Rzj:false };
+    if(m === 'PIN'){
+      if(end === 'i') return { Rxi:false, Ryi:true, Rzi:true };
+      return { Rxj:false, Ryj:true, Rzj:true };
+    }
+    if(end === 'i') return { Rxi:false, Ryi:false, Rzi:false };
+    return { Rxj:false, Ryj:false, Rzj:false };
   };
 
   // releases are per analysis member; keep a parallel list to allow 3D connection markers
@@ -588,8 +594,8 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     const def = defaultModeByKind[mm.kind] || 'FIXED';
     const mi = per?.i || def;
     const mj = per?.j || def;
-    const relI = releasesForMode(mi);
-    const relJ = releasesForMode(mj);
+    const relI = releasesForMode(mi, 'i');
+    const relJ = releasesForMode(mj, 'j');
     const releases = {
       Rxi: !!relI.Rxi,
       Ryi: !!relI.Ryi,

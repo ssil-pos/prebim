@@ -190,8 +190,9 @@ def analyze(req: AnalyzeRequest):
 
         # Stabilization springs (MVP)
         if stabilize:
-            k_lin = 1.0  # kN/m
-            k_rot = 1.0  # kN*m/rad
+            # slightly stronger stabilization to survive mechanisms from end releases
+            k_lin = 10.0  # kN/m
+            k_rot = 10.0  # kN*m/rad
             for n in req.nodes:
                 model.def_support_spring(n.id, 'DX', k_lin)
                 model.def_support_spring(n.id, 'DY', k_lin)
