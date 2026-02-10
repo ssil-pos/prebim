@@ -716,7 +716,9 @@ function renderAnalysis(projectId){
       const id = sel?.[0];
       if(id) {
         saveAnalysisSettings(p.id, { selectedMemberId: id });
-        try{ highlightMemberRow(id); }catch{}
+        try{ highlightMemberRow(id); renderMemberDetail(id); }catch{}
+      } else {
+        try{ renderMemberDetail(''); highlightMemberRow(''); }catch{}
       }
     });
 
@@ -743,6 +745,8 @@ function renderAnalysis(projectId){
       if(el2) el2.textContent = t;
     };
 
+    let lastRes = null;
+
     const highlightMemberRow = (id) => {
       const host = document.getElementById('analysisResults');
       if(!host) return;
@@ -755,9 +759,44 @@ function renderAnalysis(projectId){
       }
     };
 
+    const renderMemberDetail = (id) => {
+      const host = document.getElementById('analysisResults');
+      const box = host?.querySelector('#analysisMemberDetail');
+      if(!box) return;
+      if(!id || !lastRes?.members?.[id]){ box.innerHTML=''; return; }
+      const r = lastRes.members[id];
+      const m = r.maxAbs || {};
+      const fmt = (x) => (Number(x)||0).toFixed(3);
+      box.innerHTML = `
+        <div class="card" style="margin-top:10px; padding:10px">
+          <div style="display:flex; justify-content:space-between; gap:10px; align-items:center">
+            <b>Member ${escapeHtml(String(id))}</b>
+            <button class="pill" id="btnMemClear" type="button">Clear</button>
+          </div>
+          <div class="mono" style="margin-top:8px; font-size:12px; opacity:.9">
+            maxAbs: N ${fmt(m.N)} | Vy ${fmt(m.Vy)} | Vz ${fmt(m.Vz)} | My ${fmt(m.My)} | Mz ${fmt(m.Mz)}
+          </div>
+          <details style="margin-top:8px">
+            <summary class="mono" style="cursor:pointer; font-size:12px; opacity:.7">End forces (i/j)</summary>
+            <div class="mono" style="margin-top:6px; font-size:12px; display:grid; gap:6px">
+              <div>i: Fx ${fmt(r?.i?.Fx)} Fy ${fmt(r?.i?.Fy)} Fz ${fmt(r?.i?.Fz)} Mx ${fmt(r?.i?.Mx)} My ${fmt(r?.i?.My)} Mz ${fmt(r?.i?.Mz)}</div>
+              <div>j: Fx ${fmt(r?.j?.Fx)} Fy ${fmt(r?.j?.Fy)} Fz ${fmt(r?.j?.Fz)} Mx ${fmt(r?.j?.Mx)} My ${fmt(r?.j?.My)} Mz ${fmt(r?.j?.Mz)}</div>
+            </div>
+          </details>
+        </div>
+      `;
+      box.querySelector('#btnMemClear')?.addEventListener('click', () => {
+        view.clearSelection?.();
+        saveAnalysisSettings(p.id, { selectedMemberId: '' });
+        renderMemberDetail('');
+        highlightMemberRow('');
+      });
+    };
+
     const renderResultsTable = (res) => {
       const host = document.getElementById('analysisResults');
       if(!host) return;
+      lastRes = res;
       if(!res || res.ok !== true){ host.innerHTML=''; return; }
 
       const maxDisp = Number(res?.maxDisp?.value)||0;
@@ -765,12 +804,14 @@ function renderAnalysis(projectId){
       const mems = res?.members || {};
       const rows = Object.values(mems);
       rows.sort((a,b) => (b?.maxAbs?.Mz||0) - (a?.maxAbs?.Mz||0));
-      const top = rows.slice(0, 50);
+      const top = rows.slice(0, 200);
 
       host.innerHTML = `
         <div class="note" style="margin-top:10px"><b>Summary</b></div>
         <div class="mono" style="font-size:12px; margin-top:6px">combo: ${(res.combo||'-')}</div>
         <div class="mono" style="font-size:12px; margin-top:4px">max disp: ${maxDisp.toFixed(6)} m @ node ${escapeHtml(maxNode)}</div>
+
+        <div id="analysisMemberDetail"></div>
 
         <div class="note" style="margin-top:10px"><b>Members (top by |Mz|)</b> <span class="mono" style="opacity:.65">(showing ${top.length}/${rows.length})</span></div>
         <div style="overflow:auto; margin-top:6px; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
@@ -807,6 +848,7 @@ function renderAnalysis(projectId){
           view.setSelection?.([id]);
           saveAnalysisSettings(p.id, { selectedMemberId: id });
           highlightMemberRow(id);
+          renderMemberDetail(id);
         });
       });
 
@@ -815,6 +857,7 @@ function renderAnalysis(projectId){
         try{
           view.setSelection?.([String(saved.selectedMemberId)]);
           highlightMemberRow(String(saved.selectedMemberId));
+          renderMemberDetail(String(saved.selectedMemberId));
         }catch{}
       }
     };
