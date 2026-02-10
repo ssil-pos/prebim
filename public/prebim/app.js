@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1429KST';
+const BUILD = '20260210-1430KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1429KST'),
-    import('/prebim/app_profiles.js?v=20260210-1429KST'),
+    import('/prebim/engine.js?v=20260210-1430KST'),
+    import('/prebim/app_profiles.js?v=20260210-1430KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1600,6 +1600,10 @@ function renderAnalysis(projectId){
           <div>
             <div class="note" style="margin-top:0"><b>Results</b></div>
             <div class="mono" id="wRes" style="font-size:12px; line-height:1.6"></div>
+            <label class="badge" style="cursor:pointer; user-select:none; display:inline-flex; gap:8px; align-items:center; margin-top:10px">
+              <input id="wAutoApply" type="checkbox" style="margin:0" checked />
+              <span>Auto-apply to Analysis (updates X/Z fields live)</span>
+            </label>
             <div class="note" style="margin-top:10px"><b>Story forces (kN)</b></div>
             <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
               <table class="table" style="min-width:760px">
@@ -1704,6 +1708,18 @@ function renderAnalysis(projectId){
         host.querySelector('#wBaseZ').textContent = String(baseZ);
         host.querySelector('#wStoryX').value = JSON.stringify(fxStory.map(v => +(+v).toFixed(6)));
         host.querySelector('#wStoryZ').value = JSON.stringify(fzStory.map(v => +(+v).toFixed(6)));
+
+        // auto-apply to analysis fields
+        const auto = host.querySelector('#wAutoApply')?.checked !== false;
+        if(auto){
+          try{
+            const wx = document.getElementById('windX'); if(wx) wx.value = baseX.toFixed(3);
+            const wz = document.getElementById('windZ'); if(wz) wz.value = baseZ.toFixed(3);
+            lateralStory.windStoryX = fxStory;
+            lateralStory.windStoryZ = fzStory;
+            saveAnalysisSettings(p.id, { windX: baseX, windZ: baseZ, windStoryX: fxStory, windStoryZ: fzStory });
+          }catch{}
+        }
 
         const rr = host.querySelector('#wRes');
         if(rr){
@@ -1850,6 +1866,10 @@ function renderAnalysis(projectId){
           <div>
             <div class="note" style="margin-top:0"><b>Results</b></div>
             <div class="mono" id="eRes" style="font-size:12px; line-height:1.6"></div>
+            <label class="badge" style="cursor:pointer; user-select:none; display:inline-flex; gap:8px; align-items:center; margin-top:10px">
+              <input id="eAutoApply" type="checkbox" style="margin:0" checked />
+              <span>Auto-apply to Analysis (updates X/Z fields live)</span>
+            </label>
             <div class="note" style="margin-top:10px"><b>Story forces (kN)</b></div>
             <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
               <table class="table" style="min-width:560px">
@@ -1959,6 +1979,18 @@ function renderAnalysis(projectId){
 
         host.querySelector('#eBase').textContent = String(V);
         host.querySelector('#eStory').value = JSON.stringify(Fi.map(v => +(+v).toFixed(6)));
+
+        // auto-apply to analysis fields
+        const auto = host.querySelector('#eAutoApply')?.checked !== false;
+        if(auto){
+          try{
+            const exx = document.getElementById('eqX'); if(exx) exx.value = V.toFixed(3);
+            const ezz = document.getElementById('eqZ'); if(ezz) ezz.value = V.toFixed(3);
+            lateralStory.eqStoryX = Fi;
+            lateralStory.eqStoryZ = Fi;
+            saveAnalysisSettings(p.id, { eqX: V, eqZ: V, eqStoryX: Fi, eqStoryZ: Fi });
+          }catch{}
+        }
 
         const rr = host.querySelector('#eRes');
         if(rr){ rr.innerHTML = `hn=${hn.toFixed(3)}m · T=${T.toFixed(4)}s<br/>SDS=${SDS.toFixed(4)} · SD1=${SD1.toFixed(4)}<br/>Cs=${Cs.toFixed(6)} (min ${cs_min.toFixed(6)}, max ${cs_max.toFixed(6)})<br/>V = Cs·W = ${V.toFixed(3)} kN`; }
