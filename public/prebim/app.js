@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1307KST';
+const BUILD = '20260210-1313KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1307KST'),
-    import('/prebim/app_profiles.js?v=20260210-1307KST'),
+    import('/prebim/engine.js?v=20260210-1313KST'),
+    import('/prebim/app_profiles.js?v=20260210-1313KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -367,7 +367,7 @@ function saveConnSettings(projectId, patch){
   }catch{ return null; }
 }
 
-function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=null){
+function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=null, extraLoads=null){
   // Build analysis request payload from engine model.
   const m = __engine.normalizeModel(model);
   const members = __engine.generateMembers(m);
@@ -529,8 +529,11 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 
   // loads
   const liveLoads = [];
+  const snowLoads = [];
   const story1m = (m.levels?.[1] ?? 0)/1000;
   const subCount = m.options?.subBeams?.countPerBay || 0;
+  const qSnow = Math.max(0, Number(extraLoads?.qSnow ?? 0) || 0);
+
   for(const mm of memList){
     const mem = mm.mem;
     if(!(mem.kind==='beamX' || mem.kind==='beamY' || mem.kind==='subBeam')) continue;
@@ -547,8 +550,11 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
         trib = bayW / (Math.max(1, subCount)+1);
       } else trib = tribWidthForBeamX(mem.a[2]);
     }
-    const w = qLive * trib;
-    if(w>0) liveLoads.push({ memberId: mm.id, dir:'GY', w: -w });
+    const wL = qLive * trib;
+    if(wL>0) liveLoads.push({ memberId: mm.id, dir:'GY', w: -wL });
+
+    const wS = qSnow * trib;
+    if(wS>0) snowLoads.push({ memberId: mm.id, dir:'GY', w: -wS });
   }
 
   // properties in meter/kN
@@ -628,22 +634,66 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     supports = [{ nodeId: jointList[0].id, fix: { DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }];
   }
 
-  // Load cases
-  const caseD = { name:'D', selfweightY: -1.0, memberUDL: [] };
-  const caseL = { name:'L', selfweightY: 0.0, memberUDL: liveLoads };
+  // Lateral loads (wind/seismic): distribute to top level nodes
+  const topY = Math.max(...nodes.map(n => n.y));
+  const topNodes = nodes.filter(n => Math.abs(n.y - topY) < 1e-6).map(n => n.id);
+  const splitToTop = (F) => {
+    const nn = Math.max(1, topNodes.length);
+    return topNodes.map(id => ({ nodeId: id, F: F/nn }));
+  };
+  const windX = Number(extraLoads?.windX ?? 0) || 0;
+  const windZ = Number(extraLoads?.windZ ?? 0) || 0;
+  const eqX = Number(extraLoads?.eqX ?? 0) || 0;
+  const eqZ = Number(extraLoads?.eqZ ?? 0) || 0;
 
-  // Basic combos (factors can be extended later)
+  // Load cases
+  const caseD = { name:'D', selfweightY: -1.0, memberUDL: [], nodeLoads: [] };
+  const caseL = { name:'L', selfweightY: 0.0, memberUDL: liveLoads, nodeLoads: [] };
+  const caseS = { name:'S', selfweightY: 0.0, memberUDL: snowLoads, nodeLoads: [] };
+  const caseWX = { name:'WX', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(windX).map(x=>({ ...x, dir:'GX' })) };
+  const caseWZ = { name:'WZ', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(windZ).map(x=>({ ...x, dir:'GZ' })) };
+  const caseEQX = { name:'EQX', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(eqX).map(x=>({ ...x, dir:'GX' })) };
+  const caseEQZ = { name:'EQZ', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(eqZ).map(x=>({ ...x, dir:'GZ' })) };
+
+  const cases = [caseD, caseL];
+  if(snowLoads.length) cases.push(caseS);
+  if(Math.abs(windX)>1e-9) cases.push(caseWX);
+  if(Math.abs(windZ)>1e-9) cases.push(caseWZ);
+  if(Math.abs(eqX)>1e-9) cases.push(caseEQX);
+  if(Math.abs(eqZ)>1e-9) cases.push(caseEQZ);
+
+  // Basic combos (extendable)
   const combos = [
     { name:'D', factors:{ D:1.0 } },
     { name:'D+L', factors:{ D:1.0, L:1.0 } },
   ];
+  if(snowLoads.length){
+    combos.push({ name:'D+S', factors:{ D:1.0, S:1.0 } });
+    combos.push({ name:'D+L+S', factors:{ D:1.0, L:1.0, S:1.0 } });
+  }
+  if(Math.abs(windX)>1e-9){
+    combos.push({ name:'D+WX', factors:{ D:1.0, WX:1.0 } });
+    combos.push({ name:'D+L+WX', factors:{ D:1.0, L:1.0, WX:1.0 } });
+  }
+  if(Math.abs(windZ)>1e-9){
+    combos.push({ name:'D+WZ', factors:{ D:1.0, WZ:1.0 } });
+    combos.push({ name:'D+L+WZ', factors:{ D:1.0, L:1.0, WZ:1.0 } });
+  }
+  if(Math.abs(eqX)>1e-9){
+    combos.push({ name:'D+EQX', factors:{ D:1.0, EQX:1.0 } });
+    combos.push({ name:'D+L+EQX', factors:{ D:1.0, L:1.0, EQX:1.0 } });
+  }
+  if(Math.abs(eqZ)>1e-9){
+    combos.push({ name:'D+EQZ', factors:{ D:1.0, EQZ:1.0 } });
+    combos.push({ name:'D+L+EQZ', factors:{ D:1.0, L:1.0, EQZ:1.0 } });
+  }
 
   return {
     units: { length:'m', force:'kN' },
     nodes,
     members: amembers,
     supports,
-    cases: [caseD, caseL],
+    cases,
     combos,
 
     // client-side helper (ignored by API): index i => analysis member id (i+1)
@@ -759,8 +809,9 @@ function renderAnalysis(projectId){
             <div class="acc-panel open" id="panelCrit">
               <label class="label">Combo</label>
               <select class="input" id="comboMode">
-                <option value="D+L" selected>D+L</option>
-                <option value="D">D</option>
+                <option value="ENVELOPE" selected>ENVELOPE (all combos)</option>
+                <option value="D+L">D+L (single)</option>
+                <option value="D">D (single)</option>
               </select>
 
               <label class="label">Live load preset</label>
@@ -774,6 +825,40 @@ function renderAnalysis(projectId){
 
               <label class="label">Live load (kN/m²)</label>
               <input class="input" id="qLive" value="3.0" />
+
+              <label class="label">Snow load (kN/m²)</label>
+              <input class="input" id="qSnow" value="0" />
+
+              <label class="label">Wind base shear (kN)</label>
+              <div class="grid2">
+                <div>
+                  <div class="note" style="margin-top:0">X (GX)</div>
+                  <input class="input" id="windX" value="0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Z (GZ)</div>
+                  <input class="input" id="windZ" value="0" />
+                </div>
+              </div>
+
+              <label class="label">Seismic base shear (kN)</label>
+              <div class="grid2">
+                <div>
+                  <div class="note" style="margin-top:0">X (GX)</div>
+                  <input class="input" id="eqX" value="0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Z (GZ)</div>
+                  <input class="input" id="eqZ" value="0" />
+                </div>
+              </div>
+
+              <label class="label">Checks</label>
+              <div class="row" style="margin-top:6px; gap:10px; flex-wrap:wrap">
+                <label class="badge" style="cursor:pointer"><input id="chkMain" type="checkbox" style="margin:0 8px 0 0" checked /> Main beam</label>
+                <label class="badge" style="cursor:pointer"><input id="chkSub" type="checkbox" style="margin:0 8px 0 0" checked /> Sub beam</label>
+                <label class="badge" style="cursor:pointer"><input id="chkCol" type="checkbox" style="margin:0 8px 0 0" checked /> Column</label>
+              </div>
 
               <label class="label">Deflection limits</label>
               <div class="grid2">
@@ -888,6 +973,21 @@ function renderAnalysis(projectId){
     setIf('driftX', saved.driftX || 200);
     setIf('driftZ', saved.driftZ || 200);
     setIf('colTop', saved.colTop || 200);
+    setIf('qSnow', saved.qSnow || 0);
+    setIf('windX', saved.windX || 0);
+    setIf('windZ', saved.windZ || 0);
+    setIf('eqX', saved.eqX || 0);
+    setIf('eqZ', saved.eqZ || 0);
+    try{
+      const cm = document.getElementById('comboMode');
+      if(cm && saved.comboMode) cm.value = String(saved.comboMode);
+    }catch{}
+    try{
+      const a = saved.checks || {};
+      const c1=document.getElementById('chkMain'); if(c1 && a.main!=null) c1.checked=!!a.main;
+      const c2=document.getElementById('chkSub'); if(c2 && a.sub!=null) c2.checked=!!a.sub;
+      const c3=document.getElementById('chkCol'); if(c3 && a.col!=null) c3.checked=!!a.col;
+    }catch{}
     const fh = document.getElementById('failHighlight');
     if(fh) fh.checked = (saved.failHighlightOn !== false);
 
@@ -1080,9 +1180,11 @@ function renderAnalysis(projectId){
 
     const checkDeflection = (res, payload) => {
       const rMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
-      const rSub = Number(document.getElementById('deflSub')?.value || 240) || 240;
+      const rSub = Number(document.getElementById('deflSub')?.value || 300) || 300;
       const kinds = payload?._kinds || [];
       const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
+      const chkMain = (document.getElementById('chkMain')?.checked !== false);
+      const chkSub = (document.getElementById('chkSub')?.checked !== false);
 
       let worst = { ok:true, util:0, memberId:'', L:0, allow:0, dy:0, kind:'' };
       for(let idx=0; idx<(payload?.members||[]).length; idx++){
@@ -1090,6 +1192,9 @@ function renderAnalysis(projectId){
         const mr = res?.members?.[String(mem.id)];
         if(!mr) continue;
         const kind = String(kinds[idx] || '');
+        if((kind==='beamX' || kind==='beamY') && !chkMain) continue;
+        if(kind==='subBeam' && !chkSub) continue;
+
         const ratio = (kind==='subBeam') ? rSub : (kind==='beamX' || kind==='beamY' ? rMain : null);
         if(!ratio) continue;
 
@@ -1107,7 +1212,7 @@ function renderAnalysis(projectId){
         }
       }
 
-      return { rMain, rSub, worst };
+      return { rMain, rSub, worst, chkMain, chkSub };
     };
 
     const memberAllow = (analysisMemberId) => {
@@ -1229,16 +1334,22 @@ function renderAnalysis(projectId){
 
       try{
         const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
-        const livePreset = (document.getElementById('livePreset')?.value || 'custom').toString();
+        const qSnow = parseFloat((document.getElementById('qSnow')?.value || '0').toString()) || 0;
+        const windX = parseFloat((document.getElementById('windX')?.value || '0').toString()) || 0;
+        const windZ = parseFloat((document.getElementById('windZ')?.value || '0').toString()) || 0;
+        const eqX = parseFloat((document.getElementById('eqX')?.value || '0').toString()) || 0;
+        const eqZ = parseFloat((document.getElementById('eqZ')?.value || '0').toString()) || 0;
+        const livePreset = (document.getElementById('livePreset')?.value || '3.0').toString();
         const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
-        const comboMode = (document.getElementById('comboMode')?.value || 'D+L').toString();
+        const comboMode = (document.getElementById('comboMode')?.value || 'ENVELOPE').toString();
         const supportNodesVal = (document.getElementById('supportNodes')?.value || '').toString();
         const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
+        const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
 
-        saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, livePreset, supportNodes: supportNodesVal, analysisScale });
+        saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, livePreset, checks, supportNodes: supportNodesVal, analysisScale });
 
         const connCfg = loadConnSettings(p.id);
-        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg);
+        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg, { qSnow, windX, windZ, eqX, eqZ });
         lastPayload = payload;
         // update id maps (engine <-> analysis)
         try{
@@ -1263,10 +1374,12 @@ function renderAnalysis(projectId){
           payload.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
         }
 
-        // combo selection: put selected combo first so API uses it as primary
-        if(Array.isArray(payload.combos) && payload.combos.length){
-          const idx = payload.combos.findIndex(c => String(c.name)===comboMode);
-          if(idx>0){ const c = payload.combos.splice(idx,1)[0]; payload.combos.unshift(c); }
+        // If user selects a single combo, reduce the combo list.
+        if(String(comboMode).toUpperCase() !== 'ENVELOPE'){
+          payload.combos = (payload.combos||[]).filter(c => String(c.name)===String(comboMode));
+          if(!payload.combos.length){
+            payload.combos = [{ name: String(comboMode), factors: { D:1.0, L:1.0 } }];
+          }
         }
         setStatus('calling solver…');
 
@@ -1333,8 +1446,10 @@ function renderAnalysis(projectId){
         // highlight FAIL members in 3D (deflection util > 1)
         try{
           const rMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
-          const rSub = Number(document.getElementById('deflSub')?.value || 240) || 240;
+          const rSub = Number(document.getElementById('deflSub')?.value || 300) || 300;
           const kinds = payload?._kinds || [];
+          const chkMain = (document.getElementById('chkMain')?.checked !== false);
+          const chkSub = (document.getElementById('chkSub')?.checked !== false);
           const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
           const badE = [];
           for(let idx=0; idx<(payload?.members||[]).length; idx++){
@@ -1342,6 +1457,8 @@ function renderAnalysis(projectId){
             const mr = res?.members?.[String(mem.id)];
             if(!mr) continue;
             const kind = String(kinds[idx] || '');
+            if((kind==='beamX' || kind==='beamY') && !chkMain) continue;
+            if(kind==='subBeam' && !chkSub) continue;
             const ratio = (kind==='subBeam') ? rSub : (kind==='beamX' || kind==='beamY' ? rMain : null);
             if(!ratio) continue;
             const ni = nodeById.get(String(mem.i));
@@ -1402,23 +1519,33 @@ function renderAnalysis(projectId){
     // persist setting changes
     const persist = (patch={}) => {
       const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
-      const comboMode = (document.getElementById('comboMode')?.value || 'D+L').toString();
+      const comboMode = (document.getElementById('comboMode')?.value || 'ENVELOPE').toString();
       const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
+      const qSnow = parseFloat((document.getElementById('qSnow')?.value || '0').toString()) || 0;
+      const windX = parseFloat((document.getElementById('windX')?.value || '0').toString()) || 0;
+      const windZ = parseFloat((document.getElementById('windZ')?.value || '0').toString()) || 0;
+      const eqX = parseFloat((document.getElementById('eqX')?.value || '0').toString()) || 0;
+      const eqZ = parseFloat((document.getElementById('eqZ')?.value || '0').toString()) || 0;
       const supportNodes = (document.getElementById('supportNodes')?.value || '').toString();
       const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
       const editSupports = !!document.getElementById('editSupports')?.checked;
       const deflMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
-      const deflSub = Number(document.getElementById('deflSub')?.value || 240) || 240;
+      const deflSub = Number(document.getElementById('deflSub')?.value || 300) || 300;
       const driftX = Number(document.getElementById('driftX')?.value || 200) || 200;
       const driftZ = Number(document.getElementById('driftZ')?.value || 200) || 200;
       const colTop = Number(document.getElementById('colTop')?.value || 200) || 200;
       const failHighlightOn = (document.getElementById('failHighlight')?.checked !== false);
-      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, ...patch });
+      const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
+      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, supportNodes, analysisScale, editSupports, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, checks, ...patch });
     };
-    ['supportMode','comboMode','qLive','supportNodes','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
+    ['supportMode','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => persist());
       document.getElementById(id)?.addEventListener('input', () => persist());
     });
+    ['chkMain','chkSub','chkCol'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => persist());
+    });
+
     document.getElementById('failHighlight')?.addEventListener('change', () => {
       const on = document.getElementById('failHighlight')?.checked !== false;
       try{ view.setFailHighlightEnabled?.(on); }catch{}
