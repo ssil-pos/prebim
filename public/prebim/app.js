@@ -794,6 +794,8 @@ function renderAnalysis(projectId){
     const model = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || p.data || __engine.defaultModel());
     const members = __engine.generateMembers(model);
     view.setMembers(members, model);
+    // show connection markers
+    try{ view.setConnectionMarkers?.(members, loadConnSettings(p.id)); }catch{}
 
     const rebuildIdMapsFromPayload = (payload) => {
       analysisIdByEngineId = {};
@@ -1064,7 +1066,7 @@ function renderAnalysis(projectId){
           });
         }catch{}
         // strip helper before sending
-        try{ delete payload._engineIds; }catch{}
+        try{ delete payload._engineIds; delete payload._connModes; }catch{}
 
         // supports override
         const supTxt = (document.getElementById('supportNodes')?.value || '').trim();
@@ -1215,12 +1217,14 @@ function renderAnalysis(projectId){
       try{
         const qLive0 = parseFloat((document.getElementById('qLive')?.value||'3').toString())||0;
         const supportMode0 = (document.getElementById('supportMode')?.value||'PINNED').toString();
-        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, loadConnSettings(p.id));
+        const connCfg = loadConnSettings(p.id);
+        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg);
         const ids = curSupportIds();
         const fixed = supportMode0.toUpperCase()==='FIXED';
         payload0.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
         view.setSupportMarkers?.(payload0.supports, payload0.nodes, supportMode0);
         view.setBaseNodes?.(payload0.nodes, ids, supportMode0);
+        view.setConnectionMarkers?.(members, connCfg);
       }catch{}
     };
 
@@ -3146,6 +3150,11 @@ async function createThreeView(container){
   // base node pickers for support editing
   const baseNodeGroup = new THREE.Group();
   scene.add(baseNodeGroup);
+
+  // connection end markers (PIN/FIX)
+  const connGroup = new THREE.Group();
+  scene.add(connGroup);
+
   let supportEdit = false;
   let memberPickEnabled = true;
   let onSupportToggle = null;
@@ -4093,6 +4102,68 @@ async function createThreeView(container){
     }
   }
 
+  function clearConnMarkers(){
+    while(connGroup.children.length) connGroup.remove(connGroup.children[0]);
+  }
+
+  function setConnectionMarkers(engineMembers, connCfg){
+    clearConnMarkers();
+    if(!engineMembers || !engineMembers.length) return;
+    const cfg = connCfg || {};
+    const by = cfg.members || {};
+
+    // estimate model scale
+    let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+    for(const mem of engineMembers){
+      const a=mem.a,b=mem.b;
+      minX=Math.min(minX,a[0],b[0]); minY=Math.min(minY,a[1],b[1]); minZ=Math.min(minZ,a[2],b[2]);
+      maxX=Math.max(maxX,a[0],b[0]); maxY=Math.max(maxY,a[1],b[1]); maxZ=Math.max(maxZ,a[2],b[2]);
+    }
+    const diag = Math.hypot(maxX-minX, maxY-minY, maxZ-minZ) || 10;
+    const r = Math.max(0.06, diag*0.006);
+    const t = Math.max(0.02, r*0.35);
+
+    const matPin = new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent:true, opacity:0.90, depthWrite:false });
+    const matFix = new THREE.MeshBasicMaterial({ color: 0x64748b, transparent:true, opacity:0.45, depthWrite:false });
+    const geomRing = new THREE.TorusGeometry(r, t, 10, 24);
+    const geomFix = new THREE.BoxGeometry(r*1.6, r*1.6, r*1.6);
+
+    const defaultModeByKind = { column:'FIXED', beamX:'PIN', beamY:'PIN', subBeam:'PIN', brace:'PIN', joist:'PIN' };
+
+    const addMark = (pt, mode, axisDir) => {
+      const m = String(mode||'FIXED').toUpperCase();
+      if(m === 'PIN'){
+        const ring = new THREE.Mesh(geomRing, matPin);
+        ring.position.set(pt[0], pt[1], pt[2]);
+        // orient ring roughly perpendicular to member axis (axisDir is normalized)
+        const v = new THREE.Vector3(axisDir[0], axisDir[1], axisDir[2]);
+        // rotate from z-axis to v
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), v.clone().normalize());
+        ring.quaternion.copy(q);
+        ring.renderOrder = 30;
+        connGroup.add(ring);
+      } else {
+        const box = new THREE.Mesh(geomFix, matFix);
+        box.position.set(pt[0], pt[1], pt[2]);
+        box.renderOrder = 29;
+        connGroup.add(box);
+      }
+    };
+
+    for(const mem of engineMembers){
+      const eid = String(mem.id);
+      const per = by[eid] || null;
+      const def = defaultModeByKind[mem.kind] || 'FIXED';
+      const mi = per?.i || def;
+      const mj = per?.j || def;
+      const ax = [mem.b[0]-mem.a[0], mem.b[1]-mem.a[1], mem.b[2]-mem.a[2]];
+      const L = Math.hypot(ax[0],ax[1],ax[2]) || 1;
+      const dir = [ax[0]/L, ax[1]/L, ax[2]/L];
+      addMark(mem.a, mi, dir);
+      addMark(mem.b, mj, dir);
+    }
+  }
+
   function setBaseNodes(nodes, activeIds = [], supportMode='PINNED'){
     while(baseNodeGroup.children.length) baseNodeGroup.remove(baseNodeGroup.children[0]);
     if(!nodes || !nodes.length) return;
@@ -4153,6 +4224,8 @@ async function createThreeView(container){
     setSupportMarkers,
     setBaseNodes,
     setSupportEditMode,
+    setConnectionMarkers,
+    clearConnMarkers,
     resize: doResize,
     getSelection,
     setSelection,
