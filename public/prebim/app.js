@@ -761,6 +761,7 @@ function renderAnalysis(projectId){
           <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
 
           <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
+          <div id="analysisRunHelp"></div>
 
           <div class="row" style="margin-top:8px; gap:8px">
             <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
@@ -1082,8 +1083,14 @@ function renderAnalysis(projectId){
       }
     };
 
+    const showRunHelp = (html='') => {
+      const el = document.getElementById('analysisRunHelp');
+      if(el) el.innerHTML = html;
+    };
+
     const run = async () => {
       setStatus('building payload…');
+      showRunHelp('');
       const ov = document.getElementById('analysisOverlay');
       if(ov) ov.hidden = false;
 
@@ -1137,9 +1144,46 @@ function renderAnalysis(projectId){
         const res = await r.json().catch(() => null);
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         if(!res || res.ok !== true){
-          alert(res?.note || 'Analysis failed.');
+          const note = res?.note || 'Analysis failed.';
           setStatus('failed');
           renderResultsTable(null);
+
+          if(String(note).toLowerCase().includes('singular')){
+            showRunHelp(`
+              <div class="card" style="margin-top:10px; padding:10px; border-color: rgba(239,68,68,0.25)">
+                <b style="display:block; margin-bottom:6px">Unstable model (singular)</b>
+                <div class="note" style="margin-top:0">Likely causes: too many hinges, insufficient supports, disconnected parts.</div>
+                <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
+                  <button class="btn" id="btnRetryFixedSupports" type="button">Retry: FIXED supports</button>
+                  <button class="btn" id="btnRetryAllFixedConn" type="button">Retry: all FIXED connections</button>
+                </div>
+                <div class="note" style="margin-top:8px">Retries run temporarily (won't overwrite your saved settings).</div>
+              </div>
+            `);
+
+            document.getElementById('btnRetryFixedSupports')?.addEventListener('click', async () => {
+              const prev = document.getElementById('supportMode')?.value;
+              if(document.getElementById('supportMode')) document.getElementById('supportMode').value = 'FIXED';
+              persist();
+              await run();
+              if(document.getElementById('supportMode') && prev) document.getElementById('supportMode').value = prev;
+              persist();
+            });
+
+            document.getElementById('btnRetryAllFixedConn')?.addEventListener('click', async () => {
+              const cfg = loadConnSettings(p.id);
+              cfg.members = cfg.members || {};
+              for(const mm of (members||[])) cfg.members[String(mm.id)] = { i:'FIXED', j:'FIXED' };
+              // TEMP: apply markers only; do not persist
+              try{ view.setConnectionMarkers?.(members, cfg); }catch{}
+              const savedSel = loadConnSettings(p.id);
+              await run();
+              // restore
+              try{ view.setConnectionMarkers?.(members, savedSel); }catch{}
+            });
+          }
+
+          alert(note);
           return;
         }
 
@@ -1151,6 +1195,29 @@ function renderAnalysis(projectId){
         view.setSupportMarkers?.(payload.supports, payload.nodes, supportMode);
 
         renderResultsTable(res);
+
+        // highlight FAIL members in 3D (deflection util > 1)
+        try{
+          const ratio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
+          const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
+          const badE = [];
+          for(const mem of (payload?.members||[])){
+            const mr = res?.members?.[String(mem.id)];
+            if(!mr) continue;
+            const ni = nodeById.get(String(mem.i));
+            const nj = nodeById.get(String(mem.j));
+            if(!ni || !nj) continue;
+            const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
+            if(L<=1e-9) continue;
+            const allow = L/ratio;
+            const dy = Math.abs(Number(mr.dyAbsMax)||0);
+            if(allow>0 && dy/allow > 1.0 + 1e-9){
+              const eid = engineIdByAnalysisId[String(mem.id)];
+              if(eid) badE.push(eid);
+            }
+          }
+          view.setFailMembers?.(badE);
+        }catch{}
 
         // PASS/FAIL badge (deflection)
         try{
@@ -4281,6 +4348,30 @@ async function createThreeView(container){
     applyClipping(model);
   }
 
+  function setFailMembers(engineIds = []){
+    const bad = new Set((engineIds||[]).map(String));
+    group.children.forEach(ch => {
+      const sel = selected.has(ch.userData.memberId);
+      const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
+      if(ch.material && ch.material.isMaterial){
+        ch.material = baseMat.clone();
+        if('emissive' in ch.material){
+          if(sel){
+            ch.material.emissive = new THREE.Color(0xef4444);
+            ch.material.emissiveIntensity = 0.60;
+          } else if(bad.has(String(ch.userData.memberId))){
+            ch.material.emissive = new THREE.Color(0xf59e0b);
+            ch.material.emissiveIntensity = 0.35;
+          } else {
+            ch.material.emissive = new THREE.Color(0x000000);
+            ch.material.emissiveIntensity = 0;
+          }
+        }
+      }
+    });
+    applyClipping(lastClipModel);
+  }
+
   return {
     setMembers,
     setBraceMode,
@@ -4294,6 +4385,7 @@ async function createThreeView(container){
     setSupportEditMode,
     setConnectionMarkers,
     clearConnMarkers,
+    setFailMembers,
     resize: doResize,
     getSelection,
     setSelection,
