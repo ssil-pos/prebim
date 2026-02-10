@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1722KST';
+const BUILD = '20260211-0736KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1722KST'),
-    import('/prebim/app_profiles.js?v=20260210-1722KST'),
+    import('/prebim/engine.js?v=20260211-0736KST'),
+    import('/prebim/app_profiles.js?v=20260211-0736KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -636,6 +636,17 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       Rzj: !!relJ.Rzj,
     };
 
+    // Column strong-axis rotation (H-beam): rotate section about local x-axis.
+    // For vertical columns, rotation=0 makes the strong axis resist global X (per PyNite convention).
+    // rotation=+90deg makes it resist global Z.
+    let rotation = 0;
+    try{
+      if(mm.kind==='column'){
+        const ax = String(m?.profiles?.colStrongAxis || 'AUTO').toUpperCase();
+        rotation = (ax==='Z') ? (Math.PI/2) : 0;
+      }
+    }catch{}
+
     return {
       id: mm.id,
       i: mm.j1,
@@ -647,6 +658,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       Iy: Pmm.Iy * 1e-12,
       Iz: Pmm.Iz * 1e-12,
       J: Pmm.J * 1e-12,
+      rotation,
       releases: (mm.kind==='brace') ? null : releases,
       _engineId: eid,
     };
@@ -2950,6 +2962,19 @@ function renderEditor(projectId){
 
               <div class="grid2">
                 <div>
+                  <label class="label">Column strong axis (H-beam)</label>
+                  <select id="colStrongAxis" class="input">
+                    <option value="AUTO" selected>AUTO (X)</option>
+                    <option value="X">X</option>
+                    <option value="Z">Z</option>
+                  </select>
+                  <div class="note" style="margin-top:6px">Affects analysis stiffness by rotating column section about its local axis.</div>
+                </div>
+                <div></div>
+              </div>
+
+              <div class="grid2">
+                <div>
                   <label class="label">Sub-beam profile</label>
                   <select id="subSizeMirror" class="input" disabled></select>
                 </div>
@@ -3190,6 +3215,8 @@ function renderEditor(projectId){
       fillProfileSelectors();
 
       document.getElementById('colShape').value = m.profiles?.colShape || 'H';
+      const csa = document.getElementById('colStrongAxis');
+      if(csa) csa.value = m.profiles?.colStrongAxis || 'AUTO';
       document.getElementById('beamShape').value = m.profiles?.beamShape || 'H';
       document.getElementById('subShape').value = m.profiles?.subShape || 'H';
       document.getElementById('braceShape').value = m.profiles?.braceShape || 'L';
@@ -3244,6 +3271,7 @@ function renderEditor(projectId){
           stdAll: document.getElementById('stdAll').value || 'KS',
           colShape: document.getElementById('colShape').value || 'H',
           colSize: document.getElementById('colSize').value || '',
+          colStrongAxis: document.getElementById('colStrongAxis')?.value || 'AUTO',
           beamShape: document.getElementById('beamShape').value || 'H',
           beamSize: document.getElementById('beamSize').value || '',
           subShape: document.getElementById('subShape')?.value || 'H',
