@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1712KST';
+const BUILD = '20260210-1714KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1712KST'),
-    import('/prebim/app_profiles.js?v=20260210-1712KST'),
+    import('/prebim/engine.js?v=20260210-1714KST'),
+    import('/prebim/app_profiles.js?v=20260210-1714KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1302,6 +1302,16 @@ function renderAnalysis(projectId){
       const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
       const chkMain = (document.getElementById('chkMain')?.checked !== false);
       const chkSub = (document.getElementById('chkSub')?.checked !== false);
+      const chkCol = (document.getElementById('chkCol')?.checked !== false);
+      const rColTop = Number(document.getElementById('colTop')?.value || 200) || 200;
+
+      // building height H (for column-top displacement check)
+      let minY = Infinity, maxY = -Infinity;
+      for(const n of (payload?.nodes||[])){
+        minY = Math.min(minY, Number(n.y)||0);
+        maxY = Math.max(maxY, Number(n.y)||0);
+      }
+      const H = Math.max(0, maxY - minY);
 
       let worst = { ok:true, util:0, memberId:'', L:0, allow:0, dy:0, kind:'' };
       for(let idx=0; idx<(payload?.members||[]).length; idx++){
@@ -1311,17 +1321,38 @@ function renderAnalysis(projectId){
         const kind = String(kinds[idx] || '');
         if((kind==='beamX' || kind==='beamY') && !chkMain) continue;
         if(kind==='subBeam' && !chkSub) continue;
+        if(kind==='column' && !chkCol) continue;
 
-        const ratio = (kind==='subBeam') ? rSub : (kind==='beamX' || kind==='beamY' ? rMain : null);
+        const ratio = (kind==='subBeam') ? rSub
+                    : ((kind==='beamX' || kind==='beamY') ? rMain
+                    : (kind==='column' ? rColTop : null));
         if(!ratio) continue;
 
         const ni = nodeById.get(String(mem.i));
         const nj = nodeById.get(String(mem.j));
         if(!ni || !nj) continue;
-        const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
-        if(L <= 1e-9) continue;
-        const allow = L / ratio;
-        const dy = Math.abs(Number(mr.dyAbsMax)||0);
+
+        let allow = 0;
+        let dy = 0;
+        let L = 0;
+
+        if(kind === 'column'){
+          // Column-top displacement: use building height H/ratio and top-node lateral displacement magnitude.
+          allow = (H > 1e-9) ? (H / ratio) : 0;
+          const topNodeId = (Number(ni.y) >= Number(nj.y)) ? String(mem.i) : String(mem.j);
+          const nd = res?.nodes?.[topNodeId];
+          const dx = Number(nd?.dx||0);
+          const dz = Number(nd?.dz||0);
+          dy = Math.hypot(dx, dz);
+          L = H;
+        }else{
+          // Beam deflection check: L in plan, dy from solver member dy
+          L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
+          if(L <= 1e-9) continue;
+          allow = L / ratio;
+          dy = Math.abs(Number(mr.dyAbsMax)||0);
+        }
+
         const util = allow>0 ? (dy/allow) : 0;
         const ok = util <= 1.0 + 1e-12;
         if(util > worst.util){
@@ -1329,7 +1360,7 @@ function renderAnalysis(projectId){
         }
       }
 
-      return { rMain, rSub, worst, chkMain, chkSub };
+      return { rMain, rSub, rColTop, H, worst, chkMain, chkSub, chkCol };
     };
 
     const memberAllow = (analysisMemberId) => {
@@ -1339,16 +1370,29 @@ function renderAnalysis(projectId){
         const idx = (Number(analysisMemberId)||0) - 1;
         const kind = String(lastPayload?._kinds?.[idx] || '');
         const ratio = (kind==='subBeam') ? (Number(document.getElementById('deflSub')?.value||240)||240)
-                    : ((kind==='beamX' || kind==='beamY') ? (Number(document.getElementById('deflMain')?.value||300)||300) : null);
+                    : ((kind==='beamX' || kind==='beamY') ? (Number(document.getElementById('deflMain')?.value||300)||300)
+                    : (kind==='column' ? (Number(document.getElementById('colTop')?.value||200)||200) : null));
         if(!ratio) return null;
 
         const nodeById = new Map((lastPayload?.nodes||[]).map(n => [String(n.id), n]));
         const ni = nodeById.get(String(mem.i));
         const nj = nodeById.get(String(mem.j));
         if(!ni || !nj) return null;
+
+        if(kind === 'column'){
+          let minY = Infinity, maxY = -Infinity;
+          for(const n of (lastPayload?.nodes||[])){
+            minY = Math.min(minY, Number(n.y)||0);
+            maxY = Math.max(maxY, Number(n.y)||0);
+          }
+          const H = Math.max(0, maxY - minY);
+          if(H<=1e-9) return null;
+          return { L: H, allow: H/ratio, ratio, basis:'H' };
+        }
+
         const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
         if(L<=1e-9) return null;
-        return { L, allow: L/ratio, ratio };
+        return { L, allow: L/ratio, ratio, basis:'L' };
       }catch{ return null; }
     };
 
