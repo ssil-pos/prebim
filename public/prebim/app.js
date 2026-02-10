@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1313KST';
+const BUILD = '20260210-1348KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1313KST'),
-    import('/prebim/app_profiles.js?v=20260210-1313KST'),
+    import('/prebim/engine.js?v=20260210-1348KST'),
+    import('/prebim/app_profiles.js?v=20260210-1348KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -827,13 +827,13 @@ function renderAnalysis(projectId){
               <input class="input" id="qLive" value="3.0" />
 
               <label class="label">Snow load (kN/m²)</label>
-              <input class="input" id="qSnow" value="0" />
+              <input class="input" id="qSnow" value="0.42" />
 
               <label class="label">Wind base shear (kN)</label>
               <div class="grid2">
                 <div>
                   <div class="note" style="margin-top:0">X (GX)</div>
-                  <input class="input" id="windX" value="0" />
+                  <input class="input" id="windX" value="190.10" />
                 </div>
                 <div>
                   <div class="note" style="margin-top:0">Z (GZ)</div>
@@ -845,7 +845,7 @@ function renderAnalysis(projectId){
               <div class="grid2">
                 <div>
                   <div class="note" style="margin-top:0">X (GX)</div>
-                  <input class="input" id="eqX" value="0" />
+                  <input class="input" id="eqX" value="2911.49" />
                 </div>
                 <div>
                   <div class="note" style="margin-top:0">Z (GZ)</div>
@@ -973,11 +973,12 @@ function renderAnalysis(projectId){
     setIf('driftX', saved.driftX || 200);
     setIf('driftZ', saved.driftZ || 200);
     setIf('colTop', saved.colTop || 200);
-    setIf('qSnow', saved.qSnow || 0);
-    setIf('windX', saved.windX || 0);
-    setIf('windZ', saved.windZ || 0);
-    setIf('eqX', saved.eqX || 0);
-    setIf('eqZ', saved.eqZ || 0);
+    // Defaults from sample calc report
+    setIf('qSnow', (saved.qSnow!=null? saved.qSnow : 0.42));
+    setIf('windX', (saved.windX!=null? saved.windX : 190.10));
+    setIf('windZ', (saved.windZ!=null? saved.windZ : 0));
+    setIf('eqX', (saved.eqX!=null? saved.eqX : 2911.49));
+    setIf('eqZ', (saved.eqZ!=null? saved.eqZ : 0));
     try{
       const cm = document.getElementById('comboMode');
       if(cm && saved.comboMode) cm.value = String(saved.comboMode);
@@ -1350,6 +1351,7 @@ function renderAnalysis(projectId){
 
         const connCfg = loadConnSettings(p.id);
         const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg, { qSnow, windX, windZ, eqX, eqZ });
+        // Keep helper fields (_engineIds/_kinds/_connModes) locally for UI computations.
         lastPayload = payload;
         // update id maps (engine <-> analysis)
         try{
@@ -1363,8 +1365,9 @@ function renderAnalysis(projectId){
             engineIdByAnalysisId[aid] = se;
           });
         }catch{}
-        // strip helper before sending
-        try{ delete payload._engineIds; delete payload._kinds; delete payload._connModes; }catch{}
+        // strip helper before sending (but keep local payload intact)
+        const payloadSend = structuredClone(payload);
+        try{ delete payloadSend._engineIds; delete payloadSend._kinds; delete payloadSend._connModes; }catch{}
 
         // supports override
         const supTxt = (document.getElementById('supportNodes')?.value || '').trim();
@@ -1372,13 +1375,14 @@ function renderAnalysis(projectId){
           const ids = supTxt.split(/[^0-9A-Za-z_:-]+/g).map(s=>s.trim()).filter(Boolean);
           const fixed = supportMode.toUpperCase()==='FIXED';
           payload.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
+          payloadSend.supports = payload.supports;
         }
 
         // If user selects a single combo, reduce the combo list.
         if(String(comboMode).toUpperCase() !== 'ENVELOPE'){
-          payload.combos = (payload.combos||[]).filter(c => String(c.name)===String(comboMode));
-          if(!payload.combos.length){
-            payload.combos = [{ name: String(comboMode), factors: { D:1.0, L:1.0 } }];
+          payloadSend.combos = (payloadSend.combos||[]).filter(c => String(c.name)===String(comboMode));
+          if(!payloadSend.combos.length){
+            payloadSend.combos = [{ name: String(comboMode), factors: { D:1.0, L:1.0 } }];
           }
         }
         setStatus('calling solver…');
@@ -1386,7 +1390,7 @@ function renderAnalysis(projectId){
         const r = await fetch('/prebim/api/analyze', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(payloadSend),
         });
         const res = await r.json().catch(() => null);
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
