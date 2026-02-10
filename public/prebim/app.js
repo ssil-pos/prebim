@@ -694,6 +694,9 @@ function renderAnalysis(projectId){
     setIf('qLive', saved.qLive);
     setIf('supportNodes', saved.supportNodes);
     setIf('analysisScale2', saved.analysisScale);
+    // always default editSupports OFF unless explicitly saved
+    const es = document.getElementById('editSupports');
+    if(es) es.checked = !!saved.editSupports;
 
     // restore panel widths (shared CSS vars)
     try{
@@ -935,7 +938,8 @@ function renderAnalysis(projectId){
       const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
       const supportNodes = (document.getElementById('supportNodes')?.value || '').toString();
       const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
-      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, ...patch });
+      const editSupports = !!document.getElementById('editSupports')?.checked;
+      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, ...patch });
     };
     ['supportMode','comboMode','qLive','supportNodes'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', persist);
@@ -1028,8 +1032,8 @@ function renderAnalysis(projectId){
     document.getElementById('supportNodes')?.addEventListener('input', refreshSupportViz);
 
     // toggle edit supports mode
-    document.getElementById('editSupports')?.addEventListener('change', (ev) => {
-      const on = !!ev.target?.checked;
+    const applyEditSupports = () => {
+      const on = !!document.getElementById('editSupports')?.checked;
       view.setSupportEditMode?.(on, {
         memberPickEnabled: !on,
         onSupportToggle: (nid) => {
@@ -1042,8 +1046,15 @@ function renderAnalysis(projectId){
           refreshSupportViz();
         }
       });
+      // when entering edit mode, clear any member selection for clarity
+      if(on) view.clearSelection?.();
+      persist();
       refreshSupportViz();
-    });
+    };
+
+    document.getElementById('editSupports')?.addEventListener('change', applyEditSupports);
+    // apply initial state from restored checkbox
+    applyEditSupports();
   })();
 }
 
@@ -3539,15 +3550,29 @@ async function createThreeView(container){
     // member selection
     selectRay.setFromCamera(pointer, camera);
     const hits = selectRay.intersectObjects(group.children, false);
-    if(!hits.length) return;
+    if(!hits.length){
+      // click empty clears
+      selected.clear();
+      // visual highlight reset
+      group.children.forEach(ch => {
+        const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
+        if(ch.material && ch.material.isMaterial){
+          ch.material = baseMat.clone();
+          if('emissive' in ch.material){
+            ch.material.emissive = new THREE.Color(0x000000);
+            ch.material.emissiveIntensity = 0;
+          }
+        }
+      });
+      onSel && onSel([]);
+      applyClipping(lastClipModel);
+      return;
+    }
     const obj = hits[0].object;
     const id = obj.userData.memberId;
-    const kind = obj.userData.kind;
     if(!id) return;
-    // only allow overrides for these
-    if(!['column','beamX','beamY','subBeam'].includes(kind)) return;
 
-    // toggle selection
+    // toggle single selection (allow any member kind in analysis too)
     if(selected.has(id)) selected.delete(id);
     else {
       selected.clear();
