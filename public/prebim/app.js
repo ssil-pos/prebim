@@ -391,6 +391,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     return { id: String(idx+1), kind: mem.kind, j1, j2, mem };
   });
   const _engineIds = memList.map(mm => String(mm.mem?.id ?? mm.id));
+  const _kinds = memList.map(mm => String(mm.kind||''));
 
   // grid helpers (for tributary widths)
   const spansXmm = m.grid?.spansXmm || [];
@@ -647,6 +648,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 
     // client-side helper (ignored by API): index i => analysis member id (i+1)
     _engineIds,
+    _kinds,
     _connModes,
   };
 }
@@ -714,64 +716,118 @@ function renderAnalysis(projectId){
       <aside class="pane tools" aria-label="Settings">
         <div class="pane-h"><b>Settings</b><span class="mono" id="analysisHudState" style="font-size:11px; opacity:.65">idle</span></div>
         <div class="pane-b">
-          <label class="label">Support</label>
-          <select class="input" id="supportMode">
-            <option value="PINNED" selected>PINNED</option>
-            <option value="FIXED">FIXED</option>
-          </select>
+          <div class="acc" id="settingsAcc">
+            <button class="acc-btn" type="button" data-acc="sup">Supports <span class="chev" id="chevSup">▴</span></button>
+            <div class="acc-panel open" id="panelSup">
+              <label class="label">Support</label>
+              <select class="input" id="supportMode">
+                <option value="PINNED" selected>PINNED</option>
+                <option value="FIXED">FIXED</option>
+              </select>
 
-          <label class="label">Combo</label>
-          <select class="input" id="comboMode">
-            <option value="D+L" selected>D+L</option>
-            <option value="D">D</option>
-          </select>
+              <label class="label">Supports (node ids)</label>
+              <input class="input" id="supportNodes" placeholder="e.g. 1,2,3" />
 
-          <label class="label">Live load (kN/m²)</label>
-          <input class="input" id="qLive" value="3.0" />
+              <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+                <input id="editSupports" type="checkbox" style="margin:0" />
+                <span>Edit supports (click base nodes in 3D)</span>
+              </label>
 
-          <label class="label">Supports (node ids)</label>
-          <input class="input" id="supportNodes" placeholder="e.g. 1,2,3" />
+              <div class="row" style="margin-top:8px; gap:8px">
+                <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
+              </div>
+            </div>
 
-          <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
-            <input id="editSupports" type="checkbox" style="margin:0" />
-            <span>Edit supports (click base nodes in 3D)</span>
-          </label>
+            <button class="acc-btn" type="button" data-acc="conn">Connections <span class="chev" id="chevConn">▾</span></button>
+            <div class="acc-panel" id="panelConn">
+              <label class="label">Connections (selected member)</label>
+              <div class="row" style="margin-top:6px; gap:8px; flex-wrap:wrap">
+                <select class="input" id="connI" style="max-width:120px">
+                  <option value="PIN">PIN</option>
+                  <option value="FIXED" selected>FIXED</option>
+                </select>
+                <select class="input" id="connJ" style="max-width:120px">
+                  <option value="PIN">PIN</option>
+                  <option value="FIXED" selected>FIXED</option>
+                </select>
+                <button class="btn" id="btnConnApply" type="button">Apply</button>
+              </div>
+              <div class="note" style="margin-top:6px">Select members in 3D to edit end conditions.</div>
+            </div>
 
-          <label class="label">Connections (selected member)</label>
-          <div class="row" style="margin-top:6px; gap:8px; flex-wrap:wrap">
-            <select class="input" id="connI" style="max-width:120px">
-              <option value="PIN">PIN</option>
-              <option value="FIXED" selected>FIXED</option>
-            </select>
-            <select class="input" id="connJ" style="max-width:120px">
-              <option value="PIN">PIN</option>
-              <option value="FIXED" selected>FIXED</option>
-            </select>
-            <button class="btn" id="btnConnApply" type="button">Apply</button>
+            <button class="acc-btn" type="button" data-acc="crit">Criteria <span class="chev" id="chevCrit">▴</span></button>
+            <div class="acc-panel open" id="panelCrit">
+              <label class="label">Combo</label>
+              <select class="input" id="comboMode">
+                <option value="D+L" selected>D+L</option>
+                <option value="D">D</option>
+              </select>
+
+              <label class="label">Live load (kN/m²)</label>
+              <input class="input" id="qLive" value="3.0" />
+
+              <label class="label">Deflection limits</label>
+              <div class="grid2">
+                <div>
+                  <div class="note" style="margin-top:0">Main beam (beamX/beamY)</div>
+                  <div class="row" style="margin-top:6px; gap:8px">
+                    <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">L/</span>
+                    <input class="input" id="deflMain" value="300" />
+                  </div>
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Sub-beam</div>
+                  <div class="row" style="margin-top:6px; gap:8px">
+                    <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">L/</span>
+                    <input class="input" id="deflSub" value="240" />
+                  </div>
+                </div>
+              </div>
+
+              <label class="label">Drift limits</label>
+              <div class="grid2">
+                <div>
+                  <div class="note" style="margin-top:0">Story drift X</div>
+                  <div class="row" style="margin-top:6px; gap:8px">
+                    <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">H/</span>
+                    <input class="input" id="driftX" value="200" />
+                  </div>
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Story drift Z</div>
+                  <div class="row" style="margin-top:6px; gap:8px">
+                    <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">H/</span>
+                    <input class="input" id="driftZ" value="200" />
+                  </div>
+                </div>
+              </div>
+
+              <label class="label">Column top displacement</label>
+              <div class="row" style="margin-top:6px; gap:8px">
+                <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">H/</span>
+                <input class="input" id="colTop" value="200" style="max-width:110px" />
+              </div>
+
+              <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+                <input id="failHighlight" type="checkbox" style="margin:0" checked />
+                <span>Show FAIL highlight</span>
+              </label>
+            </div>
+
+            <button class="acc-btn" type="button" data-acc="view">View <span class="chev" id="chevView">▾</span></button>
+            <div class="acc-panel" id="panelView">
+              <label class="label">Deformation scale</label>
+              <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
+            </div>
+
+            <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
+            <div id="analysisRunHelp"></div>
+
+            <div class="row" style="margin-top:8px; gap:8px">
+              <button class="btn" id="btnHudRun" type="button">Run</button>
+            </div>
+            <div class="note">Read-only page. Edit geometry in Editor.</div>
           </div>
-          <div class="note" style="margin-top:6px">Select a member in 3D to edit end conditions.</div>
-
-          <label class="label">Deflection limit</label>
-          <div class="row" style="margin-top:6px; gap:8px">
-            <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">L/</span>
-            <input class="input" id="deflRatio" value="300" style="max-width:110px" />
-          </div>
-          <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
-            <input id="failHighlight" type="checkbox" style="margin:0" checked />
-            <span>Show FAIL highlight</span>
-          </label>
-
-          <label class="label">Deformation scale</label>
-          <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
-
-          <div class="mono" id="analysisStatus" style="margin-top:10px; font-size:12px; color:rgba(11,27,58,0.75)">status: idle</div>
-          <div id="analysisRunHelp"></div>
-
-          <div class="row" style="margin-top:8px; gap:8px">
-            <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
-            <button class="btn" id="btnHudRun" type="button">Run</button>
-          </div>
-          <div class="note">Read-only page. Edit geometry in Editor.</div>
         </div>
       </aside>
     </section>
@@ -786,7 +842,11 @@ function renderAnalysis(projectId){
     setIf('qLive', saved.qLive);
     setIf('supportNodes', saved.supportNodes);
     setIf('analysisScale2', saved.analysisScale);
-    setIf('deflRatio', saved.deflRatio || 300);
+    setIf('deflMain', saved.deflMain || 300);
+    setIf('deflSub', saved.deflSub || 240);
+    setIf('driftX', saved.driftX || 200);
+    setIf('driftZ', saved.driftZ || 200);
+    setIf('colTop', saved.colTop || 200);
     const fh = document.getElementById('failHighlight');
     if(fh) fh.checked = (saved.failHighlightOn !== false);
     // always default editSupports OFF unless explicitly saved
@@ -963,15 +1023,20 @@ function renderAnalysis(projectId){
     };
 
     const checkDeflection = (res, payload) => {
-      const ratio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
+      const rMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
+      const rSub = Number(document.getElementById('deflSub')?.value || 240) || 240;
+      const kinds = payload?._kinds || [];
       const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
 
-      let worst = { ok:true, util:0, memberId:'', L:0, allow:0, dy:0 };
-      for(const mem of (payload?.members||[])){
+      let worst = { ok:true, util:0, memberId:'', L:0, allow:0, dy:0, kind:'' };
+      for(let idx=0; idx<(payload?.members||[]).length; idx++){
+        const mem = payload.members[idx];
         const mr = res?.members?.[String(mem.id)];
         if(!mr) continue;
+        const kind = String(kinds[idx] || '');
+        const ratio = (kind==='subBeam') ? rSub : (kind==='beamX' || kind==='beamY' ? rMain : null);
+        if(!ratio) continue;
 
-        // use horizontal span for beams (plan length)
         const ni = nodeById.get(String(mem.i));
         const nj = nodeById.get(String(mem.j));
         if(!ni || !nj) continue;
@@ -982,18 +1047,23 @@ function renderAnalysis(projectId){
         const util = allow>0 ? (dy/allow) : 0;
         const ok = util <= 1.0 + 1e-12;
         if(util > worst.util){
-          worst = { ok, util, memberId: String(mem.id), L, allow, dy };
+          worst = { ok, util, memberId: String(mem.id), L, allow, dy, kind };
         }
       }
 
-      return { ratio, worst };
+      return { rMain, rSub, worst };
     };
 
     const memberAllow = (analysisMemberId) => {
       try{
-        const ratio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
         const mem = lastPayload?.members?.find(m => String(m.id)===String(analysisMemberId));
         if(!mem) return null;
+        const idx = (Number(analysisMemberId)||0) - 1;
+        const kind = String(lastPayload?._kinds?.[idx] || '');
+        const ratio = (kind==='subBeam') ? (Number(document.getElementById('deflSub')?.value||240)||240)
+                    : ((kind==='beamX' || kind==='beamY') ? (Number(document.getElementById('deflMain')?.value||300)||300) : null);
+        if(!ratio) return null;
+
         const nodeById = new Map((lastPayload?.nodes||[]).map(n => [String(n.id), n]));
         const ni = nodeById.get(String(mem.i));
         const nj = nodeById.get(String(mem.j));
@@ -1126,7 +1196,7 @@ function renderAnalysis(projectId){
           });
         }catch{}
         // strip helper before sending
-        try{ delete payload._engineIds; delete payload._connModes; }catch{}
+        try{ delete payload._engineIds; delete payload._kinds; delete payload._connModes; }catch{}
 
         // supports override
         const supTxt = (document.getElementById('supportNodes')?.value || '').trim();
@@ -1205,12 +1275,18 @@ function renderAnalysis(projectId){
 
         // highlight FAIL members in 3D (deflection util > 1)
         try{
-          const ratio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
+          const rMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
+          const rSub = Number(document.getElementById('deflSub')?.value || 240) || 240;
+          const kinds = payload?._kinds || [];
           const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
           const badE = [];
-          for(const mem of (payload?.members||[])){
+          for(let idx=0; idx<(payload?.members||[]).length; idx++){
+            const mem = payload.members[idx];
             const mr = res?.members?.[String(mem.id)];
             if(!mr) continue;
+            const kind = String(kinds[idx] || '');
+            const ratio = (kind==='subBeam') ? rSub : (kind==='beamX' || kind==='beamY' ? rMain : null);
+            if(!ratio) continue;
             const ni = nodeById.get(String(mem.i));
             const nj = nodeById.get(String(mem.j));
             if(!ni || !nj) continue;
@@ -1233,9 +1309,10 @@ function renderAnalysis(projectId){
           if(el){
             const w = chk.worst;
             const ok = !!w.ok;
+            const denom = (w.kind==='subBeam') ? chk.rSub : chk.rMain;
             el.textContent = ok
-              ? `PASS · defl ${w.dy.toFixed(6)} ≤ L/${chk.ratio} (${w.allow.toFixed(6)} m) · mem ${w.memberId}`
-              : `FAIL · defl ${w.dy.toFixed(6)} > L/${chk.ratio} (${w.allow.toFixed(6)} m) · mem ${w.memberId}`;
+              ? `PASS · defl ${w.dy.toFixed(6)} ≤ L/${denom} (${w.allow.toFixed(6)} m) · mem ${w.memberId}`
+              : `FAIL · defl ${w.dy.toFixed(6)} > L/${denom} (${w.allow.toFixed(6)} m) · mem ${w.memberId}`;
             el.style.color = ok ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)';
           }
 
@@ -1273,11 +1350,15 @@ function renderAnalysis(projectId){
       const supportNodes = (document.getElementById('supportNodes')?.value || '').toString();
       const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
       const editSupports = !!document.getElementById('editSupports')?.checked;
-      const deflRatio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
+      const deflMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
+      const deflSub = Number(document.getElementById('deflSub')?.value || 240) || 240;
+      const driftX = Number(document.getElementById('driftX')?.value || 200) || 200;
+      const driftZ = Number(document.getElementById('driftZ')?.value || 200) || 200;
+      const colTop = Number(document.getElementById('colTop')?.value || 200) || 200;
       const failHighlightOn = (document.getElementById('failHighlight')?.checked !== false);
-      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, deflRatio, failHighlightOn, ...patch });
+      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, ...patch });
     };
-    ['supportMode','comboMode','qLive','supportNodes','deflRatio'].forEach(id => {
+    ['supportMode','comboMode','qLive','supportNodes','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => persist());
       document.getElementById(id)?.addEventListener('input', () => persist());
     });
@@ -3172,6 +3253,12 @@ function renderEditor(projectId){
         sub: document.getElementById('panelSub'),
         // joist: (removed)
         profile: document.getElementById('panelProfile'),
+
+        // analysis settings accordion
+        sup: document.getElementById('panelSup'),
+        conn: document.getElementById('panelConn'),
+        crit: document.getElementById('panelCrit'),
+        view: document.getElementById('panelView'),
       };
       const chevs = {
         grid: document.getElementById('chevGrid'),
@@ -3179,6 +3266,11 @@ function renderEditor(projectId){
         sub: document.getElementById('chevSub'),
         // joist: (removed)
         profile: document.getElementById('chevProfile'),
+
+        sup: document.getElementById('chevSup'),
+        conn: document.getElementById('chevConn'),
+        crit: document.getElementById('chevCrit'),
+        view: document.getElementById('chevView'),
       };
 
       for(const k of Object.keys(panels)){
