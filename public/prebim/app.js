@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1412KST';
+const BUILD = '20260210-1413KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1412KST'),
-    import('/prebim/app_profiles.js?v=20260210-1412KST'),
+    import('/prebim/engine.js?v=20260210-1413KST'),
+    import('/prebim/app_profiles.js?v=20260210-1413KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1512,8 +1512,8 @@ function renderAnalysis(projectId){
 
             <label class="label">Structure type</label>
             <select class="input" id="wStruct">
-              <option value="ENCLOSED" selected>Enclosed structure</option>
-              <option value="OPEN">Open structure</option>
+              <option value="ENCLOSED">Enclosed structure</option>
+              <option value="OPEN" selected>Open structure</option>
             </select>
 
             <label class="label" style="margin-top:8px">Importance factor Iw</label>
@@ -1709,7 +1709,7 @@ function renderAnalysis(projectId){
       host.querySelector('#wStruct')?.addEventListener('change', () => { updateStructUi(true); recalc(); });
       host.querySelectorAll('input,select').forEach(inp => inp.addEventListener('input', recalc));
       host.querySelectorAll('select').forEach(sel => sel.addEventListener('change', recalc));
-      updateStructUi(false);
+      updateStructUi(true);
       recalc();
     };
 
