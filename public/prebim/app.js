@@ -854,14 +854,15 @@ function renderAnalysis(projectId){
     });
 
     const applyConnForSelected = () => {
-      const saved = loadAnalysisSettings(p.id);
-      const selE = String(saved?.selectedMemberEngineId || '');
-      if(!selE) return;
+      const sel = view.getSelection?.() || [];
+      if(!sel.length) return;
       const mi = (document.getElementById('connI')?.value || 'FIXED').toString();
       const mj = (document.getElementById('connJ')?.value || 'FIXED').toString();
       const cfg = loadConnSettings(p.id);
       cfg.members = cfg.members || {};
-      cfg.members[selE] = { i: mi, j: mj };
+      for(const selE of sel){
+        cfg.members[String(selE)] = { i: mi, j: mj };
+      }
       saveConnSettings(p.id, cfg);
 
       // realtime update markers in 3D
@@ -3733,6 +3734,7 @@ async function createThreeView(container){
           mesh.position.copy(mid);
           mesh.userData.memberId = mem.id;
           mesh.userData.kind = mem.kind;
+          mesh.userData.mid = [mid.x, mid.y, mid.z];
 
           try{
             const e = new THREE.LineSegments(new THREE.EdgesGeometry(geom, 12), new THREE.LineBasicMaterial({ color:0x0b1b3a, transparent:true, opacity:0.22 }));
@@ -3756,6 +3758,7 @@ async function createThreeView(container){
 
           mesh.userData.memberId = mem.id;
           mesh.userData.kind = mem.kind;
+          mesh.userData.mid = [mid.x, mid.y, mid.z];
           group.add(mesh);
         }
       } else {
@@ -3763,6 +3766,7 @@ async function createThreeView(container){
         const line = new THREE.Line(geom, mat);
         line.userData.memberId = mem.id;
         line.userData.kind = mem.kind;
+        line.userData.mid = [mid.x, mid.y, mid.z];
         group.add(line);
       }
     }
@@ -3932,6 +3936,91 @@ async function createThreeView(container){
   }
 
   renderer.domElement.addEventListener('pointerdown', pick);
+
+  // Shift+drag box selection (members). Disabled in braceMode and supportEdit.
+  const selBox = document.createElement('div');
+  selBox.style.position='absolute';
+  selBox.style.border='2px dashed rgba(239,68,68,0.85)';
+  selBox.style.background='rgba(239,68,68,0.06)';
+  selBox.style.pointerEvents='none';
+  selBox.style.display='none';
+  selBox.style.zIndex='40';
+  // insert above canvas
+  container.parentElement?.appendChild(selBox);
+
+  let boxDrag = null;
+  const toLocal = (clientX, clientY) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top, rect };
+  };
+
+  const boxSelect = (x0,y0,x1,y1) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    const minX = Math.min(x0,x1), maxX = Math.max(x0,x1);
+    const minY = Math.min(y0,y1), maxY = Math.max(y0,y1);
+
+    const ids = new Set();
+    const v = new THREE.Vector3();
+    for(const obj of group.children){
+      const mid = obj.userData?.mid;
+      if(!mid) continue;
+      v.set(mid[0], mid[1], mid[2]);
+      v.project(camera);
+      const sx = (v.x*0.5+0.5) * rect.width;
+      const sy = (-v.y*0.5+0.5) * rect.height;
+      if(sx>=minX && sx<=maxX && sy>=minY && sy<=maxY){
+        const id = obj.userData?.memberId;
+        if(id) ids.add(String(id));
+      }
+    }
+    setSelection(Array.from(ids));
+  };
+
+  const onBoxDown = (ev) => {
+    if(ev.button !== 0) return;
+    if(!ev.shiftKey) return;
+    if(supportEdit) return;
+    if(braceMode) return;
+    if(!memberPickEnabled) return;
+    ev.preventDefault();
+
+    const p = toLocal(ev.clientX, ev.clientY);
+    boxDrag = { x0:p.x, y0:p.y, rect:p.rect };
+    selBox.style.left = `${p.rect.left + p.x}px`;
+    selBox.style.top = `${p.rect.top + p.y}px`;
+    selBox.style.width = '0px';
+    selBox.style.height = '0px';
+    selBox.style.display = 'block';
+  };
+
+  const onBoxMove = (ev) => {
+    if(!boxDrag) return;
+    const p = toLocal(ev.clientX, ev.clientY);
+    const minX = Math.min(boxDrag.x0, p.x);
+    const minY = Math.min(boxDrag.y0, p.y);
+    const w = Math.abs(p.x - boxDrag.x0);
+    const h = Math.abs(p.y - boxDrag.y0);
+    selBox.style.left = `${p.rect.left + minX}px`;
+    selBox.style.top = `${p.rect.top + minY}px`;
+    selBox.style.width = `${w}px`;
+    selBox.style.height = `${h}px`;
+  };
+
+  const onBoxUp = (ev) => {
+    if(!boxDrag) return;
+    const p = toLocal(ev.clientX, ev.clientY);
+    selBox.style.display='none';
+    const dx = Math.abs(p.x - boxDrag.x0);
+    const dy = Math.abs(p.y - boxDrag.y0);
+    if(dx>6 && dy>6){
+      boxSelect(boxDrag.x0, boxDrag.y0, p.x, p.y);
+    }
+    boxDrag = null;
+  };
+
+  renderer.domElement.addEventListener('pointerdown', onBoxDown, { capture:true });
+  window.addEventListener('pointermove', onBoxMove);
+  window.addEventListener('pointerup', onBoxUp);
 
   let raf = 0;
   const animate = () => {
