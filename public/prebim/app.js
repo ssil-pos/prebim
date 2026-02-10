@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1433KST';
+const BUILD = '20260210-1435KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1433KST'),
-    import('/prebim/app_profiles.js?v=20260210-1433KST'),
+    import('/prebim/engine.js?v=20260210-1435KST'),
+    import('/prebim/app_profiles.js?v=20260210-1435KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -2142,6 +2142,43 @@ function renderAnalysis(projectId){
             payloadSend.combos = [{ name: String(comboMode), factors: { D:1.0, L:1.0 } }];
           }
         }
+
+        // Pre-flight validation to catch common singular causes client-side.
+        try{
+          const issues = [];
+          const nmap = new Map((payloadSend.nodes||[]).map(n => [String(n.id), n]));
+          const zeroLen = [];
+          const missing = [];
+          for(const m0 of (payloadSend.members||[])){
+            const ni = nmap.get(String(m0.i));
+            const nj = nmap.get(String(m0.j));
+            if(!ni || !nj){ missing.push(String(m0.id)); continue; }
+            const dx = (nj.x-ni.x), dy=(nj.y-ni.y), dz=(nj.z-ni.z);
+            const L = Math.hypot(dx,dy,dz);
+            if(!(L>1e-6)) zeroLen.push(String(m0.id));
+            if(!(Number(m0.A)>0)) issues.push(`member ${m0.id}: A<=0`);
+            if(!(Number(m0.E)>0)) issues.push(`member ${m0.id}: E<=0`);
+          }
+          if(missing.length) issues.push(`members with missing nodes: ${missing.slice(0,20).join(', ')}${missing.length>20?'…':''}`);
+          if(zeroLen.length) issues.push(`zero-length members: ${zeroLen.slice(0,20).join(', ')}${zeroLen.length>20?'…':''}`);
+          const supN = (payloadSend.supports||[]).length;
+          if(supN < 2) issues.push(`supports too few: ${supN}`);
+          if(issues.length){
+            setStatus('failed');
+            showRunHelp(`
+              <div class="card" style="margin-top:10px; padding:10px; border-color: rgba(239,68,68,0.25)">
+                <b style="display:block; margin-bottom:6px">Model validation failed</b>
+                <div class="note" style="margin-top:0">Fix these before running analysis (prevents singular errors).</div>
+                <ul style="margin:6px 0 0 18px; padding:0">
+                  ${issues.map(s=>`<li class=\"mono\" style=\"font-size:12px\">${escapeHtml(s)}</li>`).join('')}
+                </ul>
+              </div>
+            `);
+            alert(issues[0]);
+            return;
+          }
+        }catch{}
+
         setStatus('calling solver…');
 
         const r = await fetch('/prebim/api/analyze', {
