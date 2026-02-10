@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0805KST';
+const BUILD = '20260211-0810KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0805KST'),
-    import('/prebim/app_profiles.js?v=20260211-0805KST'),
+    import('/prebim/engine.js?v=20260211-0810KST'),
+    import('/prebim/app_profiles.js?v=20260211-0810KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -5293,7 +5293,6 @@ async function createThreeView(container){
           mesh.quaternion.copy(quat);
 
           // Apply column strong-axis rotation (real-time 3D orientation)
-          // Note: for near-square H sections the rotation is subtle; we also add a small "web mark".
           try{
             if(mem.kind === 'column'){
               const ax = String(model?.profiles?.colStrongAxis || 'AUTO').toUpperCase();
@@ -5303,8 +5302,24 @@ async function createThreeView(container){
                 mesh.quaternion.premultiply(qrot);
               }
 
-              // Visual mark to show orientation clearly (even if section is square-ish)
-              // (removed) orientation mark; use section rotation itself for visualization
+              // If the section is symmetric, rotation can be visually ambiguous.
+              // Add a thin "web indicator plate" (acts like part of the section) so rotation is visible.
+              try{
+                const dims = sectionDimsMmFromProfileName(memberProfileNameLocal('column', mem?.id||mem?.name||'', mem) || '');
+                if(dims && (dims.shape==='H' || dims.shape==='I') && dims.tw>0 && dims.d>0){
+                  const tw = (dims.tw/1000);
+                  const d = (dims.d/1000);
+                  const tf = (dims.tf/1000);
+                  const webH = Math.max(0.05, d - 2*tf);
+                  const plate = new THREE.BoxGeometry(Math.max(0.01, tw*1.2), Math.max(0.05, len*0.85), Math.max(0.01, webH*0.08));
+                  // place at section center, slightly offset in local Z so it catches light
+                  plate.translate(0, 0, 0.001);
+                  const pm = new THREE.MeshBasicMaterial({ color:0x0b1b3a, transparent:true, opacity:0.20, depthTest:true });
+                  const pmesh = new THREE.Mesh(plate, pm);
+                  pmesh.renderOrder = 2;
+                  mesh.add(pmesh);
+                }
+              }catch{}
             }
           }catch{}
 
@@ -5927,7 +5942,7 @@ async function createThreeView(container){
     const geomRing = new THREE.TorusGeometry(r, t, 10, 24);
     const geomFix = new THREE.BoxGeometry(r*1.6, r*1.6, r*1.6);
 
-    const defaultModeByKind = { column:'FIXED', beamX:'PIN', beamY:'PIN', subBeam:'PIN', brace:'PIN', joist:'PIN' };
+    const defaultModeByKind = { column:'FIXED', beamX:'FIXED', beamY:'FIXED', subBeam:'FIXED', brace:'PIN', joist:'PIN' };
 
     const addMark = (pt, mode, axisDir, sgn=+1, L=1) => {
       const m = String(mode||'FIXED').toUpperCase();
