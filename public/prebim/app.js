@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0736KST';
+const BUILD = '20260211-0740KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0736KST'),
-    import('/prebim/app_profiles.js?v=20260211-0736KST'),
+    import('/prebim/engine.js?v=20260211-0740KST'),
+    import('/prebim/app_profiles.js?v=20260211-0740KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -4779,6 +4779,9 @@ async function createThreeView(container){
   // 3D guide lines (grid outline + level outlines)
   const guideGroup = new THREE.Group();
   scene.add(guideGroup);
+  // column strong-axis markers (shown with Guides)
+  const colAxisGroup = new THREE.Group();
+  guideGroup.add(colAxisGroup);
   let guidesOn = true;
   guideGroup.visible = guidesOn;
   const guideMat = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.55 });
@@ -5272,6 +5275,28 @@ async function createThreeView(container){
       for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
       const xMax = xs[xs.length-1] || 1;
       const zMax = zs[zs.length-1] || 1;
+
+      // Column strong-axis markers (H-beam). Draw a short arrow at top of each column.
+      try{
+        while(colAxisGroup.children.length) colAxisGroup.remove(colAxisGroup.children[0]);
+        const ax = String(model?.profiles?.colStrongAxis || 'AUTO').toUpperCase();
+        const dir = new THREE.Vector3((ax==='Z') ? 0 : 1, 0, (ax==='Z') ? 1 : 0);
+        const len = Math.max(0.8, Math.min(1.6, Math.min(xMax||1, zMax||1) * 0.18));
+        const col = 0xf97316; // orange
+        const headLen = len * 0.30;
+        const headW = len * 0.18;
+        for(const mem of (members||[])){
+          if(mem?.kind !== 'column') continue;
+          const a = mem?.a, b = mem?.b;
+          if(!a || !b) continue;
+          const top = (a[1] >= b[1]) ? a : b;
+          const org = new THREE.Vector3(top[0], top[1] + 0.08, top[2]);
+          const ah = new THREE.ArrowHelper(dir.clone().normalize(), org, len, col, headLen, headW);
+          colAxisGroup.add(ah);
+        }
+        // Tie visibility to Guides
+        colAxisGroup.visible = guidesOn;
+      }catch{}
 
       const offset = 2.5; // meters (≈ 2500mm)
 
