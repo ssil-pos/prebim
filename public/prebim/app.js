@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0815KST';
+const BUILD = '20260211-0822KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0815KST'),
-    import('/prebim/app_profiles.js?v=20260211-0815KST'),
+    import('/prebim/engine.js?v=20260211-0822KST'),
+    import('/prebim/app_profiles.js?v=20260211-0822KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -371,6 +371,20 @@ function saveConnSettings(projectId, patch){
   }catch{ return null; }
 }
 
+function defaultConnModeByKind(model){
+  // Keep this in ONE place so 3D markers and analysis payload always match.
+  // Default: all non-brace members FIXED (moment frame), braces PIN.
+  // Base supports are controlled separately via supportMode.
+  return {
+    column: 'FIXED',
+    beamX: 'FIXED',
+    beamY: 'FIXED',
+    subBeam: 'FIXED',
+    brace: 'PIN',
+    joist: 'PIN',
+  };
+}
+
 function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=null, extraLoads=null){
   const windStoryX = Array.isArray(extraLoads?.windStoryX) ? extraLoads.windStoryX : null;
   const windStoryZ = Array.isArray(extraLoads?.windStoryZ) ? extraLoads.windStoryZ : null;
@@ -573,14 +587,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 
   const nodes = jointList.map(j => ({ id: j.id, x: j.pt[0], y: j.pt[1], z: j.pt[2] }));
   const conn = connCfg || {};
-  const defaultModeByKind = {
-    column: 'FIXED',
-    beamX: 'FIXED',
-    beamY: 'FIXED',
-    subBeam: 'FIXED',
-    brace: 'PIN',
-    joist: 'PIN',
-  };
+  const defaultModeByKind = defaultConnModeByKind(m);
 
   // Stability assist:
   // Braced frames in reality rely on floor diaphragm + collector action.
@@ -911,6 +918,11 @@ function renderAnalysis(projectId){
                 <option value="D">D (single)</option>
               </select>
 
+              <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+                <input id="autoKds" type="checkbox" style="margin:0" />
+                <span>Auto compute Wind/Seismic (KDS) on Run (when X/Z are 0)</span>
+              </label>
+
               <label class="label">Live load preset</label>
               <select class="input" id="livePreset">
                 <option value="3.0" selected>Hall / HVAC room (3.0 kN/m²)</option>
@@ -1138,6 +1150,10 @@ function renderAnalysis(projectId){
     // rigid diaphragm: default OFF; restore only if explicitly saved true
     const rd = document.getElementById('rigidDia');
     if(rd) rd.checked = (saved.rigidDia === true);
+
+    // auto KDS on run: default OFF
+    const ak = document.getElementById('autoKds');
+    if(ak) ak.checked = (saved.autoKds === true);
 
     // restore panel widths (shared CSS vars)
     try{
@@ -2242,6 +2258,7 @@ function renderAnalysis(projectId){
         const comboMode = (document.getElementById('comboMode')?.value || 'ENVELOPE').toString();
         const supportNodesVal = (document.getElementById('supportNodes')?.value || '').toString();
         const rigidDia = (document.getElementById('rigidDia')?.checked !== false);
+        const autoKds = (document.getElementById('autoKds')?.checked === true);
         const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
         const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
 
@@ -2256,6 +2273,7 @@ function renderAnalysis(projectId){
           livePreset, checks,
           supportNodes: supportNodesVal,
           rigidDia,
+          autoKds,
           analysisScale,
         });
 
@@ -2338,6 +2356,21 @@ function renderAnalysis(projectId){
             alert(issues[0]);
             return;
           }
+        }catch{}
+
+        // Show a quick summary of connection releases that will be sent to the solver
+        try{
+          const sum = { FIXED:0, PIN:0, OTHER:0, TRUSS:0 };
+          for(const mm of (payloadSend.members||[])){
+            if(String(mm.type)==='truss'){ sum.TRUSS++; continue; }
+            const rel = mm.releases || {};
+            const fixed = (!rel.Ryi && !rel.Rzi && !rel.Ryj && !rel.Rzj);
+            const pinish = (!!rel.Ryi || !!rel.Rzi || !!rel.Ryj || !!rel.Rzj);
+            if(fixed) sum.FIXED++;
+            else if(pinish) sum.PIN++;
+            else sum.OTHER++;
+          }
+          showRunHelp(`<div class="note" style="margin-top:10px">Releases sent → FIXED:${sum.FIXED} · PIN-ish:${sum.PIN} · OTHER:${sum.OTHER} · TRUSS:${sum.TRUSS}</div>`);
         }catch{}
 
         setStatus('calling solver…');
@@ -5942,7 +5975,7 @@ async function createThreeView(container){
     const geomRing = new THREE.TorusGeometry(r, t, 10, 24);
     const geomFix = new THREE.BoxGeometry(r*1.6, r*1.6, r*1.6);
 
-    const defaultModeByKind = { column:'FIXED', beamX:'FIXED', beamY:'FIXED', subBeam:'FIXED', brace:'PIN', joist:'PIN' };
+    const defaultModeByKind = defaultConnModeByKind(null);
 
     const addMark = (pt, mode, axisDir, sgn=+1, L=1) => {
       const m = String(mode||'FIXED').toUpperCase();
