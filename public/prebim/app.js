@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0753KST';
+const BUILD = '20260211-0759KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0753KST'),
-    import('/prebim/app_profiles.js?v=20260211-0753KST'),
+    import('/prebim/engine.js?v=20260211-0759KST'),
+    import('/prebim/app_profiles.js?v=20260211-0759KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1431,7 +1431,7 @@ function renderAnalysis(projectId){
 
         <div class="note" style="margin-top:10px"><b>Members (summary)</b> <span class="mono" style="opacity:.65">(showing ${top.length}/${rows.length})</span></div>
         <div style="overflow:auto; margin-top:6px; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
-          <table class="table" style="min-width:720px">
+          <table class="table" style="min-width:560px">
             <thead><tr>
               <th>id</th>
               <th>kind</th>
@@ -1439,6 +1439,7 @@ function renderAnalysis(projectId){
               <th class="r">disp</th>
               <th class="r">allow</th>
               <th class="r">util</th>
+              <th>detail</th>
             </tr></thead>
             <tbody>
               ${top.map(r => `
@@ -1507,6 +1508,7 @@ function renderAnalysis(projectId){
                       <td class="r mono">${dispMm.toFixed(3)} mm</td>
                       <td class="r mono">${allowMm>0 ? allowMm.toFixed(3)+' mm' : '-'}</td>
                       <td class="r mono">${util.toFixed(3)}</td>
+                      <td><button class="btn smallbtn" type="button" data-detail="${escapeHtml(String(aid))}">Detail</button></td>
                     `;
                   })()}
                 </tr>
@@ -1521,7 +1523,23 @@ function renderAnalysis(projectId){
       host.querySelectorAll('.analysis-mem').forEach(tr => {
         const util = Number(tr.getAttribute('data-util')||'0')||0;
         if(util > 1.0 + 1e-9) tr.classList.add('fail');
-        tr.addEventListener('click', () => {
+
+        // Row click selects in 3D
+        tr.addEventListener('click', (ev) => {
+          // If user clicked the detail button, handle below.
+          const btn = ev.target?.closest?.('button[data-detail]');
+          if(btn) return;
+          const aid = tr.getAttribute('data-mem');
+          if(!aid) return;
+          const eid = engineIdByAnalysisId[String(aid)] || '';
+          if(eid) view.setSelection?.([eid]);
+          saveAnalysisSettings(p.id, { selectedMemberEngineId: String(eid) });
+          highlightMemberRow(String(aid));
+          renderMemberDetail(String(aid));
+        });
+
+        tr.querySelector('button[data-detail]')?.addEventListener('click', (ev) => {
+          ev.stopPropagation();
           const aid = tr.getAttribute('data-mem');
           if(!aid) return;
           const eid = engineIdByAnalysisId[String(aid)] || '';
@@ -4604,7 +4622,7 @@ function renderEditor(projectId){
     ['optSub','subCount','optBrace','braceType','braceShape','braceSize'].forEach(id => wireRealtime(id, 'change'));
 
     // profiles
-    ['stdAll','colShape','colSize','beamShape','beamSize','subShape','subSize'].forEach(id => wireRealtime(id, 'change'));
+    ['stdAll','colShape','colSize','colStrongAxis','beamShape','beamSize','subShape','subSize'].forEach(id => wireRealtime(id, 'change'));
 
     // mirror subSizeMirror whenever subSize changes
     document.getElementById('subSize')?.addEventListener('change', () => {
