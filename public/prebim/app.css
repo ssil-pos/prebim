@@ -444,8 +444,13 @@ svg.prebim2d text{font-family: ui-sans-serif, system-ui; fill: rgba(11,27,58,0.6
 
 /* Analysis results table */
 .table tr.analysis-mem:hover{background: rgba(56,189,248,0.10);}
-.table tr.analysis-mem.sel{background: rgba(250,204,21,0.22);}
-.table tr.analysis-mem.sel td{border-left: 3px solid rgba(250,204,21,0.80);}
-.table tr.analysis-mem.fail{background: rgba(220,38,38,0.18);}
-.table tr.analysis-mem.fail:hover{background: rgba(220,38,38,0.26);}
-.table tr.analysis-mem.fail td{border-left: 3px solid rgba(220,38,38,0.80);}
+.table tr.analysis-mem.sel{background: rgba(255,242,0,0.35) !important;}
+.table tr.analysis-mem.sel:hover{background: rgba(255,242,0,0.45) !important;}
+.table tr.analysis-mem.sel td{border-left: 6px solid rgba(255,242,0,1.0) !important;}
+.table tr.analysis-mem.fail{background: rgba(255,0,0,0.22);}
+.table tr.analysis-mem.fail:hover{background: rgba(255,0,0,0.30);}
+.table tr.analysis-mem.fail td{border-left: 6px solid rgba(255,0,0,0.95);}
+
+/* allow toggling FAIL highlight */
+body.failhl-off .table tr.analysis-mem.fail{background: transparent;}
+body.failhl-off .table tr.analysis-mem.fail td{border-left: none;}

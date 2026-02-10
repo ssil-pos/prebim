@@ -756,6 +756,10 @@ function renderAnalysis(projectId){
             <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">L/</span>
             <input class="input" id="deflRatio" value="300" style="max-width:110px" />
           </div>
+          <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+            <input id="failHighlight" type="checkbox" style="margin:0" checked />
+            <span>Show FAIL highlight</span>
+          </label>
 
           <label class="label">Deformation scale</label>
           <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
@@ -783,6 +787,8 @@ function renderAnalysis(projectId){
     setIf('supportNodes', saved.supportNodes);
     setIf('analysisScale2', saved.analysisScale);
     setIf('deflRatio', saved.deflRatio || 300);
+    const fh = document.getElementById('failHighlight');
+    if(fh) fh.checked = (saved.failHighlightOn !== false);
     // always default editSupports OFF unless explicitly saved
     const es = document.getElementById('editSupports');
     if(es) es.checked = !!saved.editSupports;
@@ -1268,12 +1274,25 @@ function renderAnalysis(projectId){
       const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
       const editSupports = !!document.getElementById('editSupports')?.checked;
       const deflRatio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
-      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, deflRatio, ...patch });
+      const failHighlightOn = (document.getElementById('failHighlight')?.checked !== false);
+      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, deflRatio, failHighlightOn, ...patch });
     };
     ['supportMode','comboMode','qLive','supportNodes','deflRatio'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => persist());
       document.getElementById(id)?.addEventListener('input', () => persist());
     });
+    document.getElementById('failHighlight')?.addEventListener('change', () => {
+      const on = document.getElementById('failHighlight')?.checked !== false;
+      try{ view.setFailHighlightEnabled?.(on); }catch{}
+      document.body.classList.toggle('failhl-off', !on);
+      persist();
+    });
+    // apply initial state
+    try{
+      const on = document.getElementById('failHighlight')?.checked !== false;
+      view.setFailHighlightEnabled?.(on);
+      document.body.classList.toggle('failhl-off', !on);
+    }catch{}
 
     document.getElementById('analysisScale2')?.addEventListener('input', (ev) => {
       const v = Number(ev.target?.value || 120);
@@ -4431,11 +4450,13 @@ async function createThreeView(container){
         ch.material = baseMat.clone();
         if('emissive' in ch.material){
           if(sel){
-            ch.material.emissive = new THREE.Color(0xfacc15);
-            ch.material.emissiveIntensity = 1.20;
+            ch.material.emissive = new THREE.Color(0xffff00);
+            ch.material.emissiveIntensity = 2.2;
+            if('color' in ch.material) ch.material.color = new THREE.Color(0xfff200);
           } else if(failHighlightOn && failSet.has(String(ch.userData.memberId))){
-            ch.material.emissive = new THREE.Color(0xdc2626);
-            ch.material.emissiveIntensity = 1.25;
+            ch.material.emissive = new THREE.Color(0xff0000);
+            ch.material.emissiveIntensity = 2.0;
+            if('color' in ch.material) ch.material.color = new THREE.Color(0xff3b3b);
           } else {
             ch.material.emissive = new THREE.Color(0x000000);
             ch.material.emissiveIntensity = 0;
