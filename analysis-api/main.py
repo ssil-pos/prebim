@@ -123,6 +123,9 @@ class MemberResultOut(BaseModel):
     i: MemberEndForcesOut
     j: MemberEndForcesOut
     maxAbs: MemberMaxOut
+    dyMin: float = 0.0
+    dyMax: float = 0.0
+    dyAbsMax: float = 0.0
 
 
 class AnalyzeResponse(BaseModel):
@@ -273,11 +276,25 @@ def analyze(req: AnalyzeRequest):
                     except Exception:
                         continue
 
+            # deflection extremes (global dy)
+            dy_min = 0.0
+            dy_max = 0.0
+            dy_abs = 0.0
+            try:
+                dy_min = float(mem.min_deflection('dy', COMBO))
+                dy_max = float(mem.max_deflection('dy', COMBO))
+                dy_abs = max(abs(dy_min), abs(dy_max))
+            except Exception:
+                pass
+
             out_members[mem_in.id] = MemberResultOut(
                 id=mem_in.id,
                 i=i_end,
                 j=j_end,
                 maxAbs=MemberMaxOut(N=Nmax, Vy=Vymax, Vz=Vzmax, T=Tmax, My=Mymax, Mz=Mzmax),
+                dyMin=dy_min,
+                dyMax=dy_max,
+                dyAbsMax=dy_abs,
             )
 
         return AnalyzeResponse(ok=True, combo=COMBO, nodes=out_nodes, maxDisp=MaxDispOut(nodeId=max_node or '', value=max_mag), members=out_members)

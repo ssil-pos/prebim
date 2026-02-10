@@ -882,6 +882,7 @@ function renderAnalysis(projectId){
     };
 
     let lastRes = null;
+    let lastPayload = null;
     // Map between engine member ids (used by 3D view selection) and analysis member ids (used by API/results)
     let analysisIdByEngineId = {};
     let engineIdByAnalysisId = {};
@@ -940,27 +941,44 @@ function renderAnalysis(projectId){
 
     const checkDeflection = (res, payload) => {
       const ratio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
-      // choose max horizontal span length as L
-      let Lmax = 0;
-      for(const mem of (payload?.members||[])){
-        const ni = payload.nodes.find(n=>String(n.id)===String(mem.i));
-        const nj = payload.nodes.find(n=>String(n.id)===String(mem.j));
-        if(!ni||!nj) continue;
-        const dx = ni.x-nj.x, dz=ni.z-nj.z;
-        const Lh = Math.hypot(dx,dz);
-        Lmax = Math.max(Lmax, Lh);
-      }
-      const allow = (Lmax>0) ? (Lmax/ratio) : 0;
+      const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
 
-      // use max vertical node displacement magnitude as proxy
-      let maxDy=0;
-      let maxNode='';
-      for(const [nid, d] of Object.entries(res?.nodes||{})){
-        const dy = Math.abs(Number(d?.dy)||0);
-        if(dy>maxDy){ maxDy=dy; maxNode=nid; }
+      let worst = { ok:true, util:0, memberId:'', L:0, allow:0, dy:0 };
+      for(const mem of (payload?.members||[])){
+        const mr = res?.members?.[String(mem.id)];
+        if(!mr) continue;
+
+        // use horizontal span for beams (plan length)
+        const ni = nodeById.get(String(mem.i));
+        const nj = nodeById.get(String(mem.j));
+        if(!ni || !nj) continue;
+        const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
+        if(L <= 1e-9) continue;
+        const allow = L / ratio;
+        const dy = Math.abs(Number(mr.dyAbsMax)||0);
+        const util = allow>0 ? (dy/allow) : 0;
+        const ok = util <= 1.0 + 1e-12;
+        if(util > worst.util){
+          worst = { ok, util, memberId: String(mem.id), L, allow, dy };
+        }
       }
-      const ok = (allow<=0) ? true : (maxDy <= allow);
-      return { ratio, Lmax, allow, maxDy, maxNode, ok };
+
+      return { ratio, worst };
+    };
+
+    const memberAllow = (analysisMemberId) => {
+      try{
+        const ratio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
+        const mem = lastPayload?.members?.find(m => String(m.id)===String(analysisMemberId));
+        if(!mem) return null;
+        const nodeById = new Map((lastPayload?.nodes||[]).map(n => [String(n.id), n]));
+        const ni = nodeById.get(String(mem.i));
+        const nj = nodeById.get(String(mem.j));
+        if(!ni || !nj) return null;
+        const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
+        if(L<=1e-9) return null;
+        return { L, allow: L/ratio, ratio };
+      }catch{ return null; }
     };
 
     const renderResultsTable = (res) => {
@@ -993,6 +1011,8 @@ function renderAnalysis(projectId){
               <th class="r">|Vz|</th>
               <th class="r">|My|</th>
               <th class="r">|Mz|</th>
+              <th class="r">|dy|max</th>
+              <th class="r">L/allow</th>
             </tr></thead>
             <tbody>
               ${top.map(r => `
@@ -1003,6 +1023,11 @@ function renderAnalysis(projectId){
                   <td class="r mono">${(Number(r?.maxAbs?.Vz)||0).toFixed(3)}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.My)||0).toFixed(3)}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.Mz)||0).toFixed(3)}</td>
+                  <td class="r mono">${(Number(r?.dyAbsMax)||0).toFixed(6)}</td>
+                  <td class="r mono">${(() => {
+                    const a = memberAllow(r.id);
+                    return a?.allow ? `L/${a.ratio}` : '-';
+                  })()}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1053,6 +1078,7 @@ function renderAnalysis(projectId){
 
         const connCfg = loadConnSettings(p.id);
         const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg);
+        lastPayload = payload;
         // update id maps (engine <-> analysis)
         try{
           analysisIdByEngineId = {};
@@ -1111,9 +1137,16 @@ function renderAnalysis(projectId){
           const chk = checkDeflection(res, payload);
           const el = document.getElementById('analysisHudState');
           if(el){
-            el.textContent = chk.ok ? `PASS · max |dy| ${chk.maxDy.toFixed(6)} ≤ L/${chk.ratio} (${chk.allow.toFixed(6)} m)`
-                                 : `FAIL · max |dy| ${chk.maxDy.toFixed(6)} > L/${chk.ratio} (${chk.allow.toFixed(6)} m)`;
-            el.style.color = chk.ok ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)';
+            const w = chk.worst;
+            const ok = !!w.ok;
+            el.textContent = ok
+              ? `PASS · defl ${w.dy.toFixed(6)} ≤ L/${chk.ratio} (${w.allow.toFixed(6)} m) · mem ${w.memberId}`
+              : `FAIL · defl ${w.dy.toFixed(6)} > L/${chk.ratio} (${w.allow.toFixed(6)} m) · mem ${w.memberId}`;
+            el.style.color = ok ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)';
+          }
+          // auto-highlight worst member (doesn't override user selection if any)
+          if(!loadAnalysisSettings(p.id)?.selectedMemberEngineId && chk.worst?.memberId){
+            highlightMemberRow(chk.worst.memberId);
           }
         }catch{}
 
