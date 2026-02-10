@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1449KST';
+const BUILD = '20260210-1458KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1449KST'),
-    import('/prebim/app_profiles.js?v=20260210-1449KST'),
+    import('/prebim/engine.js?v=20260210-1458KST'),
+    import('/prebim/app_profiles.js?v=20260210-1458KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -827,6 +827,12 @@ function renderAnalysis(projectId){
                 <input id="editSupports" type="checkbox" style="margin:0" />
                 <span>Edit supports (click base nodes in 3D)</span>
               </label>
+
+              <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+                <input id="rigidDia" type="checkbox" style="margin:0" checked />
+                <span>Rigid diaphragm per level (ties floor nodes in X/Z)</span>
+              </label>
+              <div class="note" style="margin-top:6px">Recommended for stable 3D behavior (like slab/deck diaphragm).</div>
 
               <div class="row" style="margin-top:8px; gap:8px">
                 <button class="btn" id="btnSupportsAuto" type="button">Auto</button>
@@ -2041,6 +2047,7 @@ function renderAnalysis(projectId){
           eqStoryX: lateralStory.eqStoryX,
           eqStoryZ: lateralStory.eqStoryZ,
           designMethod,
+          rigidDia: (document.getElementById('rigidDia')?.checked !== false),
         });
         const combos = payload?.combos || [];
         const html = `
@@ -2083,6 +2090,7 @@ function renderAnalysis(projectId){
         const designMethod = (document.getElementById('designMethod')?.value || 'STRENGTH').toString();
         const comboMode = (document.getElementById('comboMode')?.value || 'ENVELOPE').toString();
         const supportNodesVal = (document.getElementById('supportNodes')?.value || '').toString();
+        const rigidDia = (document.getElementById('rigidDia')?.checked !== false);
         const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
         const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
 
@@ -2096,6 +2104,7 @@ function renderAnalysis(projectId){
           eqStoryZ: lateralStory.eqStoryZ,
           livePreset, checks,
           supportNodes: supportNodesVal,
+          rigidDia,
           analysisScale,
         });
 
@@ -2107,6 +2116,7 @@ function renderAnalysis(projectId){
           eqStoryX: lateralStory.eqStoryX,
           eqStoryZ: lateralStory.eqStoryZ,
           designMethod,
+          rigidDia,
         });
         // Keep helper fields (_engineIds/_kinds/_connModes) locally for UI computations.
         lastPayload = payload;
@@ -2328,6 +2338,7 @@ function renderAnalysis(projectId){
       const supportNodes = (document.getElementById('supportNodes')?.value || '').toString();
       const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
       const editSupports = !!document.getElementById('editSupports')?.checked;
+      const rigidDia = (document.getElementById('rigidDia')?.checked !== false);
       const deflMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
       const deflSub = Number(document.getElementById('deflSub')?.value || 300) || 300;
       const driftX = Number(document.getElementById('driftX')?.value || 200) || 200;
@@ -2335,9 +2346,9 @@ function renderAnalysis(projectId){
       const colTop = Number(document.getElementById('colTop')?.value || 200) || 200;
       const failHighlightOn = (document.getElementById('failHighlight')?.checked !== false);
       const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
-      saveAnalysisSettings(p.id, { supportMode, designMethod, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, supportNodes, analysisScale, editSupports, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, checks, ...patch });
+      saveAnalysisSettings(p.id, { supportMode, designMethod, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, supportNodes, analysisScale, editSupports, rigidDia, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, checks, ...patch });
     };
-    ['supportMode','designMethod','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
+    ['supportMode','designMethod','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','rigidDia','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => persist());
       document.getElementById(id)?.addEventListener('input', () => persist());
     });
