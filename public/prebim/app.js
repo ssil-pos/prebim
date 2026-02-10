@@ -3890,21 +3890,10 @@ async function createThreeView(container){
     selectRay.setFromCamera(pointer, camera);
     const hits = selectRay.intersectObjects(group.children, false);
     if(!hits.length){
-      // click empty clears
+      // click empty clears selection but keep FAIL highlighting
       selected.clear();
-      // visual highlight reset
-      group.children.forEach(ch => {
-        const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
-        if(ch.material && ch.material.isMaterial){
-          ch.material = baseMat.clone();
-          if('emissive' in ch.material){
-            ch.material.emissive = new THREE.Color(0x000000);
-            ch.material.emissiveIntensity = 0;
-          }
-        }
-      });
+      applyHighlight();
       onSel && onSel([]);
-      applyClipping(lastClipModel);
       return;
     }
     const obj = hits[0].object;
@@ -4065,21 +4054,8 @@ async function createThreeView(container){
   function setSelection(ids){
     selected.clear();
     (ids||[]).forEach(id => id && selected.add(id));
-    // update highlight (solid meshes)
-    group.children.forEach(ch => {
-      const sel = selected.has(ch.userData.memberId);
-      const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
-      if(ch.material && ch.material.isMaterial){
-        ch.material = baseMat.clone();
-        if('emissive' in ch.material){
-          ch.material.emissive = new THREE.Color(sel ? 0xef4444 : 0x000000);
-          ch.material.emissiveIntensity = sel ? 0.60 : 0;
-        }
-      }
-    });
+    applyHighlight();
     onSel && onSel(Array.from(selected));
-    // re-apply clipping after any material replacement
-    applyClipping(lastClipModel);
   }
   function clearSelection(){ setSelection([]); }
   let onSel = null;
@@ -4444,8 +4420,10 @@ async function createThreeView(container){
     applyClipping(model);
   }
 
-  function setFailMembers(engineIds = []){
-    const bad = new Set((engineIds||[]).map(String));
+  let failSet = new Set();
+  let failHighlightOn = true;
+
+  function applyHighlight(){
     group.children.forEach(ch => {
       const sel = selected.has(ch.userData.memberId);
       const baseMat = matByKind[ch.userData.kind] || matByKind.beamX;
@@ -4455,7 +4433,7 @@ async function createThreeView(container){
           if(sel){
             ch.material.emissive = new THREE.Color(0xef4444);
             ch.material.emissiveIntensity = 0.60;
-          } else if(bad.has(String(ch.userData.memberId))){
+          } else if(failHighlightOn && failSet.has(String(ch.userData.memberId))){
             ch.material.emissive = new THREE.Color(0xf97316);
             ch.material.emissiveIntensity = 0.75;
           } else {
@@ -4466,6 +4444,16 @@ async function createThreeView(container){
       }
     });
     applyClipping(lastClipModel);
+  }
+
+  function setFailMembers(engineIds = []){
+    failSet = new Set((engineIds||[]).map(String));
+    applyHighlight();
+  }
+
+  function setFailHighlightEnabled(on){
+    failHighlightOn = !!on;
+    applyHighlight();
   }
 
   return {
@@ -4482,6 +4470,7 @@ async function createThreeView(container){
     setConnectionMarkers,
     clearConnMarkers,
     setFailMembers,
+    setFailHighlightEnabled,
     resize: doResize,
     getSelection,
     setSelection,
