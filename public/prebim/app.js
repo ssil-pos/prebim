@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0810KST';
+const BUILD = '20260211-0815KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0810KST'),
-    import('/prebim/app_profiles.js?v=20260211-0810KST'),
+    import('/prebim/engine.js?v=20260211-0815KST'),
+    import('/prebim/app_profiles.js?v=20260211-0815KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1082,14 +1082,14 @@ function renderAnalysis(projectId){
     setIf('driftX', saved.driftX || 200);
     setIf('driftZ', saved.driftZ || 200);
     setIf('colTop', saved.colTop || 200);
-    // Defaults from sample calc report (migrate old saved zeros)
+    // Defaults
+    // - Snow: keep 0.42 as a helpful default (can be edited)
+    // - Wind/Seismic: default to 0. Non-zero defaults can make tiny frames look "NG" due to huge lateral forces.
     const defSnow = 0.42;
-    const defWindX = 190.10;
-    const defEqX = 2911.49;
-    setIf('qSnow', (saved.qSnow!=null && Number(saved.qSnow)!==0 ? saved.qSnow : defSnow));
-    setIf('windX', (saved.windX!=null && Number(saved.windX)!==0 ? saved.windX : defWindX));
+    setIf('qSnow', (saved.qSnow!=null ? saved.qSnow : defSnow));
+    setIf('windX', (saved.windX!=null ? saved.windX : 0));
     setIf('windZ', (saved.windZ!=null ? saved.windZ : 0));
-    setIf('eqX', (saved.eqX!=null && Number(saved.eqX)!==0 ? saved.eqX : defEqX));
+    setIf('eqX', (saved.eqX!=null ? saved.eqX : 0));
     setIf('eqZ', (saved.eqZ!=null ? saved.eqZ : 0));
 
     // Story force arrays (optional). If present, buildAnalysisPayload will apply story-level node loads.
