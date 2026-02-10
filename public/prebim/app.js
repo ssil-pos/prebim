@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1438KST';
+const BUILD = '20260210-1444KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1438KST'),
-    import('/prebim/app_profiles.js?v=20260210-1438KST'),
+    import('/prebim/engine.js?v=20260210-1444KST'),
+    import('/prebim/app_profiles.js?v=20260210-1444KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -2469,6 +2469,21 @@ function renderAnalysis(projectId){
     document.getElementById('editSupports')?.addEventListener('change', applyEditSupports);
     // apply initial state from restored checkbox
     applyEditSupports();
+
+    // ESC to exit modes that disable selection
+    try{
+      if(!window.__prebimEscExit){
+        window.__prebimEscExit = true;
+        window.addEventListener('keydown', (ev) => {
+          if(ev.key !== 'Escape') return;
+          const es = document.getElementById('editSupports');
+          if(es && es.checked){
+            es.checked = false;
+            es.dispatchEvent(new Event('change'));
+          }
+        });
+      }
+    }catch{}
   })();
 }
 
