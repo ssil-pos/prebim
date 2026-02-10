@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1413KST';
+const BUILD = '20260210-1416KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1413KST'),
-    import('/prebim/app_profiles.js?v=20260210-1413KST'),
+    import('/prebim/engine.js?v=20260210-1416KST'),
+    import('/prebim/app_profiles.js?v=20260210-1416KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -858,8 +858,14 @@ function renderAnalysis(projectId){
                 <option value="ASD">ASD (KDS factors)</option>
               </select>
 
-              <label class="label">Combo</label>
-              <select class="input" id="comboMode">
+              <div class="row" style="justify-content:space-between; align-items:flex-end; gap:8px; flex-wrap:wrap">
+                <div>
+                  <label class="label" style="margin:0">Combo</label>
+                  <div class="note" style="margin-top:4px">Preview the generated load combinations/factors for the selected Design method.</div>
+                </div>
+                <button class="btn" id="btnShowCombos" type="button">View combos…</button>
+              </div>
+              <select class="input" id="comboMode" style="margin-top:6px">
                 <option value="ENVELOPE" selected>ENVELOPE (all combos)</option>
                 <option value="D+L">D+L (single)</option>
                 <option value="D">D (single)</option>
@@ -1924,8 +1930,47 @@ function renderAnalysis(projectId){
       recalc();
     };
 
+    const openCombosPreview = () => {
+      try{
+        const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
+        const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
+        const designMethod = (document.getElementById('designMethod')?.value || 'STRENGTH').toString();
+        const qSnow = parseFloat((document.getElementById('qSnow')?.value || '0').toString()) || 0;
+        const windX = parseFloat((document.getElementById('windX')?.value || '0').toString()) || 0;
+        const windZ = parseFloat((document.getElementById('windZ')?.value || '0').toString()) || 0;
+        const eqX = parseFloat((document.getElementById('eqX')?.value || '0').toString()) || 0;
+        const eqZ = parseFloat((document.getElementById('eqZ')?.value || '0').toString()) || 0;
+        const connCfg = loadConnSettings(p.id);
+        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg, {
+          qSnow, windX, windZ, eqX, eqZ,
+          windStoryX: lateralStory.windStoryX,
+          windStoryZ: lateralStory.windStoryZ,
+          eqStoryX: lateralStory.eqStoryX,
+          eqStoryZ: lateralStory.eqStoryZ,
+          designMethod,
+        });
+        const combos = payload?.combos || [];
+        const html = `
+          <div class="note" style="margin-top:0">Design method: <b>${escapeHtml(designMethod)}</b></div>
+          <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; margin-top:10px">
+            <table class="table" style="min-width:520px">
+              <thead><tr><th>Combo</th><th>Factors</th></tr></thead>
+              <tbody>${combos.map(c=>{
+                const f=c.factors||{};
+                const parts=Object.keys(f).map(k=>`${escapeHtml(k)}=${Number(f[k]||0).toFixed(3)}`);
+                return `<tr><td class=\"mono\">${escapeHtml(String(c.name||''))}</td><td class=\"mono\">${escapeHtml(parts.join('  '))}</td></tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
+          <div class="note" style="margin-top:10px">Note: EQZ/WZ combos appear only when Z-direction loads are non-zero (or have story distributions).</div>
+        `;
+        openModal({ title:'Load combinations preview', html, applyText:'Close', onApply: () => {} , w: 760 });
+      }catch(err){ console.warn(err); }
+    };
+
     document.getElementById('btnWindCalc')?.addEventListener('click', openWindKds);
     document.getElementById('btnSeismicCalc')?.addEventListener('click', openSeismicKds);
+    document.getElementById('btnShowCombos')?.addEventListener('click', openCombosPreview);
 
     const run = async () => {
       setStatus('building payload…');
