@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0822KST';
+const BUILD = '20260211-0829KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0822KST'),
-    import('/prebim/app_profiles.js?v=20260211-0822KST'),
+    import('/prebim/engine.js?v=20260211-0829KST'),
+    import('/prebim/app_profiles.js?v=20260211-0829KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1455,6 +1455,7 @@ function renderAnalysis(projectId){
               <th class="r">disp</th>
               <th class="r">allow</th>
               <th class="r">util</th>
+              <th>worstCombo</th>
             </tr></thead>
             <tbody>
               ${top.map(r => `
@@ -1523,6 +1524,7 @@ function renderAnalysis(projectId){
                       <td class="r mono">${dispMm.toFixed(3)} mm</td>
                       <td class="r mono">${allowMm>0 ? allowMm.toFixed(3)+' mm' : '-'}</td>
                       <td class="r mono">${util.toFixed(3)}</td>
+                      <td class="mono" data-worstcombo>…</td>
                     `;
                   })()}
                 </tr>
@@ -2441,6 +2443,115 @@ function renderAnalysis(projectId){
         view.setSupportMarkers?.(payload.supports, payload.nodes, supportMode);
 
         renderResultsTable(res);
+
+        // If ENVELOPE mode: compute worst combo per member (max util) by running each combo once.
+        try{
+          if(String(comboMode).toUpperCase() === 'ENVELOPE' && Array.isArray(payloadSend.combos) && payloadSend.combos.length > 1){
+            (async () => {
+              const comboNames = payloadSend.combos.map(c => String(c.name||'')).filter(Boolean);
+              if(!comboNames.length) return;
+
+              setStatus(`computing worst combos… (0/${comboNames.length})`);
+
+              // build helper: util for a member given a single-combo response
+              const allowCache = new Map();
+              const nmap = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
+              let minY = Infinity, maxY = -Infinity;
+              for(const n of (payload?.nodes||[])){
+                minY = Math.min(minY, Number(n.y)||0);
+                maxY = Math.max(maxY, Number(n.y)||0);
+              }
+              const H = Math.max(0, maxY - minY);
+              const rColTop = Number(document.getElementById('colTop')?.value || 200) || 200;
+
+              const allowFor = (aid) => {
+                if(allowCache.has(aid)) return allowCache.get(aid);
+                const idx = (Number(aid)||0) - 1;
+                const kind = String(payload?._kinds?.[idx] || '');
+                const mem = payload?.members?.find(m => String(m.id)===String(aid));
+                if(!mem){ allowCache.set(aid, null); return null; }
+                if(kind === 'column'){
+                  const allow = (H>1e-9) ? (H / rColTop) : 0;
+                  const out = { kind, allow };
+                  allowCache.set(aid, out);
+                  return out;
+                }
+                const ni = nmap.get(String(mem.i));
+                const nj = nmap.get(String(mem.j));
+                if(!ni || !nj){ allowCache.set(aid, null); return null; }
+                const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
+                const ratio = (kind==='subBeam') ? (Number(document.getElementById('deflSub')?.value||300)||300)
+                            : ((kind==='beamX' || kind==='beamY') ? (Number(document.getElementById('deflMain')?.value||300)||300) : null);
+                const allow = (L>1e-9 && ratio) ? (L/ratio) : 0;
+                const out = { kind, allow };
+                allowCache.set(aid, out);
+                return out;
+              };
+
+              const utilFor = (aid, res1) => {
+                const a = allowFor(aid);
+                if(!a || !(a.allow>0)) return 0;
+                const idx = (Number(aid)||0) - 1;
+                const kind = String(payload?._kinds?.[idx] || '');
+                const mem = payload?.members?.find(m => String(m.id)===String(aid));
+                if(!mem) return 0;
+                if(kind === 'column'){
+                  const ni = nmap.get(String(mem.i));
+                  const nj = nmap.get(String(mem.j));
+                  if(!ni || !nj) return 0;
+                  const topNodeId = (Number(ni.y) >= Number(nj.y)) ? String(mem.i) : String(mem.j);
+                  const nd = res1?.nodes?.[topNodeId];
+                  const disp = Math.hypot(Number(nd?.dx||0), Number(nd?.dz||0));
+                  return disp/(a.allow||1e-9);
+                }
+                const mr = res1?.members?.[String(aid)];
+                const dy = Math.abs(Number(mr?.dyAbsMax)||0);
+                return dy/(a.allow||1e-9);
+              };
+
+              const worst = {}; // aid -> { combo, util }
+
+              for(let ci=0; ci<comboNames.length; ci++){
+                const cn = comboNames[ci];
+                setStatus(`computing worst combos… (${ci+1}/${comboNames.length})`);
+
+                const ps = structuredClone(payloadSend);
+                ps.combos = ps.combos.filter(c => String(c.name)===cn);
+                if(!ps.combos.length) continue;
+
+                const rr = await fetch('/prebim/api/analyze', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(ps),
+                });
+                const rj = await rr.json().catch(() => null);
+                if(!rr.ok || !rj || rj.ok !== true) continue;
+
+                // update worst per member
+                for(const m of (payload?.members||[])){
+                  const aid = String(m.id);
+                  const u = utilFor(aid, rj);
+                  const cur = worst[aid];
+                  if(!cur || u > (cur.util||0)) worst[aid] = { combo: cn, util: u };
+                }
+              }
+
+              // Patch UI
+              try{
+                const host = document.getElementById('analysisResults');
+                host?.querySelectorAll?.('.analysis-mem')?.forEach?.(tr => {
+                  const aid = tr.getAttribute('data-mem');
+                  if(!aid) return;
+                  const wc = worst[aid]?.combo || '-';
+                  const el = tr.querySelector('[data-worstcombo]');
+                  if(el) el.textContent = wc;
+                });
+              }catch{}
+
+              setStatus('done');
+            })();
+          }
+        }catch{}
 
         // highlight FAIL members in 3D (deflection util > 1)
         try{
