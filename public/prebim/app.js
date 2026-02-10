@@ -3984,6 +3984,9 @@ async function createThreeView(container){
     if(!memberPickEnabled) return;
     ev.preventDefault();
 
+    // prevent orbit controls while box selecting
+    try{ controls.enabled = false; }catch{}
+
     const p = toLocal(ev.clientX, ev.clientY);
     boxDrag = { x0:p.x, y0:p.y, rect:p.rect };
     selBox.style.left = `${p.rect.left + p.x}px`;
@@ -4016,6 +4019,9 @@ async function createThreeView(container){
       boxSelect(boxDrag.x0, boxDrag.y0, p.x, p.y);
     }
     boxDrag = null;
+
+    // restore orbit controls
+    try{ controls.enabled = true; }catch{}
   };
 
   renderer.domElement.addEventListener('pointerdown', onBoxDown, { capture:true });
