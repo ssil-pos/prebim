@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1348KST';
+const BUILD = '20260210-1352KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1348KST'),
-    import('/prebim/app_profiles.js?v=20260210-1348KST'),
+    import('/prebim/engine.js?v=20260210-1352KST'),
+    import('/prebim/app_profiles.js?v=20260210-1352KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -533,6 +533,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const story1m = (m.levels?.[1] ?? 0)/1000;
   const subCount = m.options?.subBeams?.countPerBay || 0;
   const qSnow = Math.max(0, Number(extraLoads?.qSnow ?? 0) || 0);
+  const designMethod = String(extraLoads?.designMethod || 'STRENGTH').toUpperCase();
 
   for(const mm of memList){
     const mem = mm.mem;
@@ -662,30 +663,37 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   if(Math.abs(eqX)>1e-9) cases.push(caseEQX);
   if(Math.abs(eqZ)>1e-9) cases.push(caseEQZ);
 
-  // Basic combos (extendable)
-  const combos = [
-    { name:'D', factors:{ D:1.0 } },
-    { name:'D+L', factors:{ D:1.0, L:1.0 } },
-  ];
-  if(snowLoads.length){
-    combos.push({ name:'D+S', factors:{ D:1.0, S:1.0 } });
-    combos.push({ name:'D+L+S', factors:{ D:1.0, L:1.0, S:1.0 } });
-  }
-  if(Math.abs(windX)>1e-9){
-    combos.push({ name:'D+WX', factors:{ D:1.0, WX:1.0 } });
-    combos.push({ name:'D+L+WX', factors:{ D:1.0, L:1.0, WX:1.0 } });
-  }
-  if(Math.abs(windZ)>1e-9){
-    combos.push({ name:'D+WZ', factors:{ D:1.0, WZ:1.0 } });
-    combos.push({ name:'D+L+WZ', factors:{ D:1.0, L:1.0, WZ:1.0 } });
-  }
-  if(Math.abs(eqX)>1e-9){
-    combos.push({ name:'D+EQX', factors:{ D:1.0, EQX:1.0 } });
-    combos.push({ name:'D+L+EQX', factors:{ D:1.0, L:1.0, EQX:1.0 } });
-  }
-  if(Math.abs(eqZ)>1e-9){
-    combos.push({ name:'D+EQZ', factors:{ D:1.0, EQZ:1.0 } });
-    combos.push({ name:'D+L+EQZ', factors:{ D:1.0, L:1.0, EQZ:1.0 } });
+  // Combos: hard-coded from sample PDF (simplified mapping to our cases)
+  // Mapping: D ~ (Ds+De+Dp+Pa ...), L ~ LL, S ~ SNOW, WX/WZ ~ WIND, EQX/EQZ ~ EQ
+  const combos = [];
+
+  const hasS = snowLoads.length > 0;
+  const hasWX = Math.abs(windX) > 1e-9;
+  const hasWZ = Math.abs(windZ) > 1e-9;
+  const hasEQX = Math.abs(eqX) > 1e-9;
+  const hasEQZ = Math.abs(eqZ) > 1e-9;
+
+  if(designMethod === 'ASD'){
+    // From PDF ASD table (page 6) - we use the "W" row (not the separate KDS case row) and keep the core combos.
+    combos.push({ name:'D', factors:{ D:1.0 } });
+    combos.push({ name:'D+L', factors:{ D:1.0, L:0.75 } });
+    if(hasS) combos.push({ name:'D+S', factors:{ D:1.0, S:0.75 } });
+    if(hasS) combos.push({ name:'D+L+S', factors:{ D:1.0, L:0.75, S:0.75 } });
+    if(hasWX) combos.push({ name:'D+WX', factors:{ D:0.6, WX:0.45 } });
+    if(hasWZ) combos.push({ name:'D+WZ', factors:{ D:0.6, WZ:0.45 } });
+    if(hasEQX) combos.push({ name:'D+EQX', factors:{ D:0.6, EQX:0.7 } });
+    if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:0.6, EQZ:0.7 } });
+  } else {
+    // Strength table (page 5) - core combos we support.
+    combos.push({ name:'D', factors:{ D:1.4 } });
+    combos.push({ name:'D+L', factors:{ D:1.2, L:1.0 } });
+    if(hasS) combos.push({ name:'D+L+S', factors:{ D:1.2, L:1.0, S:1.6 } });
+    if(hasWX) combos.push({ name:'D+WX', factors:{ D:0.9, WX:1.0 } });
+    if(hasWZ) combos.push({ name:'D+WZ', factors:{ D:0.9, WZ:1.0 } });
+    if(hasEQX) combos.push({ name:'D+EQX', factors:{ D:0.9, EQX:1.0 } });
+    if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:0.9, EQZ:1.0 } });
+    if(hasS && hasWX) combos.push({ name:'D+L+WX+S', factors:{ D:1.2, L:1.6, WX:1.0, S:0.5 } });
+    if(hasS && hasWZ) combos.push({ name:'D+L+WZ+S', factors:{ D:1.2, L:1.6, WZ:1.0, S:0.5 } });
   }
 
   return {
@@ -807,6 +815,12 @@ function renderAnalysis(projectId){
 
             <button class="acc-btn" type="button" data-acc="crit">Criteria <span class="chev" id="chevCrit">▴</span></button>
             <div class="acc-panel open" id="panelCrit">
+              <label class="label">Design method</label>
+              <select class="input" id="designMethod">
+                <option value="STRENGTH" selected>Strength (KDS factors)</option>
+                <option value="ASD">ASD (KDS factors)</option>
+              </select>
+
               <label class="label">Combo</label>
               <select class="input" id="comboMode">
                 <option value="ENVELOPE" selected>ENVELOPE (all combos)</option>
@@ -973,12 +987,19 @@ function renderAnalysis(projectId){
     setIf('driftX', saved.driftX || 200);
     setIf('driftZ', saved.driftZ || 200);
     setIf('colTop', saved.colTop || 200);
-    // Defaults from sample calc report
-    setIf('qSnow', (saved.qSnow!=null? saved.qSnow : 0.42));
-    setIf('windX', (saved.windX!=null? saved.windX : 190.10));
-    setIf('windZ', (saved.windZ!=null? saved.windZ : 0));
-    setIf('eqX', (saved.eqX!=null? saved.eqX : 2911.49));
-    setIf('eqZ', (saved.eqZ!=null? saved.eqZ : 0));
+    // Defaults from sample calc report (migrate old saved zeros)
+    const defSnow = 0.42;
+    const defWindX = 190.10;
+    const defEqX = 2911.49;
+    setIf('qSnow', (saved.qSnow!=null && Number(saved.qSnow)!==0 ? saved.qSnow : defSnow));
+    setIf('windX', (saved.windX!=null && Number(saved.windX)!==0 ? saved.windX : defWindX));
+    setIf('windZ', (saved.windZ!=null ? saved.windZ : 0));
+    setIf('eqX', (saved.eqX!=null && Number(saved.eqX)!==0 ? saved.eqX : defEqX));
+    setIf('eqZ', (saved.eqZ!=null ? saved.eqZ : 0));
+    try{
+      const dm = document.getElementById('designMethod');
+      if(dm && saved.designMethod) dm.value = String(saved.designMethod);
+    }catch{}
     try{
       const cm = document.getElementById('comboMode');
       if(cm && saved.comboMode) cm.value = String(saved.comboMode);
@@ -1342,15 +1363,16 @@ function renderAnalysis(projectId){
         const eqZ = parseFloat((document.getElementById('eqZ')?.value || '0').toString()) || 0;
         const livePreset = (document.getElementById('livePreset')?.value || '3.0').toString();
         const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
+        const designMethod = (document.getElementById('designMethod')?.value || 'STRENGTH').toString();
         const comboMode = (document.getElementById('comboMode')?.value || 'ENVELOPE').toString();
         const supportNodesVal = (document.getElementById('supportNodes')?.value || '').toString();
         const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
         const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
 
-        saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, livePreset, checks, supportNodes: supportNodesVal, analysisScale });
+        saveAnalysisSettings(p.id, { supportMode, designMethod, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, livePreset, checks, supportNodes: supportNodesVal, analysisScale });
 
         const connCfg = loadConnSettings(p.id);
-        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg, { qSnow, windX, windZ, eqX, eqZ });
+        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg, { qSnow, windX, windZ, eqX, eqZ, designMethod });
         // Keep helper fields (_engineIds/_kinds/_connModes) locally for UI computations.
         lastPayload = payload;
         // update id maps (engine <-> analysis)
@@ -1523,6 +1545,7 @@ function renderAnalysis(projectId){
     // persist setting changes
     const persist = (patch={}) => {
       const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
+      const designMethod = (document.getElementById('designMethod')?.value || 'STRENGTH').toString();
       const comboMode = (document.getElementById('comboMode')?.value || 'ENVELOPE').toString();
       const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
       const qSnow = parseFloat((document.getElementById('qSnow')?.value || '0').toString()) || 0;
@@ -1540,9 +1563,9 @@ function renderAnalysis(projectId){
       const colTop = Number(document.getElementById('colTop')?.value || 200) || 200;
       const failHighlightOn = (document.getElementById('failHighlight')?.checked !== false);
       const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
-      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, supportNodes, analysisScale, editSupports, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, checks, ...patch });
+      saveAnalysisSettings(p.id, { supportMode, designMethod, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, supportNodes, analysisScale, editSupports, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, checks, ...patch });
     };
-    ['supportMode','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
+    ['supportMode','designMethod','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => persist());
       document.getElementById(id)?.addEventListener('input', () => persist());
     });
