@@ -3939,14 +3939,15 @@ async function createThreeView(container){
 
   // Shift+drag box selection (members). Disabled in braceMode and supportEdit.
   const selBox = document.createElement('div');
-  selBox.style.position='absolute';
+  // Use fixed positioning so left/top match clientX/clientY regardless of grid offsets
+  selBox.style.position='fixed';
   selBox.style.border='2px dashed rgba(239,68,68,0.85)';
   selBox.style.background='rgba(239,68,68,0.06)';
   selBox.style.pointerEvents='none';
   selBox.style.display='none';
   selBox.style.zIndex='40';
-  // insert above canvas
-  container.parentElement?.appendChild(selBox);
+  // insert above everything
+  document.body.appendChild(selBox);
 
   let boxDrag = null;
   const toLocal = (clientX, clientY) => {
