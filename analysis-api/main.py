@@ -26,6 +26,15 @@ class NodeIn(BaseModel):
     z: float
 
 
+class Releases(BaseModel):
+    Rxi: bool = False
+    Ryi: bool = False
+    Rzi: bool = False
+    Rxj: bool = False
+    Ryj: bool = False
+    Rzj: bool = False
+
+
 class MemberIn(BaseModel):
     id: str
     i: str
@@ -37,6 +46,7 @@ class MemberIn(BaseModel):
     Iy: float
     Iz: float
     J: float
+    releases: Optional[Releases] = None
 
 
 class Fixity(BaseModel):
@@ -169,7 +179,11 @@ def analyze(req: AnalyzeRequest):
             model.add_section(sec_name, A=mem.A, Iy=mem.Iy, Iz=mem.Iz, J=mem.J)
             model.add_member(mem.id, mem.i, mem.j, mat_name, sec_name)
             if mem.type == "truss":
+                # axial-only
                 model.def_releases(mem.id, Rxi=True, Ryi=True, Rzi=True, Rxj=True, Ryj=True, Rzj=True)
+            elif mem.releases is not None:
+                r = mem.releases
+                model.def_releases(mem.id, Rxi=r.Rxi, Ryi=r.Ryi, Rzi=r.Rzi, Rxj=r.Rxj, Ryj=r.Ryj, Rzj=r.Rzj)
 
         # Stabilization springs (MVP)
         if stabilize:

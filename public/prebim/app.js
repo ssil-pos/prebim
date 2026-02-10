@@ -354,7 +354,20 @@ function renderProjects(){
   });
 }
 
-function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
+function connSettingsKey(projectId){ return `prebim:analysisConn:${projectId}`; }
+function loadConnSettings(projectId){
+  try{ return JSON.parse(localStorage.getItem(connSettingsKey(projectId)) || 'null') || {}; }catch{ return {}; }
+}
+function saveConnSettings(projectId, patch){
+  try{
+    const cur = loadConnSettings(projectId);
+    const next = { ...cur, ...(patch||{}), updatedAt: Date.now() };
+    localStorage.setItem(connSettingsKey(projectId), JSON.stringify(next));
+    return next;
+  }catch{ return null; }
+}
+
+function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=null){
   // Build analysis request payload from engine model.
   const m = __engine.normalizeModel(model);
   const members = __engine.generateMembers(m);
@@ -378,6 +391,13 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
     return { id: String(idx+1), kind: mem.kind, j1, j2, mem };
   });
   const _engineIds = memList.map(mm => String(mm.mem?.id ?? mm.id));
+  // releases are per analysis member; keep a parallel list to allow 3D connection markers
+  const _connModes = memList.map(mm => {
+    const eid = String(mm.mem?.id ?? mm.id);
+    const per = conn?.members?.[eid] || null;
+    const def = defaultModeByKind[mm.kind] || 'FIXED';
+    return { engineId: eid, kind: mm.kind, i: (per?.i||def), j: (per?.j||def) };
+  });
 
   // grid helpers (for tributary widths)
   const spansXmm = m.grid?.spansXmm || [];
@@ -543,8 +563,41 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
   const G = E/(2*(1+nu));
 
   const nodes = jointList.map(j => ({ id: j.id, x: j.pt[0], y: j.pt[1], z: j.pt[2] }));
+  const conn = connCfg || {};
+  const defaultModeByKind = {
+    column: 'FIXED',
+    beamX: 'PIN',
+    beamY: 'PIN',
+    subBeam: 'PIN',
+    brace: 'PIN',
+    joist: 'PIN',
+  };
+
+  const releasesForMode = (mode) => {
+    // Release rotations about member local axes (approx). MVP: release all rotations for PIN.
+    const m = String(mode||'FIXED').toUpperCase();
+    if(m === 'PIN') return { Rxi:true,Ryi:true,Rzi:true, Rxj:true,Ryj:true,Rzj:true };
+    return { Rxi:false,Ryi:false,Rzi:false, Rxj:false,Ryj:false,Rzj:false };
+  };
+
   const amembers = memList.map(mm => {
     const Pmm = sectionPropsMmFromMember(mm.kind, mm.mem);
+    const eid = String(mm.mem?.id ?? mm.id);
+    const per = conn?.members?.[eid] || null; // {i:'PIN'|'FIXED', j:'PIN'|'FIXED'}
+    const def = defaultModeByKind[mm.kind] || 'FIXED';
+    const mi = per?.i || def;
+    const mj = per?.j || def;
+    const relI = releasesForMode(mi);
+    const relJ = releasesForMode(mj);
+    const releases = {
+      Rxi: !!relI.Rxi,
+      Ryi: !!relI.Ryi,
+      Rzi: !!relI.Rzi,
+      Rxj: !!relJ.Rxj,
+      Ryj: !!relJ.Ryj,
+      Rzj: !!relJ.Rzj,
+    };
+
     return {
       id: mm.id,
       i: mm.j1,
@@ -556,6 +609,8 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
       Iy: Pmm.Iy * 1e-12,
       Iz: Pmm.Iz * 1e-12,
       J: Pmm.J * 1e-12,
+      releases: (mm.kind==='brace') ? null : releases,
+      _engineId: eid,
     };
   });
 
@@ -585,6 +640,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
 
     // client-side helper (ignored by API): index i => analysis member id (i+1)
     _engineIds,
+    _connModes,
   };
 }
 
@@ -674,6 +730,26 @@ function renderAnalysis(projectId){
             <span>Edit supports (click base nodes in 3D)</span>
           </label>
 
+          <label class="label">Connections (selected member)</label>
+          <div class="row" style="margin-top:6px; gap:8px; flex-wrap:wrap">
+            <select class="input" id="connI" style="max-width:120px">
+              <option value="PIN">PIN</option>
+              <option value="FIXED" selected>FIXED</option>
+            </select>
+            <select class="input" id="connJ" style="max-width:120px">
+              <option value="PIN">PIN</option>
+              <option value="FIXED" selected>FIXED</option>
+            </select>
+            <button class="btn" id="btnConnApply" type="button">Apply</button>
+          </div>
+          <div class="note" style="margin-top:6px">Select a member in 3D to edit end conditions.</div>
+
+          <label class="label">Deflection limit</label>
+          <div class="row" style="margin-top:6px; gap:8px">
+            <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">L/</span>
+            <input class="input" id="deflRatio" value="300" style="max-width:110px" />
+          </div>
+
           <label class="label">Deformation scale</label>
           <input id="analysisScale2" type="range" min="10" max="400" value="120" style="width:100%" />
 
@@ -698,6 +774,7 @@ function renderAnalysis(projectId){
     setIf('qLive', saved.qLive);
     setIf('supportNodes', saved.supportNodes);
     setIf('analysisScale2', saved.analysisScale);
+    setIf('deflRatio', saved.deflRatio || 300);
     // always default editSupports OFF unless explicitly saved
     const es = document.getElementById('editSupports');
     if(es) es.checked = !!saved.editSupports;
@@ -732,20 +809,53 @@ function renderAnalysis(projectId){
 
     // initial maps (no loads needed)
     try{
-      const p0 = buildAnalysisPayload(model, 0, (document.getElementById('supportMode')?.value||'PINNED'));
+      const p0 = buildAnalysisPayload(model, 0, (document.getElementById('supportMode')?.value||'PINNED'), loadConnSettings(p.id));
       rebuildIdMapsFromPayload(p0);
     }catch{}
 
     // 3D click -> table sync
+    const updateConnUIForSelection = (eid) => {
+      const selE = String(eid||'');
+      const connCfg = loadConnSettings(p.id);
+      const per = connCfg?.members?.[selE] || null;
+      const kind = (members.find(m=>String(m.id)===selE)?.kind) || '';
+      const def = ({column:'FIXED',beamX:'PIN',beamY:'PIN',subBeam:'PIN',brace:'PIN',joist:'PIN'})[kind] || 'FIXED';
+      const mi = per?.i || def;
+      const mj = per?.j || def;
+      const iSel = document.getElementById('connI');
+      const jSel = document.getElementById('connJ');
+      if(iSel) iSel.value = mi;
+      if(jSel) jSel.value = mj;
+      const btn = document.getElementById('btnConnApply');
+      if(btn) btn.disabled = !selE;
+    };
+
     view.onSelectionChange?.((sel) => {
       const eid = sel?.[0];
       if(eid) {
         const aid = analysisIdByEngineId[String(eid)] || String(eid);
         saveAnalysisSettings(p.id, { selectedMemberEngineId: String(eid) });
         try{ highlightMemberRow(aid); renderMemberDetail(aid); }catch{}
+        updateConnUIForSelection(eid);
       } else {
         try{ renderMemberDetail(''); highlightMemberRow(''); }catch{}
+        updateConnUIForSelection('');
       }
+    });
+
+    // apply connection changes for selected member
+    document.getElementById('btnConnApply')?.addEventListener('click', () => {
+      const saved = loadAnalysisSettings(p.id);
+      const selE = String(saved?.selectedMemberEngineId || '');
+      if(!selE) return;
+      const mi = (document.getElementById('connI')?.value || 'FIXED').toString();
+      const mj = (document.getElementById('connJ')?.value || 'FIXED').toString();
+      const cfg = loadConnSettings(p.id);
+      cfg.members = cfg.members || {};
+      cfg.members[selE] = { i: mi, j: mj };
+      saveConnSettings(p.id, cfg);
+      // refresh connection markers via supports viz refresh
+      try{ refreshSupportViz(); }catch{}
     });
 
     document.getElementById('btn3dGuides')?.addEventListener('click', () => {
@@ -767,8 +877,6 @@ function renderAnalysis(projectId){
     const setStatus = (t) => {
       const el = document.getElementById('analysisStatus');
       if(el) el.textContent = 'status: ' + t;
-      const el2 = document.getElementById('analysisHudState');
-      if(el2) el2.textContent = t;
     };
 
     let lastRes = null;
@@ -826,6 +934,31 @@ function renderAnalysis(projectId){
         renderMemberDetail('');
         highlightMemberRow('');
       });
+    };
+
+    const checkDeflection = (res, payload) => {
+      const ratio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
+      // choose max horizontal span length as L
+      let Lmax = 0;
+      for(const mem of (payload?.members||[])){
+        const ni = payload.nodes.find(n=>String(n.id)===String(mem.i));
+        const nj = payload.nodes.find(n=>String(n.id)===String(mem.j));
+        if(!ni||!nj) continue;
+        const dx = ni.x-nj.x, dz=ni.z-nj.z;
+        const Lh = Math.hypot(dx,dz);
+        Lmax = Math.max(Lmax, Lh);
+      }
+      const allow = (Lmax>0) ? (Lmax/ratio) : 0;
+
+      // use max vertical node displacement magnitude as proxy
+      let maxDy=0;
+      let maxNode='';
+      for(const [nid, d] of Object.entries(res?.nodes||{})){
+        const dy = Math.abs(Number(d?.dy)||0);
+        if(dy>maxDy){ maxDy=dy; maxNode=nid; }
+      }
+      const ok = (allow<=0) ? true : (maxDy <= allow);
+      return { ratio, Lmax, allow, maxDy, maxNode, ok };
     };
 
     const renderResultsTable = (res) => {
@@ -916,7 +1049,8 @@ function renderAnalysis(projectId){
 
         saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes: supportNodesVal, analysisScale });
 
-        const payload = buildAnalysisPayload(model, qLive, supportMode);
+        const connCfg = loadConnSettings(p.id);
+        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg);
         // update id maps (engine <-> analysis)
         try{
           analysisIdByEngineId = {};
@@ -969,6 +1103,18 @@ function renderAnalysis(projectId){
         view.setSupportMarkers?.(payload.supports, payload.nodes, supportMode);
 
         renderResultsTable(res);
+
+        // PASS/FAIL badge (deflection)
+        try{
+          const chk = checkDeflection(res, payload);
+          const el = document.getElementById('analysisHudState');
+          if(el){
+            el.textContent = chk.ok ? `PASS · max |dy| ${chk.maxDy.toFixed(6)} ≤ L/${chk.ratio} (${chk.allow.toFixed(6)} m)`
+                                 : `FAIL · max |dy| ${chk.maxDy.toFixed(6)} > L/${chk.ratio} (${chk.allow.toFixed(6)} m)`;
+            el.style.color = chk.ok ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)';
+          }
+        }catch{}
+
         setStatus(`done (max ${(Number(res?.maxDisp?.value)||0).toFixed(6)} m)`);
       } catch (e) {
         console.error(e);
@@ -990,11 +1136,12 @@ function renderAnalysis(projectId){
       const supportNodes = (document.getElementById('supportNodes')?.value || '').toString();
       const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
       const editSupports = !!document.getElementById('editSupports')?.checked;
-      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, ...patch });
+      const deflRatio = Number(document.getElementById('deflRatio')?.value || 300) || 300;
+      saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes, analysisScale, editSupports, deflRatio, ...patch });
     };
-    ['supportMode','comboMode','qLive','supportNodes'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', persist);
-      document.getElementById(id)?.addEventListener('input', persist);
+    ['supportMode','comboMode','qLive','supportNodes','deflRatio'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => persist());
+      document.getElementById(id)?.addEventListener('input', () => persist());
     });
 
     document.getElementById('analysisScale2')?.addEventListener('input', (ev) => {
@@ -1068,7 +1215,7 @@ function renderAnalysis(projectId){
       try{
         const qLive0 = parseFloat((document.getElementById('qLive')?.value||'3').toString())||0;
         const supportMode0 = (document.getElementById('supportMode')?.value||'PINNED').toString();
-        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0);
+        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, loadConnSettings(p.id));
         const ids = curSupportIds();
         const fixed = supportMode0.toUpperCase()==='FIXED';
         payload0.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
