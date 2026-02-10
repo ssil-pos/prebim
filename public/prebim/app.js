@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1405KST';
+const BUILD = '20260210-1412KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1405KST'),
-    import('/prebim/app_profiles.js?v=20260210-1405KST'),
+    import('/prebim/engine.js?v=20260210-1412KST'),
+    import('/prebim/app_profiles.js?v=20260210-1412KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1510,7 +1510,13 @@ function renderAnalysis(projectId){
               </div>
             </div>
 
-            <label class="label">Importance factor Iw</label>
+            <label class="label">Structure type</label>
+            <select class="input" id="wStruct">
+              <option value="ENCLOSED" selected>Enclosed structure</option>
+              <option value="OPEN">Open structure</option>
+            </select>
+
+            <label class="label" style="margin-top:8px">Importance factor Iw</label>
             <input class="input" id="wIw" value="1.0" />
 
             <div class="grid2" style="margin-top:8px">
@@ -1535,21 +1541,37 @@ function renderAnalysis(projectId){
               </div>
             </div>
 
-            <div class="grid2" style="margin-top:8px">
-              <div>
-                <label class="label">Cpe1/Cpe2 (X)</label>
-                <div class="grid2" style="margin-top:6px">
-                  <input class="input" id="wCpe1x" value="0.838" />
-                  <input class="input" id="wCpe2x" value="-0.350" />
+            <div id="wSecEnclosed" style="margin-top:8px">
+              <div class="grid2">
+                <div>
+                  <label class="label">Cpe1/Cpe2 (X)</label>
+                  <div class="grid2" style="margin-top:6px">
+                    <input class="input" id="wCpe1x" value="0.838" />
+                    <input class="input" id="wCpe2x" value="-0.350" />
+                  </div>
+                </div>
+                <div>
+                  <label class="label">Cpe1/Cpe2 (Z)</label>
+                  <div class="grid2" style="margin-top:6px">
+                    <input class="input" id="wCpe1z" value="0.788" />
+                    <input class="input" id="wCpe2z" value="-0.500" />
+                  </div>
                 </div>
               </div>
-              <div>
-                <label class="label">Cpe1/Cpe2 (Z)</label>
-                <div class="grid2" style="margin-top:6px">
-                  <input class="input" id="wCpe1z" value="0.788" />
-                  <input class="input" id="wCpe2z" value="-0.500" />
+            </div>
+
+            <div id="wSecOpen" style="margin-top:8px; display:none">
+              <div class="grid2">
+                <div>
+                  <label class="label">CD / Cf (X)</label>
+                  <input class="input" id="wCDx" value="2.10" />
+                </div>
+                <div>
+                  <label class="label">CD / Cf (Z)</label>
+                  <input class="input" id="wCDz" value="2.85" />
                 </div>
               </div>
+              <div class="note" style="margin-top:6px">Open structure uses Pf = kz · qH · GD · CD. (Enclosed uses Pf = kz · qH · GD · (Cpe1−Cpe2))</div>
             </div>
 
             <label class="label" style="margin-top:10px">Breadth (m)</label>
@@ -1616,12 +1638,15 @@ function renderAnalysis(projectId){
         const Iw = Number(host.querySelector('#wIw')?.value||1)||1;
         const kz = Number(host.querySelector('#wKz')?.value||1)||1;
         const H = Number(host.querySelector('#wH')?.value||0)||0;
+        const struct = String(host.querySelector('#wStruct')?.value||'ENCLOSED');
         const GDx = Number(host.querySelector('#wGDx')?.value||0)||0;
         const GDz = Number(host.querySelector('#wGDz')?.value||0)||0;
         const Cpe1x = Number(host.querySelector('#wCpe1x')?.value||0)||0;
         const Cpe2x = Number(host.querySelector('#wCpe2x')?.value||0)||0;
         const Cpe1z = Number(host.querySelector('#wCpe1z')?.value||0)||0;
         const Cpe2z = Number(host.querySelector('#wCpe2z')?.value||0)||0;
+        const CDx = Number(host.querySelector('#wCDx')?.value||0)||0;
+        const CDz = Number(host.querySelector('#wCDz')?.value||0)||0;
         const Bx2 = Math.max(0.01, Number(host.querySelector('#wBx')?.value||0)||0);
         const Bz2 = Math.max(0.01, Number(host.querySelector('#wBz')?.value||0)||0);
 
@@ -1630,8 +1655,8 @@ function renderAnalysis(projectId){
         const qH_N = 0.5 * rho * VH*VH; // N/m^2
         const qH = qH_N/1000; // kN/m^2
 
-        const PfX = kz * qH * GDx * (Cpe1x - Cpe2x);
-        const PfZ = kz * qH * GDz * (Cpe1z - Cpe2z);
+        const PfX = (struct === 'OPEN') ? (kz * qH * GDx * CDx) : (kz * qH * GDx * (Cpe1x - Cpe2x));
+        const PfZ = (struct === 'OPEN') ? (kz * qH * GDz * CDz) : (kz * qH * GDz * (Cpe1z - Cpe2z));
 
         const fxStory = storyHeights.map(h => PfX * Bx2 * h);
         const fzStory = storyHeights.map(h => PfZ * Bz2 * h);
@@ -1645,7 +1670,8 @@ function renderAnalysis(projectId){
 
         const rr = host.querySelector('#wRes');
         if(rr){
-          rr.innerHTML = `KHr=${KHr.toFixed(4)} · VH=${VH.toFixed(3)} m/s<br/>qH=${qH.toFixed(6)} kN/m²<br/>PfX=${PfX.toFixed(6)} kN/m² · PfZ=${PfZ.toFixed(6)} kN/m²<br/>Base shear X=${baseX.toFixed(3)} kN · Z=${baseZ.toFixed(3)} kN`;
+          const mode = (struct === 'OPEN') ? `OPEN (CDx=${CDx.toFixed(3)}, CDz=${CDz.toFixed(3)})` : `ENCLOSED (ΔCpeX=${(Cpe1x-Cpe2x).toFixed(3)}, ΔCpeZ=${(Cpe1z-Cpe2z).toFixed(3)})`;
+          rr.innerHTML = `${mode}<br/>KHr=${KHr.toFixed(4)} · VH=${VH.toFixed(3)} m/s<br/>qH=${qH.toFixed(6)} kN/m²<br/>PfX=${PfX.toFixed(6)} kN/m² · PfZ=${PfZ.toFixed(6)} kN/m²<br/>Base shear X=${baseX.toFixed(3)} kN · Z=${baseZ.toFixed(3)} kN`;
         }
 
         const tb = host.querySelector('#wRows');
@@ -1654,8 +1680,36 @@ function renderAnalysis(projectId){
         }
       };
 
+      const updateStructUi = (setDefaults=false) => {
+        const struct = String(host.querySelector('#wStruct')?.value||'ENCLOSED');
+        const secEnc = host.querySelector('#wSecEnclosed');
+        const secOpen = host.querySelector('#wSecOpen');
+        if(secEnc) secEnc.style.display = (struct === 'OPEN') ? 'none' : '';
+        if(secOpen) secOpen.style.display = (struct === 'OPEN') ? '' : 'none';
+
+        if(setDefaults){
+          if(struct === 'OPEN'){
+            const kz = host.querySelector('#wKz'); if(kz) kz.value = '0.700';
+            const gdx = host.querySelector('#wGDx'); if(gdx) gdx.value = '1.000';
+            const gdz = host.querySelector('#wGDz'); if(gdz) gdz.value = '1.000';
+            const cdx = host.querySelector('#wCDx'); if(cdx) cdx.value = '2.10';
+            const cdz = host.querySelector('#wCDz'); if(cdz) cdz.value = '2.85';
+          }else{
+            const kz = host.querySelector('#wKz'); if(kz) kz.value = '0.985';
+            const gdx = host.querySelector('#wGDx'); if(gdx) gdx.value = '2.12';
+            const gdz = host.querySelector('#wGDz'); if(gdz) gdz.value = '2.06';
+            const c1x = host.querySelector('#wCpe1x'); if(c1x) c1x.value = '0.838';
+            const c2x = host.querySelector('#wCpe2x'); if(c2x) c2x.value = '-0.350';
+            const c1z = host.querySelector('#wCpe1z'); if(c1z) c1z.value = '0.788';
+            const c2z = host.querySelector('#wCpe2z'); if(c2z) c2z.value = '-0.500';
+          }
+        }
+      };
+
+      host.querySelector('#wStruct')?.addEventListener('change', () => { updateStructUi(true); recalc(); });
       host.querySelectorAll('input,select').forEach(inp => inp.addEventListener('input', recalc));
       host.querySelectorAll('select').forEach(sel => sel.addEventListener('change', recalc));
+      updateStructUi(false);
       recalc();
     };
 
@@ -1698,7 +1752,7 @@ function renderAnalysis(projectId){
             <div class="grid2" style="margin-top:8px">
               <div>
                 <label class="label">R</label>
-                <input class="input" id="sR" value="5.0" />
+                <input class="input" id="sR" value="3.0" />
               </div>
               <div>
                 <label class="label">TL (s)</label>
