@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1302KST';
+const BUILD = '20260210-1305KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1302KST'),
-    import('/prebim/app_profiles.js?v=20260210-1302KST'),
+    import('/prebim/engine.js?v=20260210-1305KST'),
+    import('/prebim/app_profiles.js?v=20260210-1305KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -763,6 +763,15 @@ function renderAnalysis(projectId){
                 <option value="D">D</option>
               </select>
 
+              <label class="label">Live load preset</label>
+              <select class="input" id="livePreset">
+                <option value="3.0" selected>Hall / HVAC room (3.0 kN/m²)</option>
+                <option value="3.5">Office (3.5 kN/m²)</option>
+                <option value="5.0">Toilet / Stair (5.0 kN/m²)</option>
+                <option value="1.0">Light roof / Roof live (1.0 kN/m²)</option>
+                <option value="custom">Custom</option>
+              </select>
+
               <label class="label">Live load (kN/m²)</label>
               <input class="input" id="qLive" value="3.0" />
 
@@ -779,7 +788,7 @@ function renderAnalysis(projectId){
                   <div class="note" style="margin-top:0">Sub-beam</div>
                   <div class="row" style="margin-top:6px; gap:8px">
                     <span class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">L/</span>
-                    <input class="input" id="deflSub" value="240" />
+                    <input class="input" id="deflSub" value="300" />
                   </div>
                 </div>
               </div>
@@ -839,16 +848,36 @@ function renderAnalysis(projectId){
     const setIf = (id, v) => { const el=document.getElementById(id); if(el!=null && v!=null && v!=='') el.value = String(v); };
     setIf('supportMode', saved.supportMode);
     setIf('comboMode', saved.comboMode);
+    // restore live load preset / value
+    const lp = document.getElementById('livePreset');
+    if(lp && saved.livePreset) lp.value = String(saved.livePreset);
     setIf('qLive', saved.qLive);
     setIf('supportNodes', saved.supportNodes);
     setIf('analysisScale2', saved.analysisScale);
     setIf('deflMain', saved.deflMain || 300);
-    setIf('deflSub', saved.deflSub || 240);
+    // Per sample calc report: vertical deflection for floor beams/walkways/platforms etc: L/300.
+    // Keep a separate (secondary) limit, but default it to L/300 as well.
+    setIf('deflSub', saved.deflSub || 300);
     setIf('driftX', saved.driftX || 200);
     setIf('driftZ', saved.driftZ || 200);
     setIf('colTop', saved.colTop || 200);
     const fh = document.getElementById('failHighlight');
     if(fh) fh.checked = (saved.failHighlightOn !== false);
+
+    // live load preset -> qLive mapping (based on sample calculation report)
+    const qLiveEl = document.getElementById('qLive');
+    const livePresetEl = document.getElementById('livePreset');
+    const applyLivePreset = () => {
+      if(!livePresetEl || !qLiveEl) return;
+      const v = String(livePresetEl.value || 'custom');
+      if(v !== 'custom') qLiveEl.value = v;
+      saveAnalysisSettings(p.id, { livePreset: v, qLive: qLiveEl.value });
+    };
+    livePresetEl?.addEventListener('change', applyLivePreset);
+    // If a preset value is selected on load, enforce it.
+    if(livePresetEl && livePresetEl.value !== 'custom'){
+      try{ applyLivePreset(); }catch{}
+    }
     // always default editSupports OFF unless explicitly saved
     const es = document.getElementById('editSupports');
     if(es) es.checked = !!saved.editSupports;
@@ -1173,12 +1202,13 @@ function renderAnalysis(projectId){
 
       try{
         const qLive = parseFloat((document.getElementById('qLive')?.value || '3').toString()) || 0;
+        const livePreset = (document.getElementById('livePreset')?.value || 'custom').toString();
         const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
         const comboMode = (document.getElementById('comboMode')?.value || 'D+L').toString();
         const supportNodesVal = (document.getElementById('supportNodes')?.value || '').toString();
         const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
 
-        saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes: supportNodesVal, analysisScale });
+        saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, livePreset, supportNodes: supportNodesVal, analysisScale });
 
         const connCfg = loadConnSettings(p.id);
         const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg);
