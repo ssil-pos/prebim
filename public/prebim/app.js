@@ -4176,21 +4176,27 @@ async function createThreeView(container){
 
     const defaultModeByKind = { column:'FIXED', beamX:'PIN', beamY:'PIN', subBeam:'PIN', brace:'PIN', joist:'PIN' };
 
-    const addMark = (pt, mode, axisDir) => {
+    const addMark = (pt, mode, axisDir, sgn=+1, L=1) => {
       const m = String(mode||'FIXED').toUpperCase();
+
+      // Offset marker ~300mm away from the actual end to reduce visual confusion
+      const off = Math.min(0.30, 0.20*(L||1));
+      const px = pt[0] + axisDir[0]*off*sgn;
+      const py = pt[1] + axisDir[1]*off*sgn;
+      const pz = pt[2] + axisDir[2]*off*sgn;
+
       if(m === 'PIN'){
         const ring = new THREE.Mesh(geomRing, matPin);
-        ring.position.set(pt[0], pt[1], pt[2]);
+        ring.position.set(px, py, pz);
         // orient ring roughly perpendicular to member axis (axisDir is normalized)
         const v = new THREE.Vector3(axisDir[0], axisDir[1], axisDir[2]);
-        // rotate from z-axis to v
         const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), v.clone().normalize());
         ring.quaternion.copy(q);
         ring.renderOrder = 30;
         connGroup.add(ring);
       } else {
         const box = new THREE.Mesh(geomFix, matFix);
-        box.position.set(pt[0], pt[1], pt[2]);
+        box.position.set(px, py, pz);
         box.renderOrder = 29;
         connGroup.add(box);
       }
@@ -4205,8 +4211,9 @@ async function createThreeView(container){
       const ax = [mem.b[0]-mem.a[0], mem.b[1]-mem.a[1], mem.b[2]-mem.a[2]];
       const L = Math.hypot(ax[0],ax[1],ax[2]) || 1;
       const dir = [ax[0]/L, ax[1]/L, ax[2]/L];
-      addMark(mem.a, mi, dir);
-      addMark(mem.b, mj, dir);
+      // i-end: move forward along member; j-end: move backward
+      addMark(mem.a, mi, dir, +1, L);
+      addMark(mem.b, mj, dir, -1, L);
     }
   }
 
