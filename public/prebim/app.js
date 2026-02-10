@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0747KST';
+const BUILD = '20260211-0753KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0747KST'),
-    import('/prebim/app_profiles.js?v=20260211-0747KST'),
+    import('/prebim/engine.js?v=20260211-0753KST'),
+    import('/prebim/app_profiles.js?v=20260211-0753KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1429,18 +1429,16 @@ function renderAnalysis(projectId){
 
         <div id="analysisMemberDetail"></div>
 
-        <div class="note" style="margin-top:10px"><b>Members (top by |Mz|)</b> <span class="mono" style="opacity:.65">(showing ${top.length}/${rows.length})</span></div>
+        <div class="note" style="margin-top:10px"><b>Members (summary)</b> <span class="mono" style="opacity:.65">(showing ${top.length}/${rows.length})</span></div>
         <div style="overflow:auto; margin-top:6px; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
-          <table class="table" style="min-width:520px">
+          <table class="table" style="min-width:720px">
             <thead><tr>
               <th>id</th>
-              <th class="r">|N|</th>
-              <th class="r">|Vy|</th>
-              <th class="r">|Vz|</th>
-              <th class="r">|My|</th>
-              <th class="r">|Mz|</th>
-              <th class="r">|dy|max</th>
-              <th class="r">L/allow</th>
+              <th>kind</th>
+              <th>grid/level</th>
+              <th class="r">disp</th>
+              <th class="r">allow</th>
+              <th class="r">util</th>
             </tr></thead>
             <tbody>
               ${top.map(r => `
@@ -1465,17 +1463,52 @@ function renderAnalysis(projectId){
                     return (Number(r?.dyAbsMax)||0)/(a.allow||1e-9);
                   }catch{ return 0; }
                 })()}">
-                  <td class="mono">${escapeHtml(String(r.id))}</td>
-                  <td class="r mono">${(Number(r?.maxAbs?.N)||0).toFixed(3)}</td>
-                  <td class="r mono">${(Number(r?.maxAbs?.Vy)||0).toFixed(3)}</td>
-                  <td class="r mono">${(Number(r?.maxAbs?.Vz)||0).toFixed(3)}</td>
-                  <td class="r mono">${(Number(r?.maxAbs?.My)||0).toFixed(3)}</td>
-                  <td class="r mono">${(Number(r?.maxAbs?.Mz)||0).toFixed(3)}</td>
-                  <td class="r mono">${((Number(r?.dyAbsMax)||0)*1000).toFixed(3)} mm</td>
-                  <td class="r mono">${(() => {
-                    const a = memberAllow(r.id);
-                    return a?.allow ? `L/${a.ratio}` : '-';
-                  })()}</td>
+                  ${(() => {
+                    const aid = String(r.id);
+                    const idx = (Number(aid)||0) - 1;
+                    const kind = String(lastPayload?._kinds?.[idx] || '');
+                    const mem = lastPayload?.members?.find(m => String(m.id)===aid);
+                    const nmap = new Map((lastPayload?.nodes||[]).map(n => [String(n.id), n]));
+                    const ni = mem ? nmap.get(String(mem.i)) : null;
+                    const nj = mem ? nmap.get(String(mem.j)) : null;
+                    const lv = Array.isArray(model?.levels) ? model.levels.map(v=>Number(v||0)/1000) : [];
+                    const spansX = (model?.grid?.spansXmm||[]).map(v=>Number(v||0)/1000);
+                    const spansY = (model?.grid?.spansYmm||[]).map(v=>Number(v||0)/1000);
+                    const xs=[0], zs=[0];
+                    for(const s of spansX) xs.push(xs[xs.length-1] + (Number(s)||0));
+                    for(const s of spansY) zs.push(zs[zs.length-1] + (Number(s)||0));
+                    const nearIdx = (arr,v) => {
+                      let bi=0, bd=1e99;
+                      for(let i=0;i<arr.length;i++){ const d=Math.abs(arr[i]-v); if(d<bd){bd=d;bi=i;} }
+                      return bi;
+                    };
+                    const mid = (ni && nj) ? { x:(ni.x+nj.x)/2, y:(ni.y+nj.y)/2, z:(ni.z+nj.z)/2 } : {x:0,y:0,z:0};
+                    const xi = nearIdx(xs, mid.x);
+                    const yi = nearIdx(zs, mid.z);
+                    const li = lv.length ? nearIdx(lv, mid.y) : 0;
+                    const loc = `X${xi+1}-Y${yi+1}-L${li+1}`;
+
+                    const a = memberAllow(aid);
+                    let dispMm = 0;
+                    if(kind==='column' && mem && ni && nj){
+                      const topNodeId = (Number(ni.y) >= Number(nj.y)) ? String(mem.i) : String(mem.j);
+                      const nd = lastRes?.nodes?.[topNodeId];
+                      dispMm = Math.hypot(Number(nd?.dx||0), Number(nd?.dz||0)) * 1000;
+                    }else{
+                      dispMm = (Number(r?.dyAbsMax)||0) * 1000;
+                    }
+                    const allowMm = (a?.allow||0) * 1000;
+                    const util = (allowMm>0) ? (dispMm/allowMm) : 0;
+
+                    return `
+                      <td class="mono">${escapeHtml(String(aid))}</td>
+                      <td class="mono">${escapeHtml(kind||'')}</td>
+                      <td class="mono">${escapeHtml(loc)}</td>
+                      <td class="r mono">${dispMm.toFixed(3)} mm</td>
+                      <td class="r mono">${allowMm>0 ? allowMm.toFixed(3)+' mm' : '-'}</td>
+                      <td class="r mono">${util.toFixed(3)}</td>
+                    `;
+                  })()}
                 </tr>
               `).join('')}
             </tbody>
@@ -1522,7 +1555,23 @@ function renderAnalysis(projectId){
     const getModelExtents = () => {
       try{
         const pts = (model?.joints||[]).map(j => j.pt);
-        if(!pts.length) return { minX:0,maxX:0,minZ:0,maxZ:0, H:0, storyCount:1, storyHeights:[], levels:[] };
+        if(!pts.length){
+          // Fallback: engine model has grid + levels but may not have explicit joints[]
+          const spansX = (model?.grid?.spansXmm||[]).map(v=>Number(v||0)/1000);
+          const spansY = (model?.grid?.spansYmm||[]).map(v=>Number(v||0)/1000);
+          const xs=[0], zs=[0];
+          for(const s of spansX) xs.push(xs[xs.length-1] + (Number(s)||0));
+          for(const s of spansY) zs.push(zs[zs.length-1] + (Number(s)||0));
+          const minX=0, maxX=(xs[xs.length-1]||0);
+          const minZ=0, maxZ=(zs[zs.length-1]||0);
+          let levels = (model?.levels||[]).map(v=>Number(v||0)/1000).filter(v=>Number.isFinite(v)).sort((a,b)=>a-b);
+          if(levels.length < 2) levels = [0, 6];
+          const storyCount = Math.max(1, levels.length-1);
+          const storyHeights=[];
+          for(let i=0;i<storyCount;i++) storyHeights.push(Math.max(0.1, (levels[i+1]||0)-(levels[i]||0)));
+          const H = Math.max(...levels) - Math.min(...levels);
+          return { minX,maxX,minZ,maxZ, H, storyCount, storyHeights, levels };
+        }
         let minX=+Infinity,maxX=-Infinity,minZ=+Infinity,maxZ=-Infinity;
         const yset = new Set();
         for(const p of pts){
@@ -5242,15 +5291,24 @@ async function createThreeView(container){
           mesh.quaternion.copy(quat);
 
           // Apply column strong-axis rotation (real-time 3D orientation)
+          // Note: for near-square H sections the rotation is subtle; we also add a small "web mark".
           try{
             if(mem.kind === 'column'){
               const ax = String(model?.profiles?.colStrongAxis || 'AUTO').toUpperCase();
               const ang = (ax === 'Z') ? (Math.PI/2) : 0;
               if(Math.abs(ang) > 1e-9){
                 const qrot = new THREE.Quaternion().setFromAxisAngle(dir.clone().normalize(), ang);
-                // premultiply to apply world-axis rotation after alignment
                 mesh.quaternion.premultiply(qrot);
               }
+
+              // Visual mark to show orientation clearly (even if section is square-ish)
+              const markLen = Math.max(0.35, Math.min(0.9, len * 0.08));
+              const markGeom = new THREE.BoxGeometry(markLen, 0.06, 0.06);
+              const markMat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent:true, opacity:0.95, depthTest:false });
+              const mark = new THREE.Mesh(markGeom, markMat);
+              mark.position.set(markLen*0.55, len*0.48, 0); // +X of local section, near top
+              mark.renderOrder = 12;
+              mesh.add(mark);
             }
           }catch{}
 
