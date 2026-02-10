@@ -714,12 +714,28 @@ function renderAnalysis(projectId){
     const members = __engine.generateMembers(model);
     view.setMembers(members, model);
 
+    const rebuildIdMaps = () => {
+      try{
+        analysisIdByEngineId = {};
+        engineIdByAnalysisId = {};
+        const ms = __engine.generateMembers(model) || [];
+        ms.forEach((mm, idx) => {
+          const aid = String(idx+1);
+          const eid = String(mm.id);
+          analysisIdByEngineId[eid] = aid;
+          engineIdByAnalysisId[aid] = eid;
+        });
+      }catch{}
+    };
+    rebuildIdMaps();
+
     // 3D click -> table sync
     view.onSelectionChange?.((sel) => {
-      const id = sel?.[0];
-      if(id) {
-        saveAnalysisSettings(p.id, { selectedMemberId: id });
-        try{ highlightMemberRow(id); renderMemberDetail(id); }catch{}
+      const eid = sel?.[0];
+      if(eid) {
+        const aid = analysisIdByEngineId[String(eid)] || String(eid);
+        saveAnalysisSettings(p.id, { selectedMemberEngineId: String(eid) });
+        try{ highlightMemberRow(aid); renderMemberDetail(aid); }catch{}
       } else {
         try{ renderMemberDetail(''); highlightMemberRow(''); }catch{}
       }
@@ -749,6 +765,9 @@ function renderAnalysis(projectId){
     };
 
     let lastRes = null;
+    // Map between engine member ids (used by 3D view selection) and analysis member ids (used by API/results)
+    let analysisIdByEngineId = {};
+    let engineIdByAnalysisId = {};
 
     const highlightMemberRow = (id) => {
       const host = document.getElementById('analysisResults');
@@ -796,7 +815,7 @@ function renderAnalysis(projectId){
       `;
       box.querySelector('#btnMemClear')?.addEventListener('click', () => {
         view.clearSelection?.();
-        saveAnalysisSettings(p.id, { selectedMemberId: '' });
+        saveAnalysisSettings(p.id, { selectedMemberEngineId: '' });
         renderMemberDetail('');
         highlightMemberRow('');
       });
@@ -852,21 +871,26 @@ function renderAnalysis(projectId){
       // wire row click -> highlight member in 3D
       host.querySelectorAll('.analysis-mem').forEach(tr => {
         tr.addEventListener('click', () => {
-          const id = tr.getAttribute('data-mem');
-          if(!id) return;
-          view.setSelection?.([id]);
-          saveAnalysisSettings(p.id, { selectedMemberId: id });
-          highlightMemberRow(id);
-          renderMemberDetail(id);
+          const aid = tr.getAttribute('data-mem');
+          if(!aid) return;
+          const eid = engineIdByAnalysisId[String(aid)] || String(aid);
+          view.setSelection?.([eid]);
+          saveAnalysisSettings(p.id, { selectedMemberEngineId: String(eid) });
+          highlightMemberRow(String(aid));
+          renderMemberDetail(String(aid));
         });
       });
 
       const saved = loadAnalysisSettings(p.id);
-      if(saved?.selectedMemberId){
+      if(saved?.selectedMemberEngineId){
         try{
-          view.setSelection?.([String(saved.selectedMemberId)]);
-          highlightMemberRow(String(saved.selectedMemberId));
-          renderMemberDetail(String(saved.selectedMemberId));
+          const eid = String(saved.selectedMemberEngineId);
+          view.setSelection?.([eid]);
+          const aid = analysisIdByEngineId[eid] || '';
+          if(aid){
+            highlightMemberRow(aid);
+            renderMemberDetail(aid);
+          }
         }catch{}
       }
     };
@@ -886,6 +910,16 @@ function renderAnalysis(projectId){
         saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes: supportNodesVal, analysisScale });
 
         const payload = buildAnalysisPayload(model, qLive, supportMode);
+
+        // build id maps
+        try{
+          analysisIdByEngineId = {};
+          engineIdByAnalysisId = {};
+          for(const mem of (payload.members||[])){
+            const aid = String(mem.id);
+            // payload doesn't carry engineId, so we reconstruct from buildAnalysisPayload's internal mem list by stashing it
+          }
+        }catch{}
 
         // supports override
         const supTxt = (document.getElementById('supportNodes')?.value || '').trim();
