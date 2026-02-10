@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1642KST';
+const BUILD = '20260210-1645KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1642KST'),
-    import('/prebim/app_profiles.js?v=20260210-1642KST'),
+    import('/prebim/engine.js?v=20260210-1645KST'),
+    import('/prebim/app_profiles.js?v=20260210-1645KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -579,16 +579,16 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   };
 
   // Stability assist:
-  // If bracing exists only in one direction, a pin-jointed 3D frame can become a mechanism
-  // in the other horizontal direction. In that case, temporarily treat beams parallel to
-  // the unbraced direction as FIXED (moment frame action) to avoid singular solves.
+  // Braced frames in reality rely on floor diaphragm + collector action.
+  // With purely PIN beam connections, many 3D layouts become mechanisms.
+  // When any bracing is present, default beams/sub-beams to FIXED to provide a stable
+  // moment frame backbone unless the user explicitly overrides connections.
   try{
     const brs = Array.isArray(m?.braces) ? m.braces : [];
-    const hasBX = brs.some(b => String(b.axis||'')==='Y'); // braces on Y-face resist global X
-    const hasBZ = brs.some(b => String(b.axis||'')==='X'); // braces on X-face resist global Z
     if(brs.length){
-      if(!hasBX) defaultModeByKind.beamX = 'FIXED';
-      if(!hasBZ) defaultModeByKind.beamY = 'FIXED';
+      defaultModeByKind.beamX = 'FIXED';
+      defaultModeByKind.beamY = 'FIXED';
+      defaultModeByKind.subBeam = 'FIXED';
     }
   }catch{}
 
