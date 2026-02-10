@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1416KST';
+const BUILD = '20260210-1421KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1416KST'),
-    import('/prebim/app_profiles.js?v=20260210-1416KST'),
+    import('/prebim/engine.js?v=20260210-1421KST'),
+    import('/prebim/app_profiles.js?v=20260210-1421KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1486,6 +1486,8 @@ function renderAnalysis(projectId){
       const Bx = Math.max(0.1, ex.maxZ - ex.minZ); // wind along X -> projected width in Z
       const Bz = Math.max(0.1, ex.maxX - ex.minX); // wind along Z -> projected width in X
       const storyHeights = ex.storyHeights.length ? ex.storyHeights : [Math.max(0.1, ex.H||3)];
+      const levels = ex.levels || [];
+      const zTops = storyHeights.map((_,i) => (levels?.[i+1] ?? (i+1)*3)); // m
 
       const html = `
         <div class="grid2">
@@ -1529,6 +1531,7 @@ function renderAnalysis(projectId){
               <div>
                 <label class="label">kz</label>
                 <input class="input" id="wKz" value="0.985" />
+                <div class="note" style="margin-top:4px">Open structure uses kz(z)=z/H (auto) and ignores this field.</div>
               </div>
               <div>
                 <label class="label">Mean roof height H (m)</label>
@@ -1599,7 +1602,7 @@ function renderAnalysis(projectId){
             <div class="note" style="margin-top:10px"><b>Story forces (kN)</b></div>
             <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
               <table class="table" style="min-width:760px">
-                <thead><tr><th>Story</th><th class="r">h (m)</th><th class="r">PfX (kN/m²)</th><th class="r">FX (kN)</th><th class="r">PfZ (kN/m²)</th><th class="r">FZ (kN)</th></tr></thead>
+                <thead><tr><th>Story</th><th class="r">z (m)</th><th class="r">h (m)</th><th class="r">kz</th><th class="r">PfX (kN/m²)</th><th class="r">FX (kN)</th><th class="r">PfZ (kN/m²)</th><th class="r">FZ (kN)</th></tr></thead>
                 <tbody id="wRows"></tbody>
               </table>
             </div>
@@ -1642,7 +1645,7 @@ function renderAnalysis(projectId){
         const Kd = Number(host.querySelector('#wKd')?.value||1)||1;
         const Kzt = Number(host.querySelector('#wKzt')?.value||1)||1;
         const Iw = Number(host.querySelector('#wIw')?.value||1)||1;
-        const kz = Number(host.querySelector('#wKz')?.value||1)||1;
+        const kz0 = Number(host.querySelector('#wKz')?.value||1)||1;
         const H = Number(host.querySelector('#wH')?.value||0)||0;
         const struct = String(host.querySelector('#wStruct')?.value||'ENCLOSED');
         const GDx = Number(host.querySelector('#wGDx')?.value||0)||0;
@@ -1661,11 +1664,23 @@ function renderAnalysis(projectId){
         const qH_N = 0.5 * rho * VH*VH; // N/m^2
         const qH = qH_N/1000; // kN/m^2
 
-        const PfX = (struct === 'OPEN') ? (kz * qH * GDx * CDx) : (kz * qH * GDx * (Cpe1x - Cpe2x));
-        const PfZ = (struct === 'OPEN') ? (kz * qH * GDz * CDz) : (kz * qH * GDz * (Cpe1z - Cpe2z));
+        const kzByStory = storyHeights.map((_,i) => {
+          if(struct === 'OPEN'){
+            const z = Math.max(0.01, Number(zTops[i]||0)||0);
+            const href = Math.max(0.01, H||0);
+            return z / href;
+          }
+          return kz0;
+        });
 
-        const fxStory = storyHeights.map(h => PfX * Bx2 * h);
-        const fzStory = storyHeights.map(h => PfZ * Bz2 * h);
+        const PfX0 = kz0 * qH * GDx * (struct === 'OPEN' ? CDx : (Cpe1x - Cpe2x));
+        const PfZ0 = kz0 * qH * GDz * (struct === 'OPEN' ? CDz : (Cpe1z - Cpe2z));
+
+        const PfXByStory = kzByStory.map(kzi => (struct === 'OPEN') ? (kzi * qH * GDx * CDx) : PfX0);
+        const PfZByStory = kzByStory.map(kzi => (struct === 'OPEN') ? (kzi * qH * GDz * CDz) : PfZ0);
+
+        const fxStory = storyHeights.map((h,i) => (PfXByStory[i]||0) * Bx2 * h);
+        const fzStory = storyHeights.map((h,i) => (PfZByStory[i]||0) * Bz2 * h);
         const baseX = fxStory.reduce((a,b)=>a+b,0);
         const baseZ = fzStory.reduce((a,b)=>a+b,0);
 
@@ -1676,13 +1691,24 @@ function renderAnalysis(projectId){
 
         const rr = host.querySelector('#wRes');
         if(rr){
-          const mode = (struct === 'OPEN') ? `OPEN (CDx=${CDx.toFixed(3)}, CDz=${CDz.toFixed(3)})` : `ENCLOSED (ΔCpeX=${(Cpe1x-Cpe2x).toFixed(3)}, ΔCpeZ=${(Cpe1z-Cpe2z).toFixed(3)})`;
-          rr.innerHTML = `${mode}<br/>KHr=${KHr.toFixed(4)} · VH=${VH.toFixed(3)} m/s<br/>qH=${qH.toFixed(6)} kN/m²<br/>PfX=${PfX.toFixed(6)} kN/m² · PfZ=${PfZ.toFixed(6)} kN/m²<br/>Base shear X=${baseX.toFixed(3)} kN · Z=${baseZ.toFixed(3)} kN`;
+          const mode = (struct === 'OPEN') ? `OPEN (kz=z/H, CDx=${CDx.toFixed(3)}, CDz=${CDz.toFixed(3)})` : `ENCLOSED (ΔCpeX=${(Cpe1x-Cpe2x).toFixed(3)}, ΔCpeZ=${(Cpe1z-Cpe2z).toFixed(3)})`;
+          const pfX0 = (PfXByStory?.[0] ?? 0);
+          const pfZ0 = (PfZByStory?.[0] ?? 0);
+          rr.innerHTML = `${mode}<br/>KHr=${KHr.toFixed(4)} · VH=${VH.toFixed(3)} m/s<br/>qH=${qH.toFixed(6)} kN/m²<br/>Pf(z1) X=${pfX0.toFixed(6)} kN/m² · Z=${pfZ0.toFixed(6)} kN/m²<br/>Base shear X=${baseX.toFixed(3)} kN · Z=${baseZ.toFixed(3)} kN`;
         }
 
         const tb = host.querySelector('#wRows');
         if(tb){
-          tb.innerHTML = storyHeights.map((h,i)=>`<tr><td class="mono">${i+1}</td><td class="r mono">${h.toFixed(3)}</td><td class="r mono">${PfX.toFixed(6)}</td><td class="r mono">${(fxStory[i]||0).toFixed(3)}</td><td class="r mono">${PfZ.toFixed(6)}</td><td class="r mono">${(fzStory[i]||0).toFixed(3)}</td></tr>`).join('');
+          tb.innerHTML = storyHeights.map((h,i)=>`<tr>
+            <td class="mono">${i+1}</td>
+            <td class="r mono">${Number(zTops[i]||0).toFixed(3)}</td>
+            <td class="r mono">${h.toFixed(3)}</td>
+            <td class="r mono">${(kzByStory[i]||0).toFixed(3)}</td>
+            <td class="r mono">${(PfXByStory[i]||0).toFixed(6)}</td>
+            <td class="r mono">${(fxStory[i]||0).toFixed(3)}</td>
+            <td class="r mono">${(PfZByStory[i]||0).toFixed(6)}</td>
+            <td class="r mono">${(fzStory[i]||0).toFixed(3)}</td>
+          </tr>`).join('');
         }
       };
 
