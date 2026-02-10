@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0829KST';
+const BUILD = '20260211-0835KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0829KST'),
-    import('/prebim/app_profiles.js?v=20260211-0829KST'),
+    import('/prebim/engine.js?v=20260211-0835KST'),
+    import('/prebim/app_profiles.js?v=20260211-0835KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1979,7 +1979,23 @@ function renderAnalysis(projectId){
       const storyHeights = ex.storyHeights.length ? ex.storyHeights : Array.from({length:storyCount}, () => 3.0);
       const hi = Array.from({length:storyCount}, (_,i) => Math.max(0.1, (levels?.[i+1]|| (i+1)*3) )); // height to level i+1 (m)
 
-      const defaultW = 10000; // kN (user edits)
+      // Estimate effective seismic weight W (kN)
+      // - Structural selfweight from current members (profile kg/m * length)
+      // - Plus a portion of live load over plan area (default 0.25L), as a helpful starting point.
+      // Users can override.
+      let steelWkN = 0;
+      let planA = Math.max(0, (ex.maxX-ex.minX) * (ex.maxZ-ex.minZ));
+      try{
+        const mems = __engine.generateMembers(model);
+        const q = summarizeMembers(mems, model);
+        const kg = (q?.totalWeightKg!=null && Number.isFinite(q.totalWeightKg)) ? q.totalWeightKg : 0;
+        steelWkN = kg * 9.80665 / 1000; // kN
+      }catch{}
+      const storyCountForArea = Math.max(1, storyCount);
+      const qLive = parseFloat((document.getElementById('qLive')?.value || '0').toString()) || 0;
+      const livePortion = 0.25;
+      const liveWkN = planA * storyCountForArea * qLive * livePortion;
+      const defaultW = Math.max(0, steelWkN + liveWkN);
       const html = `
         <div class="grid2">
           <div>
@@ -2030,7 +2046,8 @@ function renderAnalysis(projectId){
             </div>
 
             <label class="label" style="margin-top:10px">Effective seismic weight W (kN)</label>
-            <input class="input" id="eW" value="${defaultW}" />
+            <input class="input" id="eW" value="${defaultW.toFixed(3)}" />
+            <div class="note" style="margin-top:6px">Auto estimate: steel selfweight ≈ <span class="mono">${steelWkN.toFixed(3)} kN</span> + 0.25·L over plan area A=<span class="mono">${planA.toFixed(3)} m²</span> × floors=<span class="mono">${storyCountForArea}</span> → <span class="mono">${liveWkN.toFixed(3)} kN</span></div>
 
             <div class="grid2" style="margin-top:8px">
               <div>
