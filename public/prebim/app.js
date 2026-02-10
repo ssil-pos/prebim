@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0759KST';
+const BUILD = '20260211-0805KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0759KST'),
-    import('/prebim/app_profiles.js?v=20260211-0759KST'),
+    import('/prebim/engine.js?v=20260211-0805KST'),
+    import('/prebim/app_profiles.js?v=20260211-0805KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -575,9 +575,9 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const conn = connCfg || {};
   const defaultModeByKind = {
     column: 'FIXED',
-    beamX: 'PIN',
-    beamY: 'PIN',
-    subBeam: 'PIN',
+    beamX: 'FIXED',
+    beamY: 'FIXED',
+    subBeam: 'FIXED',
     brace: 'PIN',
     joist: 'PIN',
   };
@@ -846,8 +846,8 @@ function renderAnalysis(projectId){
         <div class="pane-h"><b>Settings</b><span class="mono" id="analysisHudState" style="font-size:11px; opacity:.65">idle</span></div>
         <div class="pane-b">
           <div class="acc" id="settingsAcc">
-            <button class="acc-btn" type="button" data-acc="sup">Supports <span class="chev" id="chevSup">▴</span></button>
-            <div class="acc-panel open" id="panelSup">
+            <button class="acc-btn" type="button" data-acc="sup">Supports <span class="chev" id="chevSup">▾</span></button>
+            <div class="acc-panel" id="panelSup">
               <label class="label">Support</label>
               <select class="input" id="supportMode">
                 <option value="PINNED" selected>PINNED</option>
@@ -890,8 +890,8 @@ function renderAnalysis(projectId){
               <div class="note" style="margin-top:6px">Select members in 3D to edit end conditions.</div>
             </div>
 
-            <button class="acc-btn" type="button" data-acc="crit">Criteria <span class="chev" id="chevCrit">▴</span></button>
-            <div class="acc-panel open" id="panelCrit">
+            <button class="acc-btn" type="button" data-acc="crit">Criteria <span class="chev" id="chevCrit">▾</span></button>
+            <div class="acc-panel" id="panelCrit">
               <label class="label">Design method</label>
               <select class="input" id="designMethod">
                 <option value="STRENGTH" selected>Strength (KDS factors)</option>
@@ -1439,7 +1439,6 @@ function renderAnalysis(projectId){
               <th class="r">disp</th>
               <th class="r">allow</th>
               <th class="r">util</th>
-              <th>detail</th>
             </tr></thead>
             <tbody>
               ${top.map(r => `
@@ -1508,7 +1507,6 @@ function renderAnalysis(projectId){
                       <td class="r mono">${dispMm.toFixed(3)} mm</td>
                       <td class="r mono">${allowMm>0 ? allowMm.toFixed(3)+' mm' : '-'}</td>
                       <td class="r mono">${util.toFixed(3)}</td>
-                      <td><button class="btn smallbtn" type="button" data-detail="${escapeHtml(String(aid))}">Detail</button></td>
                     `;
                   })()}
                 </tr>
@@ -1524,22 +1522,8 @@ function renderAnalysis(projectId){
         const util = Number(tr.getAttribute('data-util')||'0')||0;
         if(util > 1.0 + 1e-9) tr.classList.add('fail');
 
-        // Row click selects in 3D
-        tr.addEventListener('click', (ev) => {
-          // If user clicked the detail button, handle below.
-          const btn = ev.target?.closest?.('button[data-detail]');
-          if(btn) return;
-          const aid = tr.getAttribute('data-mem');
-          if(!aid) return;
-          const eid = engineIdByAnalysisId[String(aid)] || '';
-          if(eid) view.setSelection?.([eid]);
-          saveAnalysisSettings(p.id, { selectedMemberEngineId: String(eid) });
-          highlightMemberRow(String(aid));
-          renderMemberDetail(String(aid));
-        });
-
-        tr.querySelector('button[data-detail]')?.addEventListener('click', (ev) => {
-          ev.stopPropagation();
+        // Row click selects in 3D + opens detail panel
+        tr.addEventListener('click', () => {
           const aid = tr.getAttribute('data-mem');
           if(!aid) return;
           const eid = engineIdByAnalysisId[String(aid)] || '';
@@ -5320,13 +5304,7 @@ async function createThreeView(container){
               }
 
               // Visual mark to show orientation clearly (even if section is square-ish)
-              const markLen = Math.max(0.35, Math.min(0.9, len * 0.08));
-              const markGeom = new THREE.BoxGeometry(markLen, 0.06, 0.06);
-              const markMat = new THREE.MeshBasicMaterial({ color: 0xf97316, transparent:true, opacity:0.95, depthTest:false });
-              const mark = new THREE.Mesh(markGeom, markMat);
-              mark.position.set(markLen*0.55, len*0.48, 0); // +X of local section, near top
-              mark.renderOrder = 12;
-              mesh.add(mark);
+              // (removed) orientation mark; use section rotation itself for visualization
             }
           }catch{}
 
