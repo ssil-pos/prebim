@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1720KST';
+const BUILD = '20260210-1722KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1720KST'),
-    import('/prebim/app_profiles.js?v=20260210-1720KST'),
+    import('/prebim/engine.js?v=20260210-1722KST'),
+    import('/prebim/app_profiles.js?v=20260210-1722KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -2332,28 +2332,56 @@ function renderAnalysis(projectId){
         try{
           const rMain = Number(document.getElementById('deflMain')?.value || 300) || 300;
           const rSub = Number(document.getElementById('deflSub')?.value || 300) || 300;
+          const rColTop = Number(document.getElementById('colTop')?.value || 200) || 200;
           const kinds = payload?._kinds || [];
           const chkMain = (document.getElementById('chkMain')?.checked !== false);
           const chkSub = (document.getElementById('chkSub')?.checked !== false);
+          const chkCol = (document.getElementById('chkCol')?.checked !== false);
           const nodeById = new Map((payload?.nodes||[]).map(n => [String(n.id), n]));
+
+          // building height H (for column-top displacement)
+          let minY = Infinity, maxY = -Infinity;
+          for(const n of (payload?.nodes||[])){
+            minY = Math.min(minY, Number(n.y)||0);
+            maxY = Math.max(maxY, Number(n.y)||0);
+          }
+          const H = Math.max(0, maxY - minY);
+
           const badE = [];
           for(let idx=0; idx<(payload?.members||[]).length; idx++){
             const mem = payload.members[idx];
             const mr = res?.members?.[String(mem.id)];
             if(!mr) continue;
             const kind = String(kinds[idx] || '');
+
             if((kind==='beamX' || kind==='beamY') && !chkMain) continue;
             if(kind==='subBeam' && !chkSub) continue;
-            const ratio = (kind==='subBeam') ? rSub : (kind==='beamX' || kind==='beamY' ? rMain : null);
-            if(!ratio) continue;
+            if(kind==='column' && !chkCol) continue;
+
             const ni = nodeById.get(String(mem.i));
             const nj = nodeById.get(String(mem.j));
             if(!ni || !nj) continue;
-            const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
-            if(L<=1e-9) continue;
-            const allow = L/ratio;
-            const dy = Math.abs(Number(mr.dyAbsMax)||0);
-            if(allow>0 && dy/allow > 1.0 + 1e-9){
+
+            let util = 0;
+            if(kind === 'column'){
+              const allow = (H>1e-9) ? (H / rColTop) : 0;
+              const topNodeId = (Number(ni.y) >= Number(nj.y)) ? String(mem.i) : String(mem.j);
+              const nd = res?.nodes?.[topNodeId];
+              const dx = Number(nd?.dx||0);
+              const dz = Number(nd?.dz||0);
+              const disp = Math.hypot(dx, dz);
+              util = (allow>0) ? (disp/allow) : 0;
+            }else{
+              const ratio = (kind==='subBeam') ? rSub : (kind==='beamX' || kind==='beamY' ? rMain : null);
+              if(!ratio) continue;
+              const L = Math.hypot(ni.x-nj.x, ni.z-nj.z);
+              if(L<=1e-9) continue;
+              const allow = L/ratio;
+              const dy = Math.abs(Number(mr.dyAbsMax)||0);
+              util = (allow>0) ? (dy/allow) : 0;
+            }
+
+            if(util > 1.0 + 1e-9){
               const eid = engineIdByAnalysisId[String(mem.id)];
               if(eid) badE.push(eid);
             }
