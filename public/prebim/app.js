@@ -846,8 +846,7 @@ function renderAnalysis(projectId){
       }
     });
 
-    // apply connection changes for selected member
-    document.getElementById('btnConnApply')?.addEventListener('click', () => {
+    const applyConnForSelected = () => {
       const saved = loadAnalysisSettings(p.id);
       const selE = String(saved?.selectedMemberEngineId || '');
       if(!selE) return;
@@ -857,9 +856,18 @@ function renderAnalysis(projectId){
       cfg.members = cfg.members || {};
       cfg.members[selE] = { i: mi, j: mj };
       saveConnSettings(p.id, cfg);
-      // refresh connection markers via supports viz refresh
+
+      // realtime update markers in 3D
+      try{ view.setConnectionMarkers?.(members, cfg); }catch{}
+      // keep analysis payload builder in sync
       try{ refreshSupportViz(); }catch{}
-    });
+    };
+
+    // apply connection changes for selected member
+    document.getElementById('btnConnApply')?.addEventListener('click', applyConnForSelected);
+    // realtime update while user edits dropdowns
+    document.getElementById('connI')?.addEventListener('change', applyConnForSelected);
+    document.getElementById('connJ')?.addEventListener('change', applyConnForSelected);
 
     document.getElementById('btn3dGuides')?.addEventListener('click', () => {
       const on = view.toggleGuides?.();
