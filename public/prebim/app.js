@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1352KST';
+const BUILD = '20260210-1405KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1352KST'),
-    import('/prebim/app_profiles.js?v=20260210-1352KST'),
+    import('/prebim/engine.js?v=20260210-1405KST'),
+    import('/prebim/app_profiles.js?v=20260210-1405KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -368,6 +368,10 @@ function saveConnSettings(projectId, patch){
 }
 
 function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=null, extraLoads=null){
+  const windStoryX = Array.isArray(extraLoads?.windStoryX) ? extraLoads.windStoryX : null;
+  const windStoryZ = Array.isArray(extraLoads?.windStoryZ) ? extraLoads.windStoryZ : null;
+  const eqStoryX = Array.isArray(extraLoads?.eqStoryX) ? extraLoads.eqStoryX : null;
+  const eqStoryZ = Array.isArray(extraLoads?.eqStoryZ) ? extraLoads.eqStoryZ : null;
   // Build analysis request payload from engine model.
   const m = __engine.normalizeModel(model);
   const members = __engine.generateMembers(m);
@@ -635,43 +639,76 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     supports = [{ nodeId: jointList[0].id, fix: { DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }];
   }
 
-  // Lateral loads (wind/seismic): distribute to top level nodes
+  // Lateral loads (wind/seismic): distribute to story level nodes (preferred), else top level nodes (legacy)
   const topY = Math.max(...nodes.map(n => n.y));
   const topNodes = nodes.filter(n => Math.abs(n.y - topY) < 1e-6).map(n => n.id);
-  const splitToTop = (F) => {
-    const nn = Math.max(1, topNodes.length);
-    return topNodes.map(id => ({ nodeId: id, F: F/nn }));
+
+  const splitToNodes = (F, nodeIds) => {
+    const ids = (nodeIds && nodeIds.length) ? nodeIds : topNodes;
+    const nn = Math.max(1, ids.length);
+    return ids.map(id => ({ nodeId: id, F: F/nn }));
   };
+
+  const storyLevelsMm = (model?.levels || []).map(v => Number(v)||0);
+  const storyY = (iStory) => {
+    // apply story force at top of story (level i+1). If not available, fallback to top.
+    const yMm = storyLevelsMm?.[iStory+1];
+    if(yMm == null) return topY;
+    return yMm/1000;
+  };
+  const nodesAtY = (yTarget, tol=1e-4) => nodes.filter(n => Math.abs(n.y - yTarget) < tol).map(n => n.id);
+
+  const buildStoryNodeLoads = (storyForces, dir) => {
+    if(!Array.isArray(storyForces) || !storyForces.length) return [];
+    const out = [];
+    for(let i=0;i<storyForces.length;i++){
+      const F = Number(storyForces[i]||0) || 0;
+      if(Math.abs(F) < 1e-12) continue;
+      const yT = storyY(i);
+      const ids = nodesAtY(yT);
+      const splits = splitToNodes(F, ids).map(x => ({ ...x, dir }));
+      out.push(...splits);
+    }
+    return out;
+  };
+
   const windX = Number(extraLoads?.windX ?? 0) || 0;
   const windZ = Number(extraLoads?.windZ ?? 0) || 0;
   const eqX = Number(extraLoads?.eqX ?? 0) || 0;
   const eqZ = Number(extraLoads?.eqZ ?? 0) || 0;
 
+  const hasWindStoryX = Array.isArray(windStoryX) && windStoryX.some(v => Math.abs(Number(v?.F ?? v ?? 0))>1e-9);
+  const hasWindStoryZ = Array.isArray(windStoryZ) && windStoryZ.some(v => Math.abs(Number(v?.F ?? v ?? 0))>1e-9);
+  const hasEqStoryX = Array.isArray(eqStoryX) && eqStoryX.some(v => Math.abs(Number(v?.F ?? v ?? 0))>1e-9);
+  const hasEqStoryZ = Array.isArray(eqStoryZ) && eqStoryZ.some(v => Math.abs(Number(v?.F ?? v ?? 0))>1e-9);
+
+  const splitToTop = (F) => splitToNodes(F, topNodes);
+
   // Load cases
   const caseD = { name:'D', selfweightY: -1.0, memberUDL: [], nodeLoads: [] };
   const caseL = { name:'L', selfweightY: 0.0, memberUDL: liveLoads, nodeLoads: [] };
   const caseS = { name:'S', selfweightY: 0.0, memberUDL: snowLoads, nodeLoads: [] };
-  const caseWX = { name:'WX', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(windX).map(x=>({ ...x, dir:'GX' })) };
-  const caseWZ = { name:'WZ', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(windZ).map(x=>({ ...x, dir:'GZ' })) };
-  const caseEQX = { name:'EQX', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(eqX).map(x=>({ ...x, dir:'GX' })) };
-  const caseEQZ = { name:'EQZ', selfweightY: 0.0, memberUDL: [], nodeLoads: splitToTop(eqZ).map(x=>({ ...x, dir:'GZ' })) };
+  const caseWX = { name:'WX', selfweightY: 0.0, memberUDL: [], nodeLoads: (hasWindStoryX ? buildStoryNodeLoads(windStoryX,'GX') : splitToTop(windX).map(x=>({ ...x, dir:'GX' }))) };
+  const caseWZ = { name:'WZ', selfweightY: 0.0, memberUDL: [], nodeLoads: (hasWindStoryZ ? buildStoryNodeLoads(windStoryZ,'GZ') : splitToTop(windZ).map(x=>({ ...x, dir:'GZ' }))) };
+  const caseEQX = { name:'EQX', selfweightY: 0.0, memberUDL: [], nodeLoads: (hasEqStoryX ? buildStoryNodeLoads(eqStoryX,'GX') : splitToTop(eqX).map(x=>({ ...x, dir:'GX' }))) };
+  const caseEQZ = { name:'EQZ', selfweightY: 0.0, memberUDL: [], nodeLoads: (hasEqStoryZ ? buildStoryNodeLoads(eqStoryZ,'GZ') : splitToTop(eqZ).map(x=>({ ...x, dir:'GZ' }))) };
 
   const cases = [caseD, caseL];
   if(snowLoads.length) cases.push(caseS);
-  if(Math.abs(windX)>1e-9) cases.push(caseWX);
-  if(Math.abs(windZ)>1e-9) cases.push(caseWZ);
-  if(Math.abs(eqX)>1e-9) cases.push(caseEQX);
-  if(Math.abs(eqZ)>1e-9) cases.push(caseEQZ);
+  if(hasWindStoryX || Math.abs(windX)>1e-9) cases.push(caseWX);
+  if(hasWindStoryZ || Math.abs(windZ)>1e-9) cases.push(caseWZ);
+  if(hasEqStoryX || Math.abs(eqX)>1e-9) cases.push(caseEQX);
+  if(hasEqStoryZ || Math.abs(eqZ)>1e-9) cases.push(caseEQZ);
 
   // Combos: hard-coded from sample PDF (simplified mapping to our cases)
   // Mapping: D ~ (Ds+De+Dp+Pa ...), L ~ LL, S ~ SNOW, WX/WZ ~ WIND, EQX/EQZ ~ EQ
   const combos = [];
 
   const hasS = snowLoads.length > 0;
-  const hasWX = Math.abs(windX) > 1e-9;
-  const hasWZ = Math.abs(windZ) > 1e-9;
-  const hasEQX = Math.abs(eqX) > 1e-9;
-  const hasEQZ = Math.abs(eqZ) > 1e-9;
+  const hasWX = hasWindStoryX || (Math.abs(windX) > 1e-9);
+  const hasWZ = hasWindStoryZ || (Math.abs(windZ) > 1e-9);
+  const hasEQX = hasEqStoryX || (Math.abs(eqX) > 1e-9);
+  const hasEQZ = hasEqStoryZ || (Math.abs(eqZ) > 1e-9);
 
   if(designMethod === 'ASD'){
     // From PDF ASD table (page 6) - we use the "W" row (not the separate KDS case row) and keep the core combos.
@@ -843,8 +880,14 @@ function renderAnalysis(projectId){
               <label class="label">Snow load (kN/m²)</label>
               <input class="input" id="qSnow" value="0.42" />
 
-              <label class="label">Wind base shear (kN)</label>
-              <div class="grid2">
+              <div class="row" style="justify-content:space-between; align-items:flex-end; gap:8px; flex-wrap:wrap">
+                <div>
+                  <label class="label" style="margin:0">Wind base shear (kN)</label>
+                  <div class="note" style="margin-top:4px">You can input base shear directly or compute via KDS wind popup.</div>
+                </div>
+                <button class="btn" id="btnWindCalc" type="button">Wind (KDS)…</button>
+              </div>
+              <div class="grid2" style="margin-top:6px">
                 <div>
                   <div class="note" style="margin-top:0">X (GX)</div>
                   <input class="input" id="windX" value="190.10" />
@@ -855,8 +898,14 @@ function renderAnalysis(projectId){
                 </div>
               </div>
 
-              <label class="label">Seismic base shear (kN)</label>
-              <div class="grid2">
+              <div class="row" style="justify-content:space-between; align-items:flex-end; gap:8px; flex-wrap:wrap; margin-top:10px">
+                <div>
+                  <label class="label" style="margin:0">Seismic base shear (kN)</label>
+                  <div class="note" style="margin-top:4px">You can input base shear directly or compute & distribute via KDS seismic popup.</div>
+                </div>
+                <button class="btn" id="btnSeismicCalc" type="button">Seismic (KDS)…</button>
+              </div>
+              <div class="grid2" style="margin-top:6px">
                 <div>
                   <div class="note" style="margin-top:0">X (GX)</div>
                   <input class="input" id="eqX" value="2911.49" />
@@ -996,6 +1045,15 @@ function renderAnalysis(projectId){
     setIf('windZ', (saved.windZ!=null ? saved.windZ : 0));
     setIf('eqX', (saved.eqX!=null && Number(saved.eqX)!==0 ? saved.eqX : defEqX));
     setIf('eqZ', (saved.eqZ!=null ? saved.eqZ : 0));
+
+    // Story force arrays (optional). If present, buildAnalysisPayload will apply story-level node loads.
+    let lateralStory = {
+      windStoryX: (Array.isArray(saved.windStoryX) ? saved.windStoryX.slice() : null),
+      windStoryZ: (Array.isArray(saved.windStoryZ) ? saved.windStoryZ.slice() : null),
+      eqStoryX: (Array.isArray(saved.eqStoryX) ? saved.eqStoryX.slice() : null),
+      eqStoryZ: (Array.isArray(saved.eqStoryZ) ? saved.eqStoryZ.slice() : null),
+    };
+
     try{
       const dm = document.getElementById('designMethod');
       if(dm && saved.designMethod) dm.value = String(saved.designMethod);
@@ -1348,6 +1406,473 @@ function renderAnalysis(projectId){
       if(el) el.innerHTML = html;
     };
 
+    // --- Wind / Seismic KDS popups (client-side helpers) ---
+    const getModelExtents = () => {
+      try{
+        const pts = (model?.joints||[]).map(j => j.pt);
+        if(!pts.length) return { minX:0,maxX:0,minZ:0,maxZ:0, H:0, storyCount:1, storyHeights:[] };
+        let minX=+Infinity,maxX=-Infinity,minZ=+Infinity,maxZ=-Infinity;
+        for(const p of pts){
+          const x=Number(p?.[0]||0)/1000;
+          const z=Number(p?.[2]||0)/1000;
+          minX=Math.min(minX,x); maxX=Math.max(maxX,x);
+          minZ=Math.min(minZ,z); maxZ=Math.max(maxZ,z);
+        }
+        const levels = (model?.levels||[]).map(v=>Number(v||0)/1000);
+        const storyCount = Math.max(1, levels.length-1);
+        const storyHeights = [];
+        for(let i=0;i<storyCount;i++) storyHeights.push(Math.max(0, (levels?.[i+1]||0) - (levels?.[i]||0)));
+        const H = levels.length ? Math.max(...levels) - Math.min(...levels) : 0;
+        return { minX,maxX,minZ,maxZ, H, storyCount, storyHeights, levels };
+      }catch{ return { minX:0,maxX:0,minZ:0,maxZ:0, H:0, storyCount:1, storyHeights:[] }; }
+    };
+
+    const modalMount = () => {
+      let host = document.getElementById('modalHost');
+      if(host) return host;
+      host = document.createElement('div');
+      host.id = 'modalHost';
+      document.body.appendChild(host);
+      return host;
+    };
+
+    const openModal = ({ title, html, onApply, applyText='Apply', w=900 }) => {
+      const host = modalMount();
+      host.innerHTML = `
+        <div class="kds-modal-backdrop" data-close="1">
+          <div class="kds-modal" style="max-width:${w}px" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+            <div class="kds-modal-h">
+              <b>${escapeHtml(title)}</b>
+              <button class="btn" type="button" data-close="1">Close</button>
+            </div>
+            <div class="kds-modal-b">${html}</div>
+            <div class="kds-modal-f">
+              <div class="note" style="margin-top:0">Tip: values update in real-time. Story forces will override base shear distribution when running analysis.</div>
+              <div class="row" style="gap:8px">
+                <button class="btn" type="button" data-close="1">Cancel</button>
+                <button class="btn primary" type="button" id="kdsApply">${escapeHtml(applyText)}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      const close = () => { host.innerHTML = ''; };
+      host.querySelectorAll('[data-close="1"]').forEach(el => el.addEventListener('click', (e) => {
+        if(el.classList.contains('kds-modal-backdrop') && e.target !== el) return;
+        close();
+      }));
+      host.querySelector('#kdsApply')?.addEventListener('click', () => {
+        try{ onApply?.(); }catch(err){ console.warn(err); }
+        close();
+      });
+      // escape key
+      const onKey = (e) => { if(e.key==='Escape'){ close(); document.removeEventListener('keydown', onKey); } };
+      document.addEventListener('keydown', onKey);
+      return { host, close };
+    };
+
+    // KDS Wind (KDS 41 12 00, simplified to match sample workflow)
+    // qH = 0.5*rho*VH^2 ; VH = Vo*Kd*Kzr(H)*Kzt*Iw
+    // Pf = kz * qH * GD * (Cpe1 - Cpe2)
+    // Story force: Fi = Pf * breadth * storyHeight
+    const openWindKds = () => {
+      const ex = getModelExtents();
+      const Bx = Math.max(0.1, ex.maxZ - ex.minZ); // wind along X -> projected width in Z
+      const Bz = Math.max(0.1, ex.maxX - ex.minX); // wind along Z -> projected width in X
+      const storyHeights = ex.storyHeights.length ? ex.storyHeights : [Math.max(0.1, ex.H||3)];
+
+      const html = `
+        <div class="grid2">
+          <div>
+            <div class="note" style="margin-top:0"><b>Inputs (KDS 41 12 00)</b></div>
+            <label class="label">Basic wind speed Vo (m/s)</label>
+            <input class="input" id="wVo" value="38" />
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">Exposure</label>
+                <select class="input" id="wExp"><option value="B">B</option><option value="C" selected>C</option><option value="D">D</option></select>
+              </div>
+              <div>
+                <label class="label">Air density ρ (kg/m³)</label>
+                <input class="input" id="wRho" value="1.225" />
+              </div>
+            </div>
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">Kd</label>
+                <input class="input" id="wKd" value="1.0" />
+              </div>
+              <div>
+                <label class="label">Kzt</label>
+                <input class="input" id="wKzt" value="1.0" />
+              </div>
+            </div>
+
+            <label class="label">Importance factor Iw</label>
+            <input class="input" id="wIw" value="1.0" />
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">kz</label>
+                <input class="input" id="wKz" value="0.985" />
+              </div>
+              <div>
+                <label class="label">Mean roof height H (m)</label>
+                <input class="input" id="wH" value="${(ex.H||10.5).toFixed(3)}" />
+              </div>
+            </div>
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">GD (X)</label>
+                <input class="input" id="wGDx" value="2.12" />
+              </div>
+              <div>
+                <label class="label">GD (Z)</label>
+                <input class="input" id="wGDz" value="2.06" />
+              </div>
+            </div>
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">Cpe1/Cpe2 (X)</label>
+                <div class="grid2" style="margin-top:6px">
+                  <input class="input" id="wCpe1x" value="0.838" />
+                  <input class="input" id="wCpe2x" value="-0.350" />
+                </div>
+              </div>
+              <div>
+                <label class="label">Cpe1/Cpe2 (Z)</label>
+                <div class="grid2" style="margin-top:6px">
+                  <input class="input" id="wCpe1z" value="0.788" />
+                  <input class="input" id="wCpe2z" value="-0.500" />
+                </div>
+              </div>
+            </div>
+
+            <label class="label" style="margin-top:10px">Breadth (m)</label>
+            <div class="grid2">
+              <div>
+                <div class="note" style="margin-top:0">Wind X uses Z-size</div>
+                <input class="input" id="wBx" value="${Bx.toFixed(3)}" />
+              </div>
+              <div>
+                <div class="note" style="margin-top:0">Wind Z uses X-size</div>
+                <input class="input" id="wBz" value="${Bz.toFixed(3)}" />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="note" style="margin-top:0"><b>Results</b></div>
+            <div class="mono" id="wRes" style="font-size:12px; line-height:1.6"></div>
+            <div class="note" style="margin-top:10px"><b>Story forces (kN)</b></div>
+            <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
+              <table class="table" style="min-width:760px">
+                <thead><tr><th>Story</th><th class="r">h (m)</th><th class="r">PfX (kN/m²)</th><th class="r">FX (kN)</th><th class="r">PfZ (kN/m²)</th><th class="r">FZ (kN)</th></tr></thead>
+                <tbody id="wRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const { host } = openModal({ title:'Wind loads (KDS) — official (MVP)', html, applyText:'Apply to Analysis' , onApply: () => {
+        const fx = Number(host.querySelector('#wBaseX')?.textContent||0) || 0;
+        const fz = Number(host.querySelector('#wBaseZ')?.textContent||0) || 0;
+        const sfx = (JSON.parse(host.querySelector('#wStoryX')?.value||'[]')||[]);
+        const sfz = (JSON.parse(host.querySelector('#wStoryZ')?.value||'[]')||[]);
+        const wx = document.getElementById('windX'); if(wx) wx.value = fx.toFixed(3);
+        const wz = document.getElementById('windZ'); if(wz) wz.value = fz.toFixed(3);
+        lateralStory.windStoryX = sfx;
+        lateralStory.windStoryZ = sfz;
+        saveAnalysisSettings(p.id, { windX: fx, windZ: fz, windStoryX: sfx, windStoryZ: sfz });
+      }});
+
+      const hidden = document.createElement('div');
+      hidden.innerHTML = `<span id="wBaseX" hidden></span><span id="wBaseZ" hidden></span><input id="wStoryX" hidden /><input id="wStoryZ" hidden />`;
+      host.querySelector('.kds-modal-b')?.appendChild(hidden);
+
+      const KzrAt = (exp, z) => {
+        // Matches sample: Kzr = 1 (z<=Zb) else 0.71*z^alpha (up to Zg)
+        const E = String(exp||'C').toUpperCase();
+        const alpha = (E==='B') ? 0.22 : (E==='D' ? 0.11 : 0.15);
+        const Zg = (E==='B') ? 300 : (E==='D' ? 400 : 350);
+        const Zb = (E==='B') ? 7 : (E==='D' ? 15 : 10);
+        const zz = Math.max(0, Number(z)||0);
+        if(zz <= Zb) return 1.0;
+        const k = 0.71 * Math.pow(Math.min(zz, Zg), alpha);
+        return k;
+      };
+
+      const recalc = () => {
+        const Vo = Number(host.querySelector('#wVo')?.value||0)||0;
+        const exp = String(host.querySelector('#wExp')?.value||'C');
+        const rho = Number(host.querySelector('#wRho')?.value||1.225)||1.225;
+        const Kd = Number(host.querySelector('#wKd')?.value||1)||1;
+        const Kzt = Number(host.querySelector('#wKzt')?.value||1)||1;
+        const Iw = Number(host.querySelector('#wIw')?.value||1)||1;
+        const kz = Number(host.querySelector('#wKz')?.value||1)||1;
+        const H = Number(host.querySelector('#wH')?.value||0)||0;
+        const GDx = Number(host.querySelector('#wGDx')?.value||0)||0;
+        const GDz = Number(host.querySelector('#wGDz')?.value||0)||0;
+        const Cpe1x = Number(host.querySelector('#wCpe1x')?.value||0)||0;
+        const Cpe2x = Number(host.querySelector('#wCpe2x')?.value||0)||0;
+        const Cpe1z = Number(host.querySelector('#wCpe1z')?.value||0)||0;
+        const Cpe2z = Number(host.querySelector('#wCpe2z')?.value||0)||0;
+        const Bx2 = Math.max(0.01, Number(host.querySelector('#wBx')?.value||0)||0);
+        const Bz2 = Math.max(0.01, Number(host.querySelector('#wBz')?.value||0)||0);
+
+        const KHr = KzrAt(exp, H);
+        const VH = Vo * Kd * KHr * Kzt * Iw;
+        const qH_N = 0.5 * rho * VH*VH; // N/m^2
+        const qH = qH_N/1000; // kN/m^2
+
+        const PfX = kz * qH * GDx * (Cpe1x - Cpe2x);
+        const PfZ = kz * qH * GDz * (Cpe1z - Cpe2z);
+
+        const fxStory = storyHeights.map(h => PfX * Bx2 * h);
+        const fzStory = storyHeights.map(h => PfZ * Bz2 * h);
+        const baseX = fxStory.reduce((a,b)=>a+b,0);
+        const baseZ = fzStory.reduce((a,b)=>a+b,0);
+
+        host.querySelector('#wBaseX').textContent = String(baseX);
+        host.querySelector('#wBaseZ').textContent = String(baseZ);
+        host.querySelector('#wStoryX').value = JSON.stringify(fxStory.map(v => +(+v).toFixed(6)));
+        host.querySelector('#wStoryZ').value = JSON.stringify(fzStory.map(v => +(+v).toFixed(6)));
+
+        const rr = host.querySelector('#wRes');
+        if(rr){
+          rr.innerHTML = `KHr=${KHr.toFixed(4)} · VH=${VH.toFixed(3)} m/s<br/>qH=${qH.toFixed(6)} kN/m²<br/>PfX=${PfX.toFixed(6)} kN/m² · PfZ=${PfZ.toFixed(6)} kN/m²<br/>Base shear X=${baseX.toFixed(3)} kN · Z=${baseZ.toFixed(3)} kN`;
+        }
+
+        const tb = host.querySelector('#wRows');
+        if(tb){
+          tb.innerHTML = storyHeights.map((h,i)=>`<tr><td class="mono">${i+1}</td><td class="r mono">${h.toFixed(3)}</td><td class="r mono">${PfX.toFixed(6)}</td><td class="r mono">${(fxStory[i]||0).toFixed(3)}</td><td class="r mono">${PfZ.toFixed(6)}</td><td class="r mono">${(fzStory[i]||0).toFixed(3)}</td></tr>`).join('');
+        }
+      };
+
+      host.querySelectorAll('input,select').forEach(inp => inp.addEventListener('input', recalc));
+      host.querySelectorAll('select').forEach(sel => sel.addEventListener('change', recalc));
+      recalc();
+    };
+
+    // KDS Seismic (ELF): compute SDS/SD1/T/Cs, then V=Cs*W, distribute to stories by wi*hi^k
+    const openSeismicKds = () => {
+      const ex = getModelExtents();
+      const storyCount = ex.storyCount;
+      const levels = ex.levels || [];
+      const storyHeights = ex.storyHeights.length ? ex.storyHeights : Array.from({length:storyCount}, () => 3.0);
+      const hi = Array.from({length:storyCount}, (_,i) => Math.max(0.1, (levels?.[i+1]|| (i+1)*3) )); // height to level i+1 (m)
+
+      const defaultW = 10000; // kN (user edits)
+      const html = `
+        <div class="grid2">
+          <div>
+            <div class="note" style="margin-top:0"><b>Inputs (KDS 41 17 00 ELF)</b></div>
+
+            <div class="grid2">
+              <div>
+                <label class="label">S (EPA)</label>
+                <input class="input" id="sS" value="0.22" />
+              </div>
+              <div>
+                <label class="label">Ie</label>
+                <input class="input" id="sIe" value="1.5" />
+              </div>
+            </div>
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">Fa</label>
+                <input class="input" id="sFa" value="1.38" />
+              </div>
+              <div>
+                <label class="label">Fv</label>
+                <input class="input" id="sFv" value="1.38" />
+              </div>
+            </div>
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">R</label>
+                <input class="input" id="sR" value="5.0" />
+              </div>
+              <div>
+                <label class="label">TL (s)</label>
+                <input class="input" id="sTL" value="5.0" />
+              </div>
+            </div>
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">Ct</label>
+                <input class="input" id="sCt" value="0.0724" />
+              </div>
+              <div>
+                <label class="label">x exponent</label>
+                <input class="input" id="sx" value="0.8" />
+              </div>
+            </div>
+
+            <label class="label" style="margin-top:10px">Effective seismic weight W (kN)</label>
+            <input class="input" id="eW" value="${defaultW}" />
+
+            <div class="grid2" style="margin-top:8px">
+              <div>
+                <label class="label">Cs (auto)</label>
+                <input class="input" id="eCs" value="0.0" />
+              </div>
+              <div>
+                <label class="label">k exponent</label>
+                <input class="input" id="ek" value="1.0" />
+              </div>
+            </div>
+            <div class="note" style="margin-top:8px">Cs is computed from SDS/SD1, R, Ie, T and clamped by KDS min/max.</div>
+
+            <div class="note" style="margin-top:10px"><b>Story weights wi (kN)</b> <span class="mono" style="opacity:.65">(sum = W)</span></div>
+            <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
+              <table class="table" style="min-width:520px">
+                <thead><tr><th>Story</th><th class="r">hi (m)</th><th class="r">wi (kN)</th></tr></thead>
+                <tbody id="eWrows"></tbody>
+              </table>
+            </div>
+            <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
+              <button class="btn" type="button" id="btnWequal">Equal split</button>
+              <button class="btn" type="button" id="btnWnorm">Normalize to W</button>
+            </div>
+          </div>
+
+          <div>
+            <div class="note" style="margin-top:0"><b>Results</b></div>
+            <div class="mono" id="eRes" style="font-size:12px; line-height:1.6"></div>
+            <div class="note" style="margin-top:10px"><b>Story forces (kN)</b></div>
+            <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px">
+              <table class="table" style="min-width:560px">
+                <thead><tr><th>Story</th><th class="r">FX</th><th class="r">FZ</th></tr></thead>
+                <tbody id="eFrows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const { host } = openModal({ title:'Seismic loads (KDS) — ELF (official MVP)', html, applyText:'Apply to Analysis', onApply: () => {
+        const base = Number(host.querySelector('#eBase')?.textContent||0) || 0;
+        const sf = (JSON.parse(host.querySelector('#eStory')?.value||'[]')||[]);
+        const exx = document.getElementById('eqX'); if(exx) exx.value = base.toFixed(3);
+        const ezz = document.getElementById('eqZ'); if(ezz) ezz.value = base.toFixed(3);
+        lateralStory.eqStoryX = sf;
+        lateralStory.eqStoryZ = sf;
+        saveAnalysisSettings(p.id, { eqX: base, eqZ: base, eqStoryX: sf, eqStoryZ: sf });
+      }});
+
+      const hidden = document.createElement('div');
+      hidden.innerHTML = `<span id="eBase" hidden></span><input id="eStory" hidden />`;
+      host.querySelector('.kds-modal-b')?.appendChild(hidden);
+
+      const renderWi = () => {
+        const tb = host.querySelector('#eWrows');
+        if(!tb) return;
+        // init if none
+        let wi = Array.isArray(lateralStory._tmpWi) ? lateralStory._tmpWi : null;
+        if(!wi || wi.length !== storyCount){
+          const W = Number(host.querySelector('#eW')?.value||0)||0;
+          wi = Array.from({length:storyCount}, ()=> (W/storyCount));
+          lateralStory._tmpWi = wi;
+        }
+        tb.innerHTML = wi.map((w,i)=>`<tr>
+          <td class="mono">${i+1}</td>
+          <td class="r mono">${(hi[i]||0).toFixed(3)}</td>
+          <td class="r"><input class="input" data-wi="${i}" value="${(+w).toFixed(3)}" style="max-width:140px; text-align:right" /></td>
+        </tr>`).join('');
+        tb.querySelectorAll('input[data-wi]').forEach(inp => inp.addEventListener('input', () => {
+          const idx = Number(inp.getAttribute('data-wi'));
+          const v = Number(inp.value||0)||0;
+          const arr = lateralStory._tmpWi || [];
+          arr[idx] = v;
+          lateralStory._tmpWi = arr;
+          recalc();
+        }));
+      };
+
+      const normalizeWi = () => {
+        const W = Number(host.querySelector('#eW')?.value||0)||0;
+        const wi = (lateralStory._tmpWi||[]).map(v => Number(v||0)||0);
+        const sum = wi.reduce((a,b)=>a+b,0) || 1;
+        lateralStory._tmpWi = wi.map(v => v * (W/sum));
+        renderWi();
+        recalc();
+      };
+
+      const equalWi = () => {
+        const W = Number(host.querySelector('#eW')?.value||0)||0;
+        lateralStory._tmpWi = Array.from({length:storyCount}, ()=> (W/storyCount));
+        renderWi();
+        recalc();
+      };
+
+      host.querySelector('#btnWequal')?.addEventListener('click', equalWi);
+      host.querySelector('#btnWnorm')?.addEventListener('click', normalizeWi);
+
+      const recalc = () => {
+        const W = Number(host.querySelector('#eW')?.value||0)||0;
+        const k = Number(host.querySelector('#ek')?.value||1)||1;
+
+        // KDS parameters
+        const S = Number(host.querySelector('#sS')?.value||0)||0;
+        const Ie = Number(host.querySelector('#sIe')?.value||1)||1;
+        const Fa = Number(host.querySelector('#sFa')?.value||0)||0;
+        const Fv = Number(host.querySelector('#sFv')?.value||0)||0;
+        const R = Number(host.querySelector('#sR')?.value||1)||1;
+        const TL = Number(host.querySelector('#sTL')?.value||5)||5;
+        const Ct = Number(host.querySelector('#sCt')?.value||0)||0;
+        const xexp = Number(host.querySelector('#sx')?.value||0)||0;
+
+        const hn = Math.max(0.1, Number(ex.H||0) || 0.1);
+        const T = Ct * Math.pow(hn, xexp);
+        const SDS = S * 2.5 * Fa * (2/3);
+        const SD1 = S * Fv * (2/3);
+
+        const RdivIe = (R / Ie);
+        const cs_raw = (RdivIe>0) ? (SDS / RdivIe) : 0;
+        const cs_max = (RdivIe>0 && T>1e-9) ? (SD1 / (RdivIe * T)) : 0;
+        const cs_min = Math.max(0.01, 0.044*SDS*Ie);
+        const Cs = (cs_max>0) ? Math.min(Math.max(cs_raw, cs_min), cs_max) : Math.max(cs_raw, cs_min);
+
+        const csEl = host.querySelector('#eCs');
+        if(csEl) csEl.value = Cs.toFixed(6);
+
+        const V = Cs * W;
+
+        // wi distribution (normalize to W)
+        const wi0 = (lateralStory._tmpWi||[]).map(v => Number(v||0)||0);
+        const sum0 = wi0.reduce((a,b)=>a+b,0) || 1;
+        const wi = wi0.map(w => (w/sum0)*W);
+
+        const denom = wi.reduce((s,w,idx)=> s + w*Math.pow(Math.max(0.1,hi[idx]||0), k), 0) || 1;
+        const Fi = wi.map((w,idx)=> (w*Math.pow(Math.max(0.1,hi[idx]||0),k)/denom) * V);
+
+        host.querySelector('#eBase').textContent = String(V);
+        host.querySelector('#eStory').value = JSON.stringify(Fi.map(v => +(+v).toFixed(6)));
+
+        const rr = host.querySelector('#eRes');
+        if(rr){ rr.innerHTML = `hn=${hn.toFixed(3)}m · T=${T.toFixed(4)}s<br/>SDS=${SDS.toFixed(4)} · SD1=${SD1.toFixed(4)}<br/>Cs=${Cs.toFixed(6)} (min ${cs_min.toFixed(6)}, max ${cs_max.toFixed(6)})<br/>V = Cs·W = ${V.toFixed(3)} kN`; }
+
+        const tb = host.querySelector('#eFrows');
+        if(tb){ tb.innerHTML = Fi.map((f,i)=>`<tr><td class="mono">${i+1}</td><td class="r mono">${f.toFixed(3)}</td><td class="r mono">${f.toFixed(3)}</td></tr>`).join(''); }
+      };
+
+      host.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => { renderWi(); recalc(); }));
+      renderWi();
+      recalc();
+    };
+
+    document.getElementById('btnWindCalc')?.addEventListener('click', openWindKds);
+    document.getElementById('btnSeismicCalc')?.addEventListener('click', openSeismicKds);
+
     const run = async () => {
       setStatus('building payload…');
       showRunHelp('');
@@ -1369,10 +1894,28 @@ function renderAnalysis(projectId){
         const analysisScale = Number(document.getElementById('analysisScale2')?.value || 120);
         const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
 
-        saveAnalysisSettings(p.id, { supportMode, designMethod, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, livePreset, checks, supportNodes: supportNodesVal, analysisScale });
+        saveAnalysisSettings(p.id, {
+          supportMode, designMethod, comboMode,
+          qLive, qSnow,
+          windX, windZ, eqX, eqZ,
+          windStoryX: lateralStory.windStoryX,
+          windStoryZ: lateralStory.windStoryZ,
+          eqStoryX: lateralStory.eqStoryX,
+          eqStoryZ: lateralStory.eqStoryZ,
+          livePreset, checks,
+          supportNodes: supportNodesVal,
+          analysisScale,
+        });
 
         const connCfg = loadConnSettings(p.id);
-        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg, { qSnow, windX, windZ, eqX, eqZ, designMethod });
+        const payload = buildAnalysisPayload(model, qLive, supportMode, connCfg, {
+          qSnow, windX, windZ, eqX, eqZ,
+          windStoryX: lateralStory.windStoryX,
+          windStoryZ: lateralStory.windStoryZ,
+          eqStoryX: lateralStory.eqStoryX,
+          eqStoryZ: lateralStory.eqStoryZ,
+          designMethod,
+        });
         // Keep helper fields (_engineIds/_kinds/_connModes) locally for UI computations.
         lastPayload = payload;
         // update id maps (engine <-> analysis)
