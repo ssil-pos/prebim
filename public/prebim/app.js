@@ -4431,11 +4431,11 @@ async function createThreeView(container){
         ch.material = baseMat.clone();
         if('emissive' in ch.material){
           if(sel){
-            ch.material.emissive = new THREE.Color(0xef4444);
-            ch.material.emissiveIntensity = 0.60;
+            ch.material.emissive = new THREE.Color(0xfacc15);
+            ch.material.emissiveIntensity = 1.20;
           } else if(failHighlightOn && failSet.has(String(ch.userData.memberId))){
-            ch.material.emissive = new THREE.Color(0xf97316);
-            ch.material.emissiveIntensity = 0.75;
+            ch.material.emissive = new THREE.Color(0xdc2626);
+            ch.material.emissiveIntensity = 1.25;
           } else {
             ch.material.emissive = new THREE.Color(0x000000);
             ch.material.emissiveIntensity = 0;
