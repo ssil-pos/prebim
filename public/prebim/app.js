@@ -391,13 +391,6 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     return { id: String(idx+1), kind: mem.kind, j1, j2, mem };
   });
   const _engineIds = memList.map(mm => String(mm.mem?.id ?? mm.id));
-  // releases are per analysis member; keep a parallel list to allow 3D connection markers
-  const _connModes = memList.map(mm => {
-    const eid = String(mm.mem?.id ?? mm.id);
-    const per = conn?.members?.[eid] || null;
-    const def = defaultModeByKind[mm.kind] || 'FIXED';
-    return { engineId: eid, kind: mm.kind, i: (per?.i||def), j: (per?.j||def) };
-  });
 
   // grid helpers (for tributary widths)
   const spansXmm = m.grid?.spansXmm || [];
@@ -579,6 +572,14 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     if(m === 'PIN') return { Rxi:true,Ryi:true,Rzi:true, Rxj:true,Ryj:true,Rzj:true };
     return { Rxi:false,Ryi:false,Rzi:false, Rxj:false,Ryj:false,Rzj:false };
   };
+
+  // releases are per analysis member; keep a parallel list to allow 3D connection markers
+  const _connModes = memList.map(mm => {
+    const eid = String(mm.mem?.id ?? mm.id);
+    const per = conn?.members?.[eid] || null;
+    const def = defaultModeByKind[mm.kind] || 'FIXED';
+    return { engineId: eid, kind: mm.kind, i: (per?.i||def), j: (per?.j||def) };
+  });
 
   const amembers = memList.map(mm => {
     const Pmm = sectionPropsMmFromMember(mm.kind, mm.mem);
