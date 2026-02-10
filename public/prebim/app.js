@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1421KST';
+const BUILD = '20260210-1423KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1421KST'),
-    import('/prebim/app_profiles.js?v=20260210-1421KST'),
+    import('/prebim/engine.js?v=20260210-1423KST'),
+    import('/prebim/app_profiles.js?v=20260210-1423KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1536,6 +1536,7 @@ function renderAnalysis(projectId){
               <div>
                 <label class="label">Mean roof height H (m)</label>
                 <input class="input" id="wH" value="${(ex.H||10.5).toFixed(3)}" />
+                <div class="note" id="wHnote" style="margin-top:4px"></div>
               </div>
             </div>
 
@@ -1648,6 +1649,21 @@ function renderAnalysis(projectId){
         const kz0 = Number(host.querySelector('#wKz')?.value||1)||1;
         const H = Number(host.querySelector('#wH')?.value||0)||0;
         const struct = String(host.querySelector('#wStruct')?.value||'ENCLOSED');
+        // In OPEN mode, force H to top level (model height) to match calculation sheet.
+        if(struct === 'OPEN'){
+          const hEl = host.querySelector('#wH');
+          if(hEl){
+            hEl.value = (ex.H||0).toFixed(3);
+            hEl.disabled = true;
+          }
+          const hn = host.querySelector('#wHnote');
+          if(hn) hn.textContent = `H = top level = ${(ex.H||0).toFixed(3)} m (locked in OPEN mode)`;
+        }else{
+          const hEl = host.querySelector('#wH');
+          if(hEl) hEl.disabled = false;
+          const hn = host.querySelector('#wHnote');
+          if(hn) hn.textContent = '';
+        }
         const GDx = Number(host.querySelector('#wGDx')?.value||0)||0;
         const GDz = Number(host.querySelector('#wGDz')?.value||0)||0;
         const Cpe1x = Number(host.querySelector('#wCpe1x')?.value||0)||0;
