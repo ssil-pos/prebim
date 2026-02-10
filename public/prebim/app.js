@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1636KST';
+const BUILD = '20260210-1639KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1636KST'),
-    import('/prebim/app_profiles.js?v=20260210-1636KST'),
+    import('/prebim/engine.js?v=20260210-1639KST'),
+    import('/prebim/app_profiles.js?v=20260210-1639KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -830,7 +830,7 @@ function renderAnalysis(projectId){
               </label>
 
               <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
-                <input id="rigidDia" type="checkbox" style="margin:0" checked />
+                <input id="rigidDia" type="checkbox" style="margin:0" />
                 <span>Rigid diaphragm per level (ties floor nodes in X/Z)</span>
               </label>
               <div class="note" style="margin-top:6px">Recommended for stable 3D behavior (like slab/deck diaphragm).</div>
@@ -1101,6 +1101,10 @@ function renderAnalysis(projectId){
     // always default editSupports OFF unless explicitly saved
     const es = document.getElementById('editSupports');
     if(es) es.checked = !!saved.editSupports;
+
+    // rigid diaphragm: default OFF; restore only if explicitly saved true
+    const rd = document.getElementById('rigidDia');
+    if(rd) rd.checked = (saved.rigidDia === true);
 
     // restore panel widths (shared CSS vars)
     try{
