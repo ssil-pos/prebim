@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1446KST';
+const BUILD = '20260210-1449KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1446KST'),
-    import('/prebim/app_profiles.js?v=20260210-1446KST'),
+    import('/prebim/engine.js?v=20260210-1449KST'),
+    import('/prebim/app_profiles.js?v=20260210-1449KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -4118,17 +4118,28 @@ function renderEditor(projectId){
     const toggleBrace = (pick) => {
       const braces = Array.isArray(window.__prebimBraces) ? window.__prebimBraces : [];
       const idx = braces.findIndex(b => b.axis===pick.axis && b.line===pick.line && b.story===pick.story && b.bay===pick.bay);
-      if(idx >= 0) braces.splice(idx,1);
-      else {
+      if(idx >= 0) {
+        // remove on this story only
+        braces.splice(idx,1);
+      } else {
         const k = document.getElementById('braceType').value || 'X';
         const stdKey = document.getElementById('stdAll').value || 'KS';
         const shapeKey = document.getElementById('braceShape')?.value || 'L';
         const sizeKey = document.getElementById('braceSize')?.value || '';
-        braces.push({
-          axis: pick.axis, line: pick.line, story: pick.story, bay: pick.bay,
-          kind: (k==='S' || k==='HAT') ? k : 'X',
-          profile: { stdKey, shapeKey, sizeKey },
-        });
+        const kind = (k==='S' || k==='HAT') ? k : 'X';
+        // Default behavior: apply brace to ALL stories (prevents singular mechanisms).
+        // Hold ALT while clicking to place brace on a single story only.
+        const storyCount = Math.max(1, ((m.levels||[]).length||0) - 1);
+        const stories = (window.event && window.event.altKey) ? [pick.story] : Array.from({length: storyCount}, (_,i)=>i);
+        for(const st of stories){
+          const exists = braces.findIndex(b => b.axis===pick.axis && b.line===pick.line && b.story===st && b.bay===pick.bay) >= 0;
+          if(exists) continue;
+          braces.push({
+            axis: pick.axis, line: pick.line, story: st, bay: pick.bay,
+            kind,
+            profile: { stdKey, shapeKey, sizeKey },
+          });
+        }
       }
       window.__prebimBraces = braces;
     };
