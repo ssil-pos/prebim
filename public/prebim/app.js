@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0740KST';
+const BUILD = '20260211-0742KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0740KST'),
-    import('/prebim/app_profiles.js?v=20260211-0740KST'),
+    import('/prebim/engine.js?v=20260211-0742KST'),
+    import('/prebim/app_profiles.js?v=20260211-0742KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -5222,6 +5222,19 @@ async function createThreeView(container){
           const mesh = new THREE.Mesh(geom, meshMat);
           quat.setFromUnitVectors(yAxis, dir);
           mesh.quaternion.copy(quat);
+
+          // Apply column strong-axis rotation (real-time 3D orientation)
+          try{
+            if(mem.kind === 'column'){
+              const ax = String(model?.profiles?.colStrongAxis || 'AUTO').toUpperCase();
+              const ang = (ax === 'Z') ? (Math.PI/2) : 0;
+              if(Math.abs(ang) > 1e-9){
+                const qrot = new THREE.Quaternion().setFromAxisAngle(dir.clone().normalize(), ang);
+                mesh.quaternion.multiply(qrot);
+              }
+            }
+          }catch{}
+
           mesh.position.copy(mid);
           mesh.userData.memberId = mem.id;
           mesh.userData.kind = mem.kind;
