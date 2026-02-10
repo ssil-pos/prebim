@@ -377,6 +377,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
     const j2 = ensureJoint(mem.b);
     return { id: String(idx+1), kind: mem.kind, j1, j2, mem };
   });
+  const _engineIds = memList.map(mm => String(mm.mem?.id ?? mm.id));
 
   // grid helpers (for tributary widths)
   const spansXmm = m.grid?.spansXmm || [];
@@ -581,6 +582,9 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED'){
     supports,
     cases: [caseD, caseL],
     combos,
+
+    // client-side helper (ignored by API): index i => analysis member id (i+1)
+    _engineIds,
   };
 }
 
@@ -714,20 +718,23 @@ function renderAnalysis(projectId){
     const members = __engine.generateMembers(model);
     view.setMembers(members, model);
 
-    const rebuildIdMaps = () => {
-      try{
-        analysisIdByEngineId = {};
-        engineIdByAnalysisId = {};
-        const ms = __engine.generateMembers(model) || [];
-        ms.forEach((mm, idx) => {
-          const aid = String(idx+1);
-          const eid = String(mm.id);
-          analysisIdByEngineId[eid] = aid;
-          engineIdByAnalysisId[aid] = eid;
-        });
-      }catch{}
+    const rebuildIdMapsFromPayload = (payload) => {
+      analysisIdByEngineId = {};
+      engineIdByAnalysisId = {};
+      const ids = payload?._engineIds || [];
+      ids.forEach((eid, idx) => {
+        const aid = String(idx+1);
+        const se = String(eid);
+        analysisIdByEngineId[se] = aid;
+        engineIdByAnalysisId[aid] = se;
+      });
     };
-    rebuildIdMaps();
+
+    // initial maps (no loads needed)
+    try{
+      const p0 = buildAnalysisPayload(model, 0, (document.getElementById('supportMode')?.value||'PINNED'));
+      rebuildIdMapsFromPayload(p0);
+    }catch{}
 
     // 3D click -> table sync
     view.onSelectionChange?.((sel) => {
@@ -910,16 +917,20 @@ function renderAnalysis(projectId){
         saveAnalysisSettings(p.id, { supportMode, comboMode, qLive, supportNodes: supportNodesVal, analysisScale });
 
         const payload = buildAnalysisPayload(model, qLive, supportMode);
-
-        // build id maps
+        // update id maps (engine <-> analysis)
         try{
           analysisIdByEngineId = {};
           engineIdByAnalysisId = {};
-          for(const mem of (payload.members||[])){
-            const aid = String(mem.id);
-            // payload doesn't carry engineId, so we reconstruct from buildAnalysisPayload's internal mem list by stashing it
-          }
+          const ids = payload?._engineIds || [];
+          ids.forEach((eid, idx) => {
+            const aid = String(idx+1);
+            const se = String(eid);
+            analysisIdByEngineId[se] = aid;
+            engineIdByAnalysisId[aid] = se;
+          });
         }catch{}
+        // strip helper before sending
+        try{ delete payload._engineIds; }catch{}
 
         // supports override
         const supTxt = (document.getElementById('supportNodes')?.value || '').trim();
