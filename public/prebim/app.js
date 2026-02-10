@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0835KST';
+const BUILD = '20260211-0850KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0835KST'),
-    import('/prebim/app_profiles.js?v=20260211-0835KST'),
+    import('/prebim/engine.js?v=20260211-0850KST'),
+    import('/prebim/app_profiles.js?v=20260211-0850KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1775,6 +1775,11 @@ function renderAnalysis(projectId){
                   <input class="input" id="wCDz" value="2.85" />
                 </div>
               </div>
+              <label class="badge" style="margin-top:8px; cursor:pointer; user-select:none; display:inline-flex; gap:8px; align-items:center">
+                <input id="wAutoCD" type="checkbox" style="margin:0" checked />
+                <span>Auto-estimate CD (pipe-rack / steel frame)</span>
+              </label>
+              <div class="note" id="wAutoCDNote" style="margin-top:6px">Estimates solidity from members + section dims; treat as a starting point. Adjust if you have a project-specific Cf.</div>
               <div class="note" style="margin-top:6px">Open structure uses Pf = kz · qH · GD · CD. (Enclosed uses Pf = kz · qH · GD · (Cpe1−Cpe2))</div>
             </div>
 
@@ -1837,6 +1842,64 @@ function renderAnalysis(projectId){
         return k;
       };
 
+      const estimateOpenCD = () => {
+        // Rough pipe-rack/steel-frame estimate using member projected area / gross area.
+        // This is NOT a formal KDS table implementation; it provides a reasonable starting point.
+        try{
+          const mems = __engine.generateMembers(model);
+          const ex2 = getModelExtents();
+          const H = Math.max(0.1, Number(host.querySelector('#wH')?.value||0)||0);
+          const Bx = Math.max(0.1, Number(host.querySelector('#wBx')?.value||0)||0); // gross breadth for wind X
+          const Bz = Math.max(0.1, Number(host.querySelector('#wBz')?.value||0)||0); // gross breadth for wind Z
+          const AgX = Bx * H;
+          const AgZ = Bz * H;
+
+          let ApX = 0;
+          let ApZ = 0;
+
+          for(const mem of (mems||[])){
+            // approximate exposed strip width from profile dims (mm -> m)
+            const kind = mem.kind;
+            let profName = memberProfileName(kind==='beamX'||kind==='beamY'?'beamX':kind, model, mem.id);
+            // braces may carry explicit profile
+            if(kind==='brace' && mem.profile && typeof mem.profile==='object'){
+              const pr = mem.profile;
+              profName = __profiles?.getProfile?.(pr.stdKey||model.profiles?.stdAll||'KS', pr.shapeKey||model.profiles?.braceShape||'L', pr.sizeKey||model.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
+            }
+            const d = parseProfileDimsMm(profName||'');
+            const b = Math.max(20, Number(d.b||d.d||100));
+            const h = Math.max(20, Number(d.d||d.b||100));
+            // For wind-X (along X), projected width is in Z-Y plane; use average of b/h as rough exposed width.
+            const w = ((b+h)*0.5)/1000;
+
+            const dx = mem.a[0]-mem.b[0];
+            const dy = mem.a[1]-mem.b[1];
+            const dz = mem.a[2]-mem.b[2];
+            const L = Math.sqrt(dx*dx+dy*dy+dz*dz);
+            // Projected area contribution roughly proportional to component normal to wind direction.
+            // Wind X: normal component in Z (and Y doesn't matter for area strip); use |dz|/L.
+            // Wind Z: use |dx|/L.
+            const nx = (L>1e-9) ? Math.abs(dz)/L : 0;
+            const nz = (L>1e-9) ? Math.abs(dx)/L : 0;
+
+            ApX += (L * w) * nx;
+            ApZ += (L * w) * nz;
+          }
+
+          const phiX = (AgX>1e-9) ? Math.min(0.95, Math.max(0.01, ApX/AgX)) : 0.05;
+          const phiZ = (AgZ>1e-9) ? Math.min(0.95, Math.max(0.01, ApZ/AgZ)) : 0.05;
+
+          // Map solidity to CD (heuristic): low solidity ~1.2, higher solidity approaches ~2.6
+          const mapCD = (phi) => Math.min(2.6, Math.max(1.2, 1.05 + 1.9*Math.pow(phi, 0.55)));
+          const CDx = mapCD(phiX);
+          const CDz = mapCD(phiZ);
+
+          return { CDx, CDz, phiX, phiZ, ApX, ApZ, AgX, AgZ };
+        }catch{
+          return null;
+        }
+      };
+
       const recalc = () => {
         const Vo = Number(host.querySelector('#wVo')?.value||0)||0;
         const exp = String(host.querySelector('#wExp')?.value||'C');
@@ -1868,8 +1931,22 @@ function renderAnalysis(projectId){
         const Cpe2x = Number(host.querySelector('#wCpe2x')?.value||0)||0;
         const Cpe1z = Number(host.querySelector('#wCpe1z')?.value||0)||0;
         const Cpe2z = Number(host.querySelector('#wCpe2z')?.value||0)||0;
-        const CDx = Number(host.querySelector('#wCDx')?.value||0)||0;
-        const CDz = Number(host.querySelector('#wCDz')?.value||0)||0;
+        let CDx = Number(host.querySelector('#wCDx')?.value||0)||0;
+        let CDz = Number(host.querySelector('#wCDz')?.value||0)||0;
+
+        // Optional auto CD estimation in OPEN mode
+        try{
+          if(struct === 'OPEN' && host.querySelector('#wAutoCD')?.checked !== false){
+            const est = estimateOpenCD();
+            if(est){
+              CDx = est.CDx; CDz = est.CDz;
+              const ex = host.querySelector('#wCDx'); if(ex) ex.value = CDx.toFixed(3);
+              const ez = host.querySelector('#wCDz'); if(ez) ez.value = CDz.toFixed(3);
+              const note = host.querySelector('#wAutoCDNote');
+              if(note) note.innerHTML = `Auto estimate from member projected area: φx=${est.phiX.toFixed(3)}, φz=${est.phiZ.toFixed(3)} (ApX=${est.ApX.toFixed(3)}m² / AgX=${est.AgX.toFixed(3)}m², ApZ=${est.ApZ.toFixed(3)}m² / AgZ=${est.AgZ.toFixed(3)}m²)`;
+            }
+          }
+        }catch{}
         const Bx2 = Math.max(0.01, Number(host.querySelector('#wBx')?.value||0)||0);
         const Bz2 = Math.max(0.01, Number(host.querySelector('#wBz')?.value||0)||0);
 
