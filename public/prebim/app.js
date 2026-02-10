@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1656KST';
+const BUILD = '20260210-1712KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1656KST'),
-    import('/prebim/app_profiles.js?v=20260210-1656KST'),
+    import('/prebim/engine.js?v=20260210-1712KST'),
+    import('/prebim/app_profiles.js?v=20260210-1712KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -789,6 +789,7 @@ function renderAnalysis(projectId){
   document.title = `PreBIM-SteelStructure — ${p.name || 'project'} (Analysis)`;
   setTopbarActions(`
     <a class="pill" href="#/editor/${encodeURIComponent(p.id)}">Back</a>
+    <button class="pill" id="btnReport" type="button">PDF 계산서</button>
     <button class="pill" id="btnRunAnalysis" type="button">Run</button>
   `);
 
@@ -2273,6 +2274,7 @@ function renderAnalysis(projectId){
         }
 
         setStatus('rendering results…');
+        window.__lastAnalysisRes = res;
         view.setAnalysisResult?.(res, payload);
         const sc = Number(document.getElementById('analysisScale2')?.value || 120);
         view.setAnalysisScale?.(sc);
@@ -2351,6 +2353,199 @@ function renderAnalysis(projectId){
         if(ov) ov.hidden = true;
       }
     };
+
+    // --- Report export (HTML → user prints to PDF) ---
+    const buildReportHtml = (res, payload) => {
+      const nowIso = new Date().toISOString();
+      const projName = (p?.name || 'project');
+      const combo = String(res?.combo || '');
+      const dm = (document.getElementById('designMethod')?.value || 'STRENGTH');
+      const supportMode = (document.getElementById('supportMode')?.value || 'PINNED');
+      const qLive = (document.getElementById('qLive')?.value || '0');
+      const qSnow = (document.getElementById('qSnow')?.value || '0');
+      const windX = (document.getElementById('windX')?.value || '0');
+      const windZ = (document.getElementById('windZ')?.value || '0');
+      const eqX = (document.getElementById('eqX')?.value || '0');
+      const eqZ = (document.getElementById('eqZ')?.value || '0');
+
+      const combos = payload?.combos || [];
+      const members = payload?.members || [];
+      const kinds = (payload?._kinds || []);
+      const engineIds = (payload?._engineIds || []);
+
+      const maxDisp = Number(res?.maxDisp?.value || 0);
+      const maxNode = String(res?.maxDisp?.nodeId || '');
+
+      const fmt = (v, d=6) => {
+        const n = Number(v);
+        if(!Number.isFinite(n)) return '';
+        return n.toFixed(d);
+      };
+
+      const memberRows = members.map((m, idx) => {
+        const mid = String(m.id);
+        const mr = res?.members?.[mid];
+        const kind = kinds?.[idx] || '';
+        const eid = engineIds?.[idx] || '';
+        const i = mr?.i || {};
+        const j = mr?.j || {};
+        const maxA = mr?.maxAbs || {};
+        return `
+          <tr>
+            <td class="mono">${escapeHtml(mid)}</td>
+            <td class="mono">${escapeHtml(String(kind))}</td>
+            <td class="mono">${escapeHtml(String(eid))}</td>
+            <td class="num mono">${fmt(i.Fx,3)}</td>
+            <td class="num mono">${fmt(i.Fy,3)}</td>
+            <td class="num mono">${fmt(i.Fz,3)}</td>
+            <td class="num mono">${fmt(i.Mx,3)}</td>
+            <td class="num mono">${fmt(i.My,3)}</td>
+            <td class="num mono">${fmt(i.Mz,3)}</td>
+            <td class="num mono">${fmt(j.Fx,3)}</td>
+            <td class="num mono">${fmt(j.Fy,3)}</td>
+            <td class="num mono">${fmt(j.Fz,3)}</td>
+            <td class="num mono">${fmt(j.Mx,3)}</td>
+            <td class="num mono">${fmt(j.My,3)}</td>
+            <td class="num mono">${fmt(j.Mz,3)}</td>
+            <td class="num mono">${fmt(maxA.N,3)}</td>
+            <td class="num mono">${fmt(maxA.Vy,3)}</td>
+            <td class="num mono">${fmt(maxA.Vz,3)}</td>
+            <td class="num mono">${fmt(maxA.T,3)}</td>
+            <td class="num mono">${fmt(maxA.My,3)}</td>
+            <td class="num mono">${fmt(maxA.Mz,3)}</td>
+            <td class="num mono">${fmt(mr?.dyAbsMax,6)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const combosRows = combos.map(c => {
+        const f = c.factors || {};
+        const parts = Object.keys(f).map(k => `${escapeHtml(k)}=${Number(f[k]||0).toFixed(3)}`).join('  ');
+        return `<tr><td class="mono">${escapeHtml(String(c.name||''))}</td><td class="mono">${parts}</td></tr>`;
+      }).join('');
+
+      return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${escapeHtml(projName)} - 계산서</title>
+<style>
+  @page { size: A4 landscape; margin: 10mm; }
+  body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; color:#0b1b3a; }
+  h1,h2{ margin:0; }
+  .muted{ color: rgba(11,27,58,0.65); }
+  .row{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .card{ border:1px solid rgba(148,163,184,0.35); border-radius:10px; padding:10px; margin-top:10px; }
+  table{ border-collapse:collapse; width:100%; }
+  th,td{ border:1px solid rgba(148,163,184,0.45); padding:4px 6px; font-size:10.5px; }
+  th{ background: rgba(241,245,249,1); }
+  .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  .num{ text-align:right; }
+  .small{ font-size:11px; }
+  .printnote{ margin-top:10px; font-size:11px; }
+  .pagebreak{ page-break-before: always; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div>
+      <h1>구조해석 계산서 / Structural Analysis Report</h1>
+      <div class="muted small">Project: <b>${escapeHtml(projName)}</b> · Exported: <span class="mono">${escapeHtml(nowIso)}</span></div>
+    </div>
+    <div class="small muted">Combo: <b class="mono">${escapeHtml(combo)}</b></div>
+  </div>
+
+  <div class="card">
+    <h2 class="small">입력 / Inputs</h2>
+    <table style="margin-top:6px">
+      <tbody>
+        <tr>
+          <th style="width:180px">설계방법 / Design method</th><td class="mono">${escapeHtml(dm)}</td>
+          <th style="width:180px">지점 / Supports</th><td class="mono">${escapeHtml(supportMode)}</td>
+          <th style="width:180px">활하중 qL (kN/m²)</th><td class="mono">${escapeHtml(String(qLive))}</td>
+          <th style="width:180px">적설하중 qS (kN/m²)</th><td class="mono">${escapeHtml(String(qSnow))}</td>
+        </tr>
+        <tr>
+          <th>풍하중 X (kN)</th><td class="mono">${escapeHtml(String(windX))}</td>
+          <th>풍하중 Z (kN)</th><td class="mono">${escapeHtml(String(windZ))}</td>
+          <th>지진하중 X (kN)</th><td class="mono">${escapeHtml(String(eqX))}</td>
+          <th>지진하중 Z (kN)</th><td class="mono">${escapeHtml(String(eqZ))}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 class="small">해석 요약 / Summary</h2>
+    <div class="row" style="margin-top:6px">
+      <div class="small">최대 변위 / Max displacement: <b class="mono">${fmt(maxDisp,6)} m</b> @ node <b class="mono">${escapeHtml(maxNode)}</b></div>
+      <div class="small muted">Members: <b class="mono">${members.length}</b> · Nodes: <b class="mono">${(payload?.nodes||[]).length}</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="small">하중조합 / Load combinations</h2>
+    <table style="margin-top:6px">
+      <thead><tr><th style="width:160px">Combo</th><th>Factors</th></tr></thead>
+      <tbody>${combosRows || '<tr><td colspan="2">-</td></tr>'}</tbody>
+    </table>
+  </div>
+
+  <div class="card pagebreak">
+    <h2 class="small">부재별 결과 / Member results (all members)</h2>
+    <div class="muted small" style="margin-top:4px">End forces are local member forces from solver. MaxAbs are sampled along member.</div>
+    <div style="overflow:hidden; margin-top:6px">
+      <table>
+        <thead>
+          <tr>
+            <th rowspan="2">ID</th>
+            <th rowspan="2">Kind</th>
+            <th rowspan="2">EngineId</th>
+            <th colspan="6">i-end</th>
+            <th colspan="6">j-end</th>
+            <th colspan="6">MaxAbs</th>
+            <th rowspan="2">dyAbsMax (m)</th>
+          </tr>
+          <tr>
+            <th>Fx</th><th>Fy</th><th>Fz</th><th>Mx</th><th>My</th><th>Mz</th>
+            <th>Fx</th><th>Fy</th><th>Fz</th><th>Mx</th><th>My</th><th>Mz</th>
+            <th>N</th><th>Vy</th><th>Vz</th><th>T</th><th>My</th><th>Mz</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${memberRows || '<tr><td colspan="22">-</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="printnote muted">PDF로 저장하려면 브라우저 인쇄(Chrome: Ctrl+P)에서 “대상: PDF 저장”을 선택하세요. / Use Print → Save as PDF.</div>
+</body>
+</html>`;
+    };
+
+    const exportReport = () => {
+      if(!window.__lastAnalysisRes || !lastPayload){
+        alert('먼저 Run을 실행해서 해석 결과를 만든 뒤 계산서를 내보낼 수 있어요.');
+        return;
+      }
+      try{
+        const html = buildReportHtml(window.__lastAnalysisRes, lastPayload);
+        const w = window.open('', '_blank');
+        if(!w){ alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        // Give the browser a tick to layout before print
+        setTimeout(() => { try{ w.focus(); w.print(); }catch{} }, 250);
+      }catch(e){
+        console.error(e);
+        alert('계산서 생성에 실패했습니다.');
+      }
+    };
+
+    document.getElementById('btnReport')?.addEventListener('click', exportReport);
 
     document.getElementById('btnRunAnalysis')?.addEventListener('click', run);
     document.getElementById('btnHudRun')?.addEventListener('click', run);
