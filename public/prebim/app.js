@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1652KST';
+const BUILD = '20260210-1656KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1652KST'),
-    import('/prebim/app_profiles.js?v=20260210-1652KST'),
+    import('/prebim/engine.js?v=20260210-1656KST'),
+    import('/prebim/app_profiles.js?v=20260210-1656KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -257,7 +257,11 @@ function renderProjects(){
     projects.push(p);
     saveProjects(projects);
     if(input) input.value = '';
-    render();
+    // Immediately refresh the list (previous code called render(), which no longer exists)
+    renderProjects();
+    // Optional: auto-open the new project
+    // go(`#/editor/${encodeURIComponent(p.id)}`);
+
   });
 
   root.querySelector('#btnImport')?.addEventListener('click', () => {
@@ -294,7 +298,7 @@ function renderProjects(){
 
       saveProjects(projects);
       inp.value = '';
-      render();
+      renderProjects();
     }catch(e){
       alert('Import failed: invalid JSON');
       console.error(e);
