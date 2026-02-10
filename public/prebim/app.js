@@ -3637,8 +3637,8 @@ async function createThreeView(container){
       if(ch.material && ch.material.isMaterial){
         ch.material = baseMat.clone();
         if('emissive' in ch.material){
-          ch.material.emissive = new THREE.Color(sel ? 0x38bdf8 : 0x000000);
-          ch.material.emissiveIntensity = sel ? 0.35 : 0;
+          ch.material.emissive = new THREE.Color(sel ? 0xef4444 : 0x000000);
+          ch.material.emissiveIntensity = sel ? 0.60 : 0;
         }
       }
     });
@@ -3692,8 +3692,8 @@ async function createThreeView(container){
       if(ch.material && ch.material.isMaterial){
         ch.material = baseMat.clone();
         if('emissive' in ch.material){
-          ch.material.emissive = new THREE.Color(sel ? 0x38bdf8 : 0x000000);
-          ch.material.emissiveIntensity = sel ? 0.35 : 0;
+          ch.material.emissive = new THREE.Color(sel ? 0xef4444 : 0x000000);
+          ch.material.emissiveIntensity = sel ? 0.60 : 0;
         }
       }
     });
