@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1305KST';
+const BUILD = '20260210-1307KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1305KST'),
-    import('/prebim/app_profiles.js?v=20260210-1305KST'),
+    import('/prebim/engine.js?v=20260210-1307KST'),
+    import('/prebim/app_profiles.js?v=20260210-1307KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -843,6 +843,33 @@ function renderAnalysis(projectId){
   `;
 
   (async () => {
+    // accordion toggles (analysis settings)
+    {
+      const toggleOne = (which) => {
+        const panels = {
+          sup: document.getElementById('panelSup'),
+          conn: document.getElementById('panelConn'),
+          crit: document.getElementById('panelCrit'),
+          view: document.getElementById('panelView'),
+        };
+        const chevs = {
+          sup: document.getElementById('chevSup'),
+          conn: document.getElementById('chevConn'),
+          crit: document.getElementById('chevCrit'),
+          view: document.getElementById('chevView'),
+        };
+        const pEl = panels[which];
+        if(!pEl) return;
+        const open = !pEl.classList.contains('open');
+        pEl.classList.toggle('open', open);
+        const cEl = chevs[which];
+        if(cEl) cEl.textContent = open ? '▴' : '▾';
+      };
+
+      document.querySelectorAll('#settingsAcc button.acc-btn[data-acc]')
+        .forEach(btn => btn.addEventListener('click', () => toggleOne(btn.getAttribute('data-acc'))));
+    }
+
     // restore settings
     const saved = loadAnalysisSettings(p.id);
     const setIf = (id, v) => { const el=document.getElementById(id); if(el!=null && v!=null && v!=='') el.value = String(v); };
