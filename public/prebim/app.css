@@ -446,3 +446,5 @@ svg.prebim2d text{font-family: ui-sans-serif, system-ui; fill: rgba(11,27,58,0.6
 .table tr.analysis-mem:hover{background: rgba(56,189,248,0.10);}
 .table tr.analysis-mem.sel{background: rgba(239,68,68,0.16);}
 .table tr.analysis-mem.sel td{border-left: 3px solid rgba(239,68,68,0.55);}
+.table tr.analysis-mem.fail{background: rgba(239,68,68,0.08);}
+.table tr.analysis-mem.fail:hover{background: rgba(239,68,68,0.12);}

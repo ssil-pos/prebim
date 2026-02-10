@@ -1016,7 +1016,9 @@ function renderAnalysis(projectId){
             </tr></thead>
             <tbody>
               ${top.map(r => `
-                <tr class="analysis-mem" data-mem="${escapeHtml(String(r.id))}" style="cursor:pointer">
+                <tr class="analysis-mem" data-mem="${escapeHtml(String(r.id))}" style="cursor:pointer" data-util="${(() => {
+                  try{ const a = memberAllow(r.id); return a?.allow ? ((Number(r?.dyAbsMax)||0)/(a.allow||1e-9)) : 0; }catch{ return 0; }
+                })()}">
                   <td class="mono">${escapeHtml(String(r.id))}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.N)||0).toFixed(3)}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.Vy)||0).toFixed(3)}</td>
@@ -1036,12 +1038,15 @@ function renderAnalysis(projectId){
       `;
 
       // wire row click -> highlight member in 3D
+      // add FAIL row styling
       host.querySelectorAll('.analysis-mem').forEach(tr => {
+        const util = Number(tr.getAttribute('data-util')||'0')||0;
+        if(util > 1.0 + 1e-9) tr.classList.add('fail');
         tr.addEventListener('click', () => {
           const aid = tr.getAttribute('data-mem');
           if(!aid) return;
-          const eid = engineIdByAnalysisId[String(aid)] || String(aid);
-          view.setSelection?.([eid]);
+          const eid = engineIdByAnalysisId[String(aid)] || '';
+          if(eid) view.setSelection?.([eid]);
           saveAnalysisSettings(p.id, { selectedMemberEngineId: String(eid) });
           highlightMemberRow(String(aid));
           renderMemberDetail(String(aid));
@@ -1144,9 +1149,17 @@ function renderAnalysis(projectId){
               : `FAIL · defl ${w.dy.toFixed(6)} > L/${chk.ratio} (${w.allow.toFixed(6)} m) · mem ${w.memberId}`;
             el.style.color = ok ? 'rgba(16,185,129,0.95)' : 'rgba(239,68,68,0.95)';
           }
-          // auto-highlight worst member (doesn't override user selection if any)
-          if(!loadAnalysisSettings(p.id)?.selectedMemberEngineId && chk.worst?.memberId){
-            highlightMemberRow(chk.worst.memberId);
+
+          // auto-select + scroll worst member (only if user hasn't selected one)
+          const savedSel = loadAnalysisSettings(p.id)?.selectedMemberEngineId;
+          if(!savedSel && chk.worst?.memberId){
+            const aid = String(chk.worst.memberId);
+            const eid = engineIdByAnalysisId[aid] || '';
+            if(eid){
+              try{ view.setSelection?.([eid]); }catch{}
+            }
+            highlightMemberRow(aid);
+            renderMemberDetail(aid);
           }
         }catch{}
 
