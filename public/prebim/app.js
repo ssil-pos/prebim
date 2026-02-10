@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1430KST';
+const BUILD = '20260210-1433KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1430KST'),
-    import('/prebim/app_profiles.js?v=20260210-1430KST'),
+    import('/prebim/engine.js?v=20260210-1433KST'),
+    import('/prebim/app_profiles.js?v=20260210-1433KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1416,22 +1416,41 @@ function renderAnalysis(projectId){
     const getModelExtents = () => {
       try{
         const pts = (model?.joints||[]).map(j => j.pt);
-        if(!pts.length) return { minX:0,maxX:0,minZ:0,maxZ:0, H:0, storyCount:1, storyHeights:[] };
+        if(!pts.length) return { minX:0,maxX:0,minZ:0,maxZ:0, H:0, storyCount:1, storyHeights:[], levels:[] };
         let minX=+Infinity,maxX=-Infinity,minZ=+Infinity,maxZ=-Infinity;
+        const yset = new Set();
         for(const p of pts){
           const x=Number(p?.[0]||0)/1000;
+          const y=Number(p?.[1]||0)/1000;
           const z=Number(p?.[2]||0)/1000;
           minX=Math.min(minX,x); maxX=Math.max(maxX,x);
           minZ=Math.min(minZ,z); maxZ=Math.max(maxZ,z);
+          yset.add(y.toFixed(6));
         }
-        const levels = (model?.levels||[]).map(v=>Number(v||0)/1000);
+
+        // Prefer explicit model.levels; fallback to inferred unique Y coordinates from joints.
+        let levels = (model?.levels||[]).map(v=>Number(v||0)/1000).filter(v=>Number.isFinite(v));
+        if(levels.length < 2){
+          levels = Array.from(yset).map(s=>Number(s)).filter(v=>Number.isFinite(v)).sort((a,b)=>a-b);
+        }else{
+          levels = levels.slice().sort((a,b)=>a-b);
+        }
+
+        // Ensure at least 2 levels
+        if(levels.length < 2){
+          const ymin = Math.min(...Array.from(yset).map(s=>Number(s)));
+          const ymax = Math.max(...Array.from(yset).map(s=>Number(s)));
+          levels = [Number.isFinite(ymin)?ymin:0, Number.isFinite(ymax)?ymax:0].sort((a,b)=>a-b);
+        }
+
         const storyCount = Math.max(1, levels.length-1);
         const storyHeights = [];
-        for(let i=0;i<storyCount;i++) storyHeights.push(Math.max(0, (levels?.[i+1]||0) - (levels?.[i]||0)));
+        for(let i=0;i<storyCount;i++) storyHeights.push(Math.max(0.1, (levels?.[i+1]||0) - (levels?.[i]||0)));
         const H = levels.length ? Math.max(...levels) - Math.min(...levels) : 0;
         return { minX,maxX,minZ,maxZ, H, storyCount, storyHeights, levels };
-      }catch{ return { minX:0,maxX:0,minZ:0,maxZ:0, H:0, storyCount:1, storyHeights:[] }; }
+      }catch{ return { minX:0,maxX:0,minZ:0,maxZ:0, H:0, storyCount:1, storyHeights:[], levels:[] }; }
     };
+
 
     const modalMount = () => {
       let host = document.getElementById('modalHost');
