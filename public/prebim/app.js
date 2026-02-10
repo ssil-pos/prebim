@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0742KST';
+const BUILD = '20260211-0747KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0742KST'),
-    import('/prebim/app_profiles.js?v=20260211-0742KST'),
+    import('/prebim/engine.js?v=20260211-0747KST'),
+    import('/prebim/app_profiles.js?v=20260211-0747KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1425,7 +1425,7 @@ function renderAnalysis(projectId){
       host.innerHTML = `
         <div class="note" style="margin-top:10px"><b>Summary</b></div>
         <div class="mono" style="font-size:12px; margin-top:6px">combo: ${(res.combo||'-')}</div>
-        <div class="mono" style="font-size:12px; margin-top:4px">max disp: ${maxDisp.toFixed(6)} m @ node ${escapeHtml(maxNode)}</div>
+        <div class="mono" style="font-size:12px; margin-top:4px">max disp: ${(maxDisp*1000).toFixed(3)} mm <span style="opacity:.65">(${maxDisp.toFixed(6)} m)</span> @ node ${escapeHtml(maxNode)}</div>
 
         <div id="analysisMemberDetail"></div>
 
@@ -1445,7 +1445,25 @@ function renderAnalysis(projectId){
             <tbody>
               ${top.map(r => `
                 <tr class="analysis-mem" data-mem="${escapeHtml(String(r.id))}" style="cursor:pointer" data-util="${(() => {
-                  try{ const a = memberAllow(r.id); return a?.allow ? ((Number(r?.dyAbsMax)||0)/(a.allow||1e-9)) : 0; }catch{ return 0; }
+                  try{
+                    const a = memberAllow(r.id);
+                    if(!a?.allow) return 0;
+                    const idx = (Number(r.id)||0) - 1;
+                    const kind = String(lastPayload?._kinds?.[idx] || '');
+                    if(kind==='column'){
+                      const mem = lastPayload?.members?.find(m => String(m.id)===String(r.id));
+                      if(!mem) return 0;
+                      const ni = (lastPayload?.nodes||[]).find(n => String(n.id)===String(mem.i));
+                      const nj = (lastPayload?.nodes||[]).find(n => String(n.id)===String(mem.j));
+                      const topNodeId = (Number(ni?.y||0) >= Number(nj?.y||0)) ? String(mem.i) : String(mem.j);
+                      const nd = lastRes?.nodes?.[topNodeId];
+                      const dx = Number(nd?.dx||0);
+                      const dz = Number(nd?.dz||0);
+                      const disp = Math.hypot(dx, dz);
+                      return disp/(a.allow||1e-9);
+                    }
+                    return (Number(r?.dyAbsMax)||0)/(a.allow||1e-9);
+                  }catch{ return 0; }
                 })()}">
                   <td class="mono">${escapeHtml(String(r.id))}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.N)||0).toFixed(3)}</td>
@@ -1453,7 +1471,7 @@ function renderAnalysis(projectId){
                   <td class="r mono">${(Number(r?.maxAbs?.Vz)||0).toFixed(3)}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.My)||0).toFixed(3)}</td>
                   <td class="r mono">${(Number(r?.maxAbs?.Mz)||0).toFixed(3)}</td>
-                  <td class="r mono">${(Number(r?.dyAbsMax)||0).toFixed(6)}</td>
+                  <td class="r mono">${((Number(r?.dyAbsMax)||0)*1000).toFixed(3)} mm</td>
                   <td class="r mono">${(() => {
                     const a = memberAllow(r.id);
                     return a?.allow ? `L/${a.ratio}` : '-';
@@ -5230,7 +5248,8 @@ async function createThreeView(container){
               const ang = (ax === 'Z') ? (Math.PI/2) : 0;
               if(Math.abs(ang) > 1e-9){
                 const qrot = new THREE.Quaternion().setFromAxisAngle(dir.clone().normalize(), ang);
-                mesh.quaternion.multiply(qrot);
+                // premultiply to apply world-axis rotation after alignment
+                mesh.quaternion.premultiply(qrot);
               }
             }
           }catch{}
