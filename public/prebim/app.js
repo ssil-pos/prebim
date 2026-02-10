@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260210-1626KST';
+const BUILD = '20260210-1636KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260210-1626KST'),
-    import('/prebim/app_profiles.js?v=20260210-1626KST'),
+    import('/prebim/engine.js?v=20260210-1636KST'),
+    import('/prebim/app_profiles.js?v=20260210-1636KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -4139,10 +4139,13 @@ function renderEditor(projectId){
         const shapeKey = document.getElementById('braceShape')?.value || 'L';
         const sizeKey = document.getElementById('braceSize')?.value || '';
         const kind = (k==='S' || k==='HAT') ? k : 'X';
+
         // Default behavior: apply brace to ALL stories (prevents singular mechanisms).
         // Hold ALT while clicking to place brace on a single story only.
-        const storyCount = Math.max(1, ((m.levels||[]).length||0) - 1);
-        const stories = (window.event && window.event.altKey) ? [pick.story] : Array.from({length: storyCount}, (_,i)=>i);
+        const mm = getForm();
+        const storyCount = Math.max(1, ((mm.levels||[]).length||0) - 1);
+        const stories = (pick?.altKey) ? [pick.story] : Array.from({length: storyCount}, (_,i)=>i);
+
         for(const st of stories){
           const exists = braces.findIndex(b => b.axis===pick.axis && b.line===pick.line && b.story===st && b.bay===pick.bay) >= 0;
           if(exists) continue;
@@ -5010,7 +5013,7 @@ async function createThreeView(container){
         const bay = obj.userData.bay;
         const story = obj.userData.story;
         if(axis != null && line != null && bay != null && story != null && onFaceSelect){
-          onFaceSelect({ axis: String(axis), line: Number(line), bay: Number(bay), story: Number(story) });
+          onFaceSelect({ axis: String(axis), line: Number(line), bay: Number(bay), story: Number(story), altKey: !!ev.altKey, shiftKey: !!ev.shiftKey });
         }
       }
       return;
