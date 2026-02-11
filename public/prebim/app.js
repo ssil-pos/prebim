@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1638KST';
+const BUILD = '20260211-1640KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -8007,15 +8007,17 @@ async function createThreeView(container){
       const n = nodeMap.get(nid);
       if(!n) continue;
       const no = pl?.no ?? pl?.id ?? '';
-      // arrow down (800mm)
+      // arrow down (bigger, bright red) — positioned above the node pointing at it
       const dir = new THREE.Vector3(0,-1,0);
-      const ah = new THREE.ArrowHelper(dir, new THREE.Vector3(n.x,n.y,n.z), 0.8, 0x0ea5e9, 0.25, 0.12);
+      const L = 1.2; // ~1200mm
+      const origin = new THREE.Vector3(n.x, n.y + L, n.z);
+      const ah = new THREE.ArrowHelper(dir, origin, L, 0xff0000, 0.40, 0.22);
       ah.cone.material.depthTest = false;
       ah.line.material.depthTest = false;
       ah.renderOrder = 299;
       plMarkGroup.add(ah);
       const spr = makeTextSprite(`P${no}`);
-      spr.position.set(n.x, n.y+0.6, n.z);
+      spr.position.set(n.x, n.y + L + 0.25, n.z);
       plMarkGroup.add(spr);
     }
   }
