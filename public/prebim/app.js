@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1431KST';
+const BUILD = '20260211-1439KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -4417,8 +4417,11 @@ function renderEditor(projectId){
     btnBoxMember?.addEventListener('click', () => {
       window.__boxTool = (window.__boxTool === 'members') ? 'boxes' : 'members';
       btnBoxMember?.classList.toggle('active', window.__boxTool === 'members');
-      // ensure pick targets exist
-      try{ view?.setBoxEditMode?.(true, getForm(), window.__boxEditApiLast || undefined); }catch{}
+      // ensure pick targets exist (api must exist for member add)
+      try{
+        const api = ensureBoxEditApi();
+        view?.setBoxEditMode?.(true, getForm(), api);
+      }catch{}
     });
 
     // Delete tool (separate button)
@@ -4429,7 +4432,6 @@ function renderEditor(projectId){
       // Minimal API for delete-mode without opening the popover
       const api = {
         getConfig: () => ({
-          tool: (window.__boxTool === 'members') ? 'members' : 'boxes',
           wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
           dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
           hMm: parseFloat(document.getElementById('boxH')?.value||'0')||0,
