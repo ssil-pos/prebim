@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1515KST';
+const BUILD = '20260211-1522KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -6758,7 +6758,26 @@ async function createThreeView(container){
     if(boxEditMode){
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObjects(boxPickGroup.children, false);
-      if(!hits.length) return;
+      const cfg0 = boxEditApi?.getConfig?.() || { deleteMode:false };
+      if(!hits.length){
+        // In Delete mode, allow selecting free-members by clicking the actual member mesh/line
+        if(cfg0.deleteMode){
+          try{
+            const mh = raycaster.intersectObjects(group.children, true);
+            const obj2 = mh?.[0]?.object;
+            const mid = obj2?.userData?.memberId;
+            if(mid && String(mid).startsWith('free:')){
+              const raw = String(mid).slice('free:'.length);
+              window.__delSel = window.__delSel || { boxes:[], members:[] };
+              const arr = Array.isArray(window.__delSel.members) ? window.__delSel.members : [];
+              if(!arr.includes(raw)) arr.push(raw);
+              window.__delSel.members = arr;
+              window.__renderDelList?.();
+            }
+          }catch{}
+        }
+        return;
+      }
       const obj = hits[0].object;
       const kind = obj?.userData?.kind;
       const cfg = boxEditApi?.getConfig?.() || { wMm:0, dMm:0, hMm:0, topMm:0, braceDir:'/', tool:'boxes' };
