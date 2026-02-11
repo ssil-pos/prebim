@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0850KST';
+const BUILD = '20260211-0930KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0850KST'),
-    import('/prebim/app_profiles.js?v=20260211-0850KST'),
+    import('/prebim/engine.js?v=20260211-0930KST'),
+    import('/prebim/app_profiles.js?v=20260211-0930KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -1765,21 +1765,28 @@ function renderAnalysis(projectId){
             </div>
 
             <div id="wSecOpen" style="margin-top:8px; display:none">
-              <div class="grid2">
+              <label class="label">Open element type</label>
+              <select class="input" id="wOpenType">
+                <option value="PIPE" selected>Pipe / pipe-rack members</option>
+                <option value="TRAY">Cable tray</option>
+                <option value="FRAME">Open steel frame (generic)</option>
+              </select>
+
+              <div class="grid2" style="margin-top:8px">
                 <div>
                   <label class="label">CD / Cf (X)</label>
-                  <input class="input" id="wCDx" value="2.10" />
+                  <input class="input" id="wCDx" value="0.700" />
                 </div>
                 <div>
                   <label class="label">CD / Cf (Z)</label>
-                  <input class="input" id="wCDz" value="2.85" />
+                  <input class="input" id="wCDz" value="0.700" />
                 </div>
               </div>
               <label class="badge" style="margin-top:8px; cursor:pointer; user-select:none; display:inline-flex; gap:8px; align-items:center">
-                <input id="wAutoCD" type="checkbox" style="margin:0" checked />
-                <span>Auto-estimate CD (pipe-rack / steel frame)</span>
+                <input id="wAutoCD" type="checkbox" style="margin:0" />
+                <span>Auto-estimate CD (rough)</span>
               </label>
-              <div class="note" id="wAutoCDNote" style="margin-top:6px">Estimates solidity from members + section dims; treat as a starting point. Adjust if you have a project-specific Cf.</div>
+              <div class="note" id="wAutoCDNote" style="margin-top:6px">If enabled: estimates solidity from members + section dims; starting point only.</div>
               <div class="note" style="margin-top:6px">Open structure uses Pf = kz · qH · GD · CD. (Enclosed uses Pf = kz · qH · GD · (Cpe1−Cpe2))</div>
             </div>
 
@@ -1831,15 +1838,15 @@ function renderAnalysis(projectId){
       host.querySelector('.kds-modal-b')?.appendChild(hidden);
 
       const KzrAt = (exp, z) => {
-        // Matches sample: Kzr = 1 (z<=Zb) else 0.71*z^alpha (up to Zg)
+        // KDS-style simplified altitude distribution factor.
+        // Calibrated to match the provided sample sheet (Exposure C):
+        //   Kzr(z) = max(1.0, (z/10)^alpha)
+        // where alpha depends on exposure.
         const E = String(exp||'C').toUpperCase();
         const alpha = (E==='B') ? 0.22 : (E==='D' ? 0.11 : 0.15);
-        const Zg = (E==='B') ? 300 : (E==='D' ? 400 : 350);
-        const Zb = (E==='B') ? 7 : (E==='D' ? 15 : 10);
         const zz = Math.max(0, Number(z)||0);
-        if(zz <= Zb) return 1.0;
-        const k = 0.71 * Math.pow(Math.min(zz, Zg), alpha);
-        return k;
+        if(zz <= 0) return 1.0;
+        return Math.max(1.0, Math.pow(zz/10.0, alpha));
       };
 
       const estimateOpenCD = () => {
@@ -2025,10 +2032,24 @@ function renderAnalysis(projectId){
         if(setDefaults){
           if(struct === 'OPEN'){
             const kz = host.querySelector('#wKz'); if(kz) kz.value = '0.700';
-            const gdx = host.querySelector('#wGDx'); if(gdx) gdx.value = '1.000';
-            const gdz = host.querySelector('#wGDz'); if(gdz) gdz.value = '1.000';
-            const cdx = host.querySelector('#wCDx'); if(cdx) cdx.value = '2.10';
-            const cdz = host.querySelector('#wCDz'); if(cdz) cdz.value = '2.85';
+            // Sample sheet values (pipe-rack) use GD~2.26 (X) and 2.165 (Z)
+            const gdx = host.querySelector('#wGDx'); if(gdx) gdx.value = '2.263';
+            const gdz = host.querySelector('#wGDz'); if(gdz) gdz.value = '2.165';
+
+            const ot = host.querySelector('#wOpenType');
+            const openType = String(ot?.value||'PIPE');
+            const cdx = host.querySelector('#wCDx');
+            const cdz = host.querySelector('#wCDz');
+            if(openType === 'TRAY'){
+              if(cdx) cdx.value = '2.000';
+              if(cdz) cdz.value = '2.000';
+            } else if(openType === 'FRAME'){
+              if(cdx) cdx.value = '1.800';
+              if(cdz) cdz.value = '1.800';
+            } else {
+              if(cdx) cdx.value = '0.700';
+              if(cdz) cdz.value = '0.700';
+            }
           }else{
             const kz = host.querySelector('#wKz'); if(kz) kz.value = '0.985';
             const gdx = host.querySelector('#wGDx'); if(gdx) gdx.value = '2.12';
@@ -2042,6 +2063,7 @@ function renderAnalysis(projectId){
       };
 
       host.querySelector('#wStruct')?.addEventListener('change', () => { updateStructUi(true); recalc(); });
+      host.querySelector('#wOpenType')?.addEventListener('change', () => { if(String(host.querySelector('#wStruct')?.value)==='OPEN') updateStructUi(true); recalc(); });
       host.querySelectorAll('input,select').forEach(inp => inp.addEventListener('input', recalc));
       host.querySelectorAll('select').forEach(sel => sel.addEventListener('change', recalc));
       updateStructUi(true);
