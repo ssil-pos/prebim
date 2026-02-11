@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1453KST';
+const BUILD = '20260211-1502KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -3510,8 +3510,8 @@ function renderEditor(projectId){
 
           <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
             <label class="badge" style="cursor:pointer">Section
-              <select id="boxMemShape" class="input" style="max-width:70px; margin-left:8px"></select>
-              <select id="boxMemSize" class="input" style="max-width:150px; margin-left:6px"></select>
+              <select id="memShape" class="input" style="max-width:70px; margin-left:8px"></select>
+              <select id="memSize" class="input" style="max-width:150px; margin-left:6px"></select>
             </label>
           </div>
         </div></div>
@@ -4368,8 +4368,8 @@ function renderEditor(projectId){
       const SHAPE_KEYS = ['H','C','L','LC','Rect','I','T'];
       const shapes = data[stdKey]?.shapes || {};
       const keys = SHAPE_KEYS.filter(k=>shapes[k]);
-      const sh = document.getElementById('boxMemShape');
-      const sz = document.getElementById('boxMemSize');
+      const sh = document.getElementById('memShape');
+      const sz = document.getElementById('memSize');
       if(sh && sh.options.length===0){
         sh.innerHTML='';
         keys.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=k; sh.appendChild(o); });
@@ -4383,7 +4383,7 @@ function renderEditor(projectId){
         if(items.some(it=>it.key===prev)) sz.value=prev;
       }
     };
-    document.getElementById('boxMemShape')?.addEventListener('change', rebuildBoxMemSection);
+    document.getElementById('memShape')?.addEventListener('change', rebuildBoxMemSection);
     document.getElementById('stdAll')?.addEventListener('change', rebuildBoxMemSection);
 
     // (delete selected button removed; deletion is handled via top Delete button + 3D click)
@@ -4540,8 +4540,8 @@ function renderEditor(projectId){
           deleteMode: (window.__boxDeleteMode === true),
           memProfile: {
             stdKey: String(document.getElementById('stdAll')?.value||'KS'),
-            shapeKey: String(document.getElementById('boxMemShape')?.value||'H'),
-            sizeKey: String(document.getElementById('boxMemSize')?.value||''),
+            shapeKey: String(document.getElementById('memShape')?.value||'H'),
+            sizeKey: String(document.getElementById('memSize')?.value||''),
           },
         }),
         onAddBox: (box) => {
@@ -4586,69 +4586,12 @@ function renderEditor(projectId){
     document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
     document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
     document.getElementById('btnPopBoxClose')?.addEventListener('click', () => {
-      closeAll();
-      updateBraceMode(false);
-      try{ if(popBox){ popBox.classList.remove('open'); popBox.style.display='none'; } }catch{}
-      view?.setBoxEditMode?.(false, getForm());
-      window.__boxDeleteMode = false;
-      document.getElementById('btnPopDel')?.classList.remove('active');
+      openTool('none');
     });
     document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); psView?.setEditMode?.(false); });
 
     document.getElementById('btnPopBox')?.addEventListener('click', () => {
       openTool(window.__boxTool==='boxes' ? 'none' : 'boxes');
-
-      // wire box edit callbacks into view
-      const api = {
-        getConfig: () => ({
-          wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
-          dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
-          hMm: parseFloat(document.getElementById('boxH')?.value||'0')||0,
-          topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
-          braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
-          tool: (window.__boxTool === 'members') ? 'members' : 'boxes',
-          deleteMode: (window.__boxDeleteMode === true),
-          memProfile: {
-            stdKey: String(document.getElementById('stdAll')?.value||'KS'),
-            shapeKey: String(document.getElementById('boxMemShape')?.value||'H'),
-            sizeKey: String(document.getElementById('boxMemSize')?.value||''),
-          },
-        }),
-        onAddBox: (box) => {
-          window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
-          window.__prebimBoxes.push(box);
-          scheduleApply(0);
-        },
-        onAddMember: (kind, aMm, bMm) => {
-          const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
-          fm0.nodes = Array.isArray(fm0.nodes) ? fm0.nodes : [];
-          fm0.members = Array.isArray(fm0.members) ? fm0.members : [];
-          fm0.nextNodeId = Math.max(1, parseInt(fm0.nextNodeId,10)||1);
-          fm0.nextMemId = Math.max(1, parseInt(fm0.nextMemId,10)||1);
-
-          const findOrAddNode = (p) => {
-            const eps = 1; // mm
-            for(const n of fm0.nodes){
-              if(Math.abs((n.x||0)-p[0])<=eps && Math.abs((n.y||0)-p[1])<=eps && Math.abs((n.z||0)-p[2])<=eps) return String(n.id);
-            }
-            const id = String(fm0.nextNodeId++);
-            fm0.nodes.push({ id, x: Math.round(p[0]), y: Math.round(p[1]), z: Math.round(p[2]) });
-            return id;
-          };
-
-          const i = findOrAddNode(aMm);
-          const j = findOrAddNode(bMm);
-          const id = String(fm0.nextMemId++);
-          const cfg = boxEditApi?.getConfig?.() || {};
-          const prof = (cfg?.memProfile && typeof cfg.memProfile==='object') ? cfg.memProfile : null;
-          fm0.members.push({ id, i, j, kind: (kind==='brace')?'brace':'beam', profile: prof||undefined });
-          fm0.enabled = false; // kept internal; do not replace grid model
-          window.__prebimFree = fm0;
-          scheduleApply(0);
-        },
-      };
-      window.__boxEditApiLast = api;
-      view?.setBoxEditMode?.(!!on, getForm(), api);
     });
 
     document.getElementById('btnPopFree')?.addEventListener('click', async () => {
