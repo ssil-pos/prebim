@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1703KST';
+const BUILD = '20260211-1704KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -5811,8 +5811,50 @@ function renderEditor(projectId){
       if(ovInfo) ovInfo.textContent = sel.length ? `Selected: ${sel.length}` : 'Selected: -';
     };
 
+    const syncOvInputsToSelection = (sel = (view.getSelection?.() || [])) => {
+      try{
+        if(!sel.length) return;
+        const pickId = String(sel[0]||'');
+        if(!pickId) return;
+        // Use last applied model (normalized) if available; fallback to current form.
+        const mm = (__lastModel && typeof __lastModel==='object') ? __lastModel : getForm();
+        const prof = mm?.profiles || {};
+        const overrides = mm?.overrides || window.__prebimOverrides || {};
+        const ov = overrides?.[pickId] || null;
+
+        // Determine member kind
+        const mems = Array.isArray(__lastMembers) ? __lastMembers : (__engine?.generateMembers?.(mm) || []);
+        const mem = mems.find(x => String(x?.id)===pickId) || null;
+        const kind = String(mem?.kind||'');
+
+        const stdKey = String(ov?.stdKey || prof.stdAll || document.getElementById('stdAll')?.value || 'KS');
+        // Choose defaults by kind
+        const defShape = (kind==='column') ? (prof.colShape||'H')
+          : ((kind==='beamX' || kind==='beamY' || kind==='joist') ? (prof.beamShape||'H')
+          : (kind==='subBeam' ? (prof.subShape||'H')
+          : (kind==='brace' ? (prof.braceShape||'L') : (ovShape?.value||'H'))));
+        const defSize = (kind==='column') ? (prof.colSize||'')
+          : ((kind==='beamX' || kind==='beamY' || kind==='joist') ? (prof.beamSize||'')
+          : (kind==='subBeam' ? (prof.subSize||'')
+          : (kind==='brace' ? (prof.braceSize||'') : (ovSize?.value||''))));
+
+        const shapeKey = String(ov?.shapeKey || defShape || 'H');
+        const sizeKey = String(ov?.sizeKey || defSize || '');
+
+        // Keep stdAll select in sync so rebuildOv uses the same standard
+        try{ const s=document.getElementById('stdAll'); if(s) s.value = stdKey; }catch{}
+
+        // rebuild options then set values
+        rebuildOv();
+        if(ovShape && Array.from(ovShape.options).some(o => String(o.value)===shapeKey)) ovShape.value = shapeKey;
+        rebuildOv();
+        if(ovSize && Array.from(ovSize.options).some(o => String(o.value)===sizeKey)) ovSize.value = sizeKey;
+      }catch(e){ console.warn('sync override UI failed', e); }
+    };
+
     view.onSelectionChange?.((sel) => {
       updateOvInfo(sel);
+      syncOvInputsToSelection(sel);
     });
 
     rebuildOv();
