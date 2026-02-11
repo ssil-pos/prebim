@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1422KST';
+const BUILD = '20260211-1431KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -3336,6 +3336,7 @@ function renderEditor(projectId){
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
             <button class="pill" id="btnPopBox" type="button">Box Edit</button>
+            <button class="pill" id="btnBoxMember" type="button">Member</button>
             <button class="pill" id="btnBoxDelete" type="button">Delete</button>
             <button class="pill" id="btnPopFree" type="button" style="display:none">Free Edit</button>
           </div>
@@ -3465,8 +3466,6 @@ function renderEditor(projectId){
           </div>
           <div class="note" style="margin-top:8px">Mode is separated:</div>
           <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
-            <label class="badge" style="cursor:pointer"><input id="boxMode" type="checkbox" style="margin:0 8px 0 0" /> Member add mode</label>
-            <!-- delete mode moved to top button -->
             <label class="badge" style="cursor:pointer">Diag kind
               <select id="boxMemberKind" class="input" style="max-width:110px; margin-left:8px">
                 <option value="brace">Brace</option>
@@ -3478,9 +3477,9 @@ function renderEditor(projectId){
               <select id="boxMemSize" class="input" style="max-width:150px; margin-left:6px"></select>
             </label>
           </div>
-          <div class="note" style="margin-top:8px">• Box mode: hover face → preview, click face → add box
-          <br/>• Member mode: hover edge/diagonal → preview line, click → add member
-          <br/>• Delete mode: click a box face to delete that added box; click edge/diagonal to delete member on that segment</div>
+          <div class="note" style="margin-top:8px">• Box Edit: hover face → preview, click face → add box
+          <br/>• Member: hover edge/diagonal → preview line, click → add member
+          <br/>• Delete: select items → delete from popup</div>
 
           <div class="grid2" style="margin-top:10px">
             <div>
@@ -4410,6 +4409,18 @@ function renderEditor(projectId){
       view?.setBoxEditMode?.(false, getForm());
     });
 
+    // Box tool state
+    window.__boxTool = 'boxes'; // 'boxes' | 'members'
+
+    // Member tool button
+    const btnBoxMember = document.getElementById('btnBoxMember');
+    btnBoxMember?.addEventListener('click', () => {
+      window.__boxTool = (window.__boxTool === 'members') ? 'boxes' : 'members';
+      btnBoxMember?.classList.toggle('active', window.__boxTool === 'members');
+      // ensure pick targets exist
+      try{ view?.setBoxEditMode?.(true, getForm(), window.__boxEditApiLast || undefined); }catch{}
+    });
+
     // Delete tool (separate button)
     window.__boxDeleteMode = false;
     const btnBoxDelete = document.getElementById('btnBoxDelete');
@@ -4418,12 +4429,13 @@ function renderEditor(projectId){
       // Minimal API for delete-mode without opening the popover
       const api = {
         getConfig: () => ({
+          tool: (window.__boxTool === 'members') ? 'members' : 'boxes',
           wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
           dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
           hMm: parseFloat(document.getElementById('boxH')?.value||'0')||0,
           topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
           braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
-          tool: (document.getElementById('boxMode')?.checked === true) ? 'members' : 'boxes',
+          tool: (window.__boxTool === 'members') ? 'members' : 'boxes',
           deleteMode: (window.__boxDeleteMode === true),
           memberKind: String(document.getElementById('boxMemberKind')?.value||'brace'),
           memProfile: {
@@ -4518,9 +4530,9 @@ function renderEditor(projectId){
           hMm: parseFloat(document.getElementById('boxH')?.value||'0')||0,
           topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
           braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
-          tool: (document.getElementById('boxMode')?.checked === true) ? 'members' : 'boxes',
+          tool: (window.__boxTool === 'members') ? 'members' : 'boxes',
           deleteMode: (window.__boxDeleteMode === true),
-          memberKind: String(document.getElementById('boxMemberKind')?.value||'beam'),
+          memberKind: String(document.getElementById('boxMemberKind')?.value||'brace'),
           memProfile: {
             stdKey: String(document.getElementById('stdAll')?.value||'KS'),
             shapeKey: String(document.getElementById('boxMemShape')?.value||'H'),
@@ -6898,6 +6910,7 @@ async function createThreeView(container){
       boxHot = { kind:'face', obj };
 
       // preview box placement on outer faces
+      if(cfg.deleteMode) return;
       try{
         const faceKey = String(obj.userData.faceKey||'');
         if(['X0','X1','Z0','Z1'].includes(faceKey)){
