@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1533KST';
+const BUILD = '20260211-1537KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -4572,6 +4572,7 @@ function renderEditor(projectId){
         b.length ? `<div class="note" style="margin:0"><b>Boxes</b>: ${b.map(escapeHtml).join(', ')}</div>` : '',
         m.length ? `<div class="note" style="margin:6px 0 0"><b>Members</b>: ${m.map(escapeHtml).join(', ')}</div>` : '',
       ].filter(Boolean).join('');
+      try{ setDeleteSelectionViz(window.__delSel); }catch{}
     };
 
     const openTool = (tool) => {
@@ -5735,9 +5736,12 @@ async function createThreeView(container){
   scene.add(boxPickGroup);
   const boxHotGroup = new THREE.Group();
   scene.add(boxHotGroup);
+  const delSelGroup = new THREE.Group();
+  scene.add(delSelGroup);
   let boxEditMode = false;
   let boxEditApi = null; // { getConfig, onAddBox, onAddMember }
   let boxHot = null; // { kind:'face'|'edge'|'diag', ... }
+  let delHover = null; // { memberId, a:[x,y,z], b:[x,y,z] } in meters
 
   // analysis overlay (deformed shape + displacement colormap)
   const analysisGroup = new THREE.Group();
@@ -6634,7 +6638,7 @@ async function createThreeView(container){
     }
   }
 
-  function showBoxHotLine(a, b, color=0xff3b30){
+  function showBoxHotLine(a, b, color=0xff3b30, r=0.05){
     // clears previous hot visuals (line/box)
     while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
     if(!a || !b) return;
@@ -6647,7 +6651,6 @@ async function createThreeView(container){
     if(len <= 1e-6) return;
     const mid = A.clone().add(B).multiplyScalar(0.5);
 
-    const r = 0.05; // 5cm visual thickness
     const g = new THREE.CylinderGeometry(r, r, len, 10, 1, true);
     const m = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.95, depthTest:false });
     const mesh = new THREE.Mesh(g, m);
@@ -6658,6 +6661,39 @@ async function createThreeView(container){
     mesh.renderOrder = 999;
     mesh.frustumCulled = false;
     boxHotGroup.add(mesh);
+  }
+
+  function setDeleteSelectionViz(sel){
+    while(delSelGroup.children.length) delSelGroup.remove(delSelGroup.children[0]);
+    const ids = Array.isArray(sel?.members) ? sel.members.map(String) : [];
+    if(!ids.length) return;
+    const fm = (lastClipModel?.free && typeof lastClipModel.free==='object') ? lastClipModel.free : null;
+    const nodes = Array.isArray(fm?.nodes) ? fm.nodes : [];
+    const mems = Array.isArray(fm?.members) ? fm.members : [];
+    const nodeMap = new Map(nodes.map(n => [String(n.id), [(Number(n.x||0)/1000),(Number(n.y||0)/1000),(Number(n.z||0)/1000)]]));
+    for(const id of ids){
+      const mm = mems.find(m => String(m?.id)===id);
+      if(!mm) continue;
+      const a = nodeMap.get(String(mm.i));
+      const b = nodeMap.get(String(mm.j));
+      if(!a || !b) continue;
+      // red thick line
+      const A = new THREE.Vector3(...a);
+      const B = new THREE.Vector3(...b);
+      const dir = B.clone().sub(A);
+      const len = dir.length();
+      if(len <= 1e-6) continue;
+      const mid = A.clone().add(B).multiplyScalar(0.5);
+      const r2 = 0.06;
+      const g = new THREE.CylinderGeometry(r2, r2, len, 10, 1, true);
+      const m = new THREE.MeshBasicMaterial({ color:0xff3b30, transparent:true, opacity:0.90, depthTest:false });
+      const mesh = new THREE.Mesh(g, m);
+      mesh.position.copy(mid);
+      mesh.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize()));
+      mesh.renderOrder = 998;
+      mesh.frustumCulled = false;
+      delSelGroup.add(mesh);
+    }
   }
 
   function showBoxHotPreviewBox(b){
@@ -7107,7 +7143,58 @@ async function createThreeView(container){
     boxHot = null;
     showBoxHotLine(null, null);
 
-    if(!hits.length) return;
+    if(!hits.length){
+      // Delete mode: hover-highlight nearest free member (yellow)
+      if(cfg.deleteMode){
+        try{
+          const fm = (lastClipModel?.free && typeof lastClipModel.free==='object') ? lastClipModel.free : null;
+          const nodes = Array.isArray(fm?.nodes) ? fm.nodes : [];
+          const mems = Array.isArray(fm?.members) ? fm.members : [];
+          const nodeMap = new Map(nodes.map(n => [String(n.id), [(Number(n.x||0)/1000),(Number(n.y||0)/1000),(Number(n.z||0)/1000)]]));
+          const ray = raycaster.ray;
+          const ro = ray.origin; const rd = ray.direction;
+          const distRaySeg = (p0,p1) => {
+            // returns shortest distance between ray and segment + closest points param
+            const v0 = new THREE.Vector3(...p0);
+            const v1 = new THREE.Vector3(...p1);
+            const u = rd.clone();
+            const v = v1.clone().sub(v0);
+            const w0 = ro.clone().sub(v0);
+            const a = u.dot(u);
+            const b = u.dot(v);
+            const c = v.dot(v);
+            const d = u.dot(w0);
+            const e = v.dot(w0);
+            const D = a*c - b*b;
+            let sc, tc;
+            if(D < 1e-9){ sc = 0; tc = (b>c? d/b : e/c); }
+            else { sc = (b*e - c*d) / D; tc = (a*e - b*d) / D; }
+            if(sc < 0) sc = 0;
+            tc = Math.max(0, Math.min(1, tc));
+            const pR = ro.clone().add(u.clone().multiplyScalar(sc));
+            const pS = v0.clone().add(v.clone().multiplyScalar(tc));
+            return { d: pR.distanceTo(pS), a:p0, b:p1 };
+          };
+
+          let best = null;
+          for(const mm of mems){
+            const a = nodeMap.get(String(mm.i));
+            const b = nodeMap.get(String(mm.j));
+            if(!a || !b) continue;
+            const r = distRaySeg(a,b);
+            if(!best || r.d < best.d) best = { d:r.d, id:String(mm.id), a, b };
+          }
+          const tol = 0.30; // 30cm
+          if(best && best.d <= tol){
+            showBoxHotLine(best.a, best.b, 0xfacc15, 0.07);
+            delHover = best;
+          }else{
+            delHover = null;
+          }
+        }catch{}
+      }
+      return;
+    }
     const obj = hits[0].object;
     const kind = obj?.userData?.kind;
 
