@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1004KST';
+const BUILD = '20260211-1027KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-1004KST'),
-    import('/prebim/app_profiles.js?v=20260211-1004KST'),
+    import('/prebim/engine.js?v=20260211-1027KST'),
+    import('/prebim/app_profiles.js?v=20260211-1027KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -3424,39 +3424,34 @@ function renderEditor(projectId){
             <b>Free Edit (3D)</b>
             <button class="pill" id="btnPopFreeClose" type="button">Close</button>
           </div>
-          <div class="note" style="margin-top:8px">Directly place nodes and connect members in 3D. Y snaps to nearest Level (mm). First member tool defaults to Beam; then remembers last kind.</div>
+          <div class="note" style="margin-top:8px">2D Plan editing (snap 10mm). Pick Level → place nodes → connect beams → place columns (current level → next level). Existing grid intersections are selectable reference points (does not create nodes by itself).</div>
 
           <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
-            <label class="badge" style="cursor:pointer"><input id="freeOn" type="checkbox" style="margin:0 8px 0 0" /> Enable Free model</label>
+            <label class="badge" style="cursor:pointer"><input id="freeOn" type="checkbox" style="margin:0 8px 0 0" /> Enable Free model (bake from grid)</label>
             <button class="btn" id="btnFreeClear" type="button">Clear</button>
-          </div>
-
-          <div class="note" style="margin-top:10px"><b>Tool</b></div>
-          <div class="row" style="margin-top:6px; gap:8px; flex-wrap:wrap">
-            <button class="btn" id="toolAddNode" type="button">Add node</button>
-            <button class="btn" id="toolAddMem" type="button">Add member</button>
-            <button class="btn" id="toolMoveNode" type="button">Move node</button>
-            <button class="btn danger" id="toolDelete" type="button">Delete</button>
           </div>
 
           <div class="grid2" style="margin-top:10px">
             <div>
-              <label class="label">Member kind</label>
-              <select id="freeKind" class="input">
-                <option value="beam" selected>Beam (auto X/Y by direction)</option>
-                <option value="column">Column</option>
-                <option value="brace">Brace</option>
-              </select>
+              <label class="label">Level</label>
+              <select id="freeLevel" class="input"></select>
             </div>
             <div>
-              <label class="label">Snap</label>
-              <div class="row" style="gap:8px; margin-top:0">
-                <label class="badge" style="cursor:pointer"><input id="freeSnapNode" type="checkbox" style="margin:0 8px 0 0" checked /> Node</label>
-              </div>
+              <label class="label">Snap (mm)</label>
+              <input id="freeSnapMm" class="input" value="10" />
             </div>
           </div>
 
-          <div class="note" id="freeHint" style="margin-top:10px">Tip: Add member → click two nodes. Move node → drag. Delete → click node/member.</div>
+          <div class="note" style="margin-top:10px"><b>Tool</b></div>
+          <div class="row" style="margin-top:6px; gap:8px; flex-wrap:wrap">
+            <button class="btn" id="toolSelect" type="button">Select</button>
+            <button class="btn" id="toolAddNode" type="button">Add node</button>
+            <button class="btn" id="toolAddBeam" type="button">Add beam</button>
+            <button class="btn" id="toolAddCol" type="button">Add column</button>
+            <button class="btn danger" id="toolDelete" type="button">Delete</button>
+          </div>
+
+          <div class="note" id="freeHint" style="margin-top:10px">Tip: Add node → click. Add beam → click two nodes. Add column → click one node (to next level).</div>
         </div></div>
 
         <div class="popwrap" id="popOv"><div class="popcard">
@@ -3662,8 +3657,19 @@ function renderEditor(projectId){
       const f = window.__prebimFree || { enabled:false, nodes:[], members:[], lastKind:'beam' };
       const freeOn = document.getElementById('freeOn');
       if(freeOn) freeOn.checked = (f.enabled === true);
-      const fk = document.getElementById('freeKind');
-      if(fk) fk.value = String(f.lastKind || 'beam');
+
+      const freeLevelEl = document.getElementById('freeLevel');
+      if(freeLevelEl){
+        const lv = (engineModel.levels||[]);
+        freeLevelEl.innerHTML='';
+        lv.forEach((mm, idx) => {
+          const o=document.createElement('option');
+          o.value=String(idx);
+          o.textContent=`L${idx+1} (${Math.round(mm)}mm)`;
+          freeLevelEl.appendChild(o);
+        });
+        freeLevelEl.value = '0';
+      }
     }catch{}
 
     // Level list handlers
@@ -4129,60 +4135,129 @@ function renderEditor(projectId){
     // 3D toggles
     // (realistic/outline toggles removed)
 
-    // Free edit controls
-    const setFreeToolUi = (tool) => {
-      const ids = ['toolAddNode','toolAddMem','toolMoveNode','toolDelete'];
+    // Free edit controls (2D Plan)
+    const bakeGridToFree = (model) => {
+      const m0 = structuredClone(model||{});
+      m0.free = { enabled:false, nodes:[], members:[] };
+      const mems = __engine.generateMembers(m0);
+
+      const keyOf = (p) => `${Math.round((p[0]||0)*1000)},${Math.round((p[1]||0)*1000)},${Math.round((p[2]||0)*1000)}`;
+      const nodeMap = new Map();
+      const nodes = [];
+      const getNodeId = (pt) => {
+        const x = Math.round((pt[0]||0)*1000);
+        const y = Math.round((pt[1]||0)*1000);
+        const z = Math.round((pt[2]||0)*1000);
+        const k = `${x},${y},${z}`;
+        if(nodeMap.has(k)) return nodeMap.get(k);
+        const id = String(nodes.length + 1);
+        nodes.push({ id, x, y, z });
+        nodeMap.set(k, id);
+        return id;
+      };
+
+      const members = [];
+      for(const mm of (mems||[])){
+        if(!mm?.a || !mm?.b) continue;
+        const i = getNodeId(mm.a);
+        const j = getNodeId(mm.b);
+        const kind = (mm.kind==='column') ? 'column' : (mm.kind==='brace' ? 'brace' : 'beam');
+        members.push({ id: String(members.length+1), kind, i, j });
+      }
+
+      return { enabled:true, nodes, members, lastKind:'beam', nextNodeId: nodes.length+1, nextMemId: members.length+1 };
+    };
+
+    const freeLevelEl = document.getElementById('freeLevel');
+    const fillFreeLevels = (m) => {
+      if(!freeLevelEl) return;
+      const lv = (m?.levels||[]).slice();
+      freeLevelEl.innerHTML='';
+      lv.forEach((mm, idx) => {
+        const o=document.createElement('option');
+        o.value=String(idx);
+        o.textContent=`L${idx+1} (${Math.round(mm)}mm)`;
+        freeLevelEl.appendChild(o);
+      });
+    };
+    fillFreeLevels(getForm());
+
+    const setPlanEdit = (on, tool=null) => {
+      if(!psView?.setEditMode) return;
+      const lvl = parseInt(freeLevelEl?.value||'0',10) || 0;
+      const snapMm = parseInt(document.getElementById('freeSnapMm')?.value||'10',10) || 10;
+      psView.setEditMode(on, {
+        levelIdx: lvl,
+        tool: tool || undefined,
+        snapMm,
+        onChange: (fm) => {
+          window.__prebimFree = { ...(window.__prebimFree||{}), ...(fm||{}) };
+          scheduleApply(0);
+        }
+      });
+    };
+
+    const setFreeToolUi = (toolId) => {
+      const ids = ['toolSelect','toolAddNode','toolAddBeam','toolAddCol','toolDelete'];
       for(const id of ids){
         const el = document.getElementById(id);
-        if(el) el.classList.toggle('active', id===tool);
+        if(el) el.classList.toggle('active', id===toolId);
       }
     };
 
     document.getElementById('freeOn')?.addEventListener('change', () => {
       const on = document.getElementById('freeOn')?.checked === true;
-      window.__prebimFree = { ...(window.__prebimFree||{}), enabled: on, nodes: (window.__prebimFree?.nodes||[]), members:(window.__prebimFree?.members||[]) };
+      const cur = window.__prebimFree || { enabled:false, nodes:[], members:[] };
+      if(on){
+        // bake once if empty
+        if(!(Array.isArray(cur.nodes) && cur.nodes.length) && !(Array.isArray(cur.members) && cur.members.length)){
+          window.__prebimFree = bakeGridToFree(getForm());
+        }else{
+          window.__prebimFree = { ...cur, enabled:true };
+        }
+      }else{
+        window.__prebimFree = { ...cur, enabled:false };
+      }
       scheduleApply(0);
+      setPlanEdit(on, 'select');
+      setFreeToolUi('toolSelect');
     });
 
-    document.getElementById('freeKind')?.addEventListener('change', () => {
-      const v = document.getElementById('freeKind')?.value || 'beam';
-      window.__prebimFree = { ...(window.__prebimFree||{}), lastKind: String(v||'beam') };
-      view?.setFreeKind?.(String(v||'beam'));
-      scheduleApply(0);
+    freeLevelEl?.addEventListener('change', () => {
+      const lvl = parseInt(freeLevelEl.value||'0',10)||0;
+      psView?.setEditLevel?.(lvl);
     });
 
-    document.getElementById('freeSnapNode')?.addEventListener('change', () => {
-      const on = document.getElementById('freeSnapNode')?.checked !== false;
-      view?.setFreeSnapNode?.(on);
+    document.getElementById('freeSnapMm')?.addEventListener('input', () => {
+      const v = parseInt(document.getElementById('freeSnapMm')?.value||'10',10)||10;
+      psView?.setEditSnapMm?.(v);
     });
 
     const setTool = (tool) => {
-      view?.setFreeTool?.(tool);
-      setFreeToolUi(tool==='addNode'?'toolAddNode':tool==='addMember'?'toolAddMem':tool==='moveNode'?'toolMoveNode':tool==='delete'?'toolDelete':'');
+      psView?.setEditTool?.(tool);
       const hint = document.getElementById('freeHint');
       if(hint){
-        if(tool==='addNode') hint.textContent='Add node: click in 3D. Y snaps to nearest level.';
-        else if(tool==='addMember') hint.textContent='Add member: click two nodes. Member kind uses selector and remembers last.';
-        else if(tool==='moveNode') hint.textContent='Move node: drag a node.';
-        else if(tool==='delete') hint.textContent='Delete: click node or member.';
-        else hint.textContent='Tip: Add member → click two nodes. Move node → drag. Delete → click node/member.';
+        if(tool==='select') hint.textContent='Select: (next) change/delete members.';
+        else if(tool==='addNode') hint.textContent='Add node: click in Plan. (10mm snap)';
+        else if(tool==='addBeam') hint.textContent='Add beam: click two nodes/points.';
+        else if(tool==='addColumn') hint.textContent='Add column: click one node/point (current level → next level).';
+        else if(tool==='delete') hint.textContent='Delete: click a node.';
       }
+      setPlanEdit(true, tool);
     };
 
-    document.getElementById('toolAddNode')?.addEventListener('click', () => setTool('addNode'));
-    document.getElementById('toolAddMem')?.addEventListener('click', () => {
-      // default to last kind; initial default is beam
-      const v = String(window.__prebimFree?.lastKind || 'beam');
-      view?.setFreeKind?.(v);
-      setTool('addMember');
-    });
-    document.getElementById('toolMoveNode')?.addEventListener('click', () => setTool('moveNode'));
-    document.getElementById('toolDelete')?.addEventListener('click', () => setTool('delete'));
+    document.getElementById('toolSelect')?.addEventListener('click', () => { setTool('select'); setFreeToolUi('toolSelect'); });
+    document.getElementById('toolAddNode')?.addEventListener('click', () => { setTool('addNode'); setFreeToolUi('toolAddNode'); });
+    document.getElementById('toolAddBeam')?.addEventListener('click', () => { setTool('addBeam'); setFreeToolUi('toolAddBeam'); });
+    document.getElementById('toolAddCol')?.addEventListener('click', () => { setTool('addColumn'); setFreeToolUi('toolAddCol'); });
+    document.getElementById('toolDelete')?.addEventListener('click', () => { setTool('delete'); setFreeToolUi('toolDelete'); });
 
     document.getElementById('btnFreeClear')?.addEventListener('click', () => {
       if(!confirm('Clear Free model nodes/members?')) return;
-      window.__prebimFree = { ...(window.__prebimFree||{}), enabled:true, nodes:[], members:[], nextNodeId:1, nextMemId:1 };
+      window.__prebimFree = { enabled:true, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
       scheduleApply(0);
+      setPlanEdit(true, 'select');
+      setFreeToolUi('toolSelect');
     });
 
     // popovers
@@ -4213,7 +4288,7 @@ function renderEditor(projectId){
     document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
     document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
     document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
-    document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setFreeEditMode?.(false); });
+    document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); psView?.setEditMode?.(false); });
 
     document.getElementById('btnPopFree')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
@@ -4221,10 +4296,23 @@ function renderEditor(projectId){
       popSection?.classList.remove('open');
       popFree?.classList.toggle('open');
       // enable/disable free edit visuals
-      view?.setFreeEditMode?.(popFree?.classList.contains('open'), { onChange: (fm) => {
-        window.__prebimFree = { ...(window.__prebimFree||{}), ...(fm||{}) };
-        scheduleApply(0);
-      }});
+      // When opening Free Edit, switch to Plan view and enable plan edit mode
+      __psMode = 'plan';
+      applyPSMode();
+      const on = popFree?.classList.contains('open');
+      if(on){
+        psView?.setEditMode?.(true, {
+          levelIdx: parseInt(document.getElementById('freeLevel')?.value||'0',10)||0,
+          tool: 'select',
+          snapMm: parseInt(document.getElementById('freeSnapMm')?.value||'10',10)||10,
+          onChange: (fm) => {
+            window.__prebimFree = { ...(window.__prebimFree||{}), ...(fm||{}) };
+            scheduleApply(0);
+          }
+        });
+      }else{
+        psView?.setEditMode?.(false);
+      }
     });
 
     // resizable splitters
