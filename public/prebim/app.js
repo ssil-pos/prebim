@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1306KST';
+const BUILD = '20260211-1410UTC';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,7 +33,21 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import(`/prebim/app_profiles.js?v=20260211-1306KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
+    import('/prebim/engine.js?v=' + BUILD),
+    import('/prebim/app_profiles.js?v=' + BUILD),
+  ]);
+  __three = threeMod;
+  __OrbitControls = controlsMod.OrbitControls;
+  __threeUtils = utilsMod;
+  __csg = csgMod;
+  __engine = engineMod;
+  __profiles = profilesMod;
+}
+
+/** @typedef {{ id: string, name: string, createdAt: number, updatedAt: number, schemaVersion: 1, data: any }} PrebimProject */
+
+function now(){ return Date.now(); }
+function uid(){ return 'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
 
 function loadProjects(){
   try{
@@ -3448,11 +3462,7 @@ function renderEditor(projectId){
             <b>Box Edit</b>
             <button class="pill" id="btnPopBoxClose" type="button">Close</button>
           </div>
-          <div class="note" style="margin-top:8px">Box add/remove and member add are separate modes.</div>
-
-          <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
-            <label class="badge" style="cursor:pointer"><input id="boxMode" type="checkbox" style="margin:0 8px 0 0" /> Member add mode</label>
-          </div>
+          <div class="note" style="margin-top:8px">Click an outer face to add an attached box. Hover edges/diagonals to add members.</div>
 
           <div class="grid2" style="margin-top:10px">
             <div>
@@ -3486,10 +3496,7 @@ function renderEditor(projectId){
             <button class="btn" id="btnBoxClearMembers" type="button">Clear added members</button>
             <button class="btn danger" id="btnBoxClearBoxes" type="button">Clear boxes</button>
           </div>
-          <div class="note" style="margin-top:10px"><b>Boxes</b></div>
-          <div id="boxList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
-
-          <div class="note" style="margin-top:10px">Tip: hover face → preview box; click face → add box. In member mode, hover edge/diagonal → highlight then click to add member.</div>
+          <div class="note" style="margin-top:10px">Tip: edge click → member, diagonal click → brace.</div>
         </div></div>
 
         <div class="popwrap" id="popOv"><div class="popcard">
@@ -4310,39 +4317,10 @@ function renderEditor(projectId){
     });
 
     // Box edit helpers
-    const renderBoxList = () => {
-      const host = document.getElementById('boxList');
-      if(!host) return;
-      const arr = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
-      if(!arr.length){ host.innerHTML = '<div class="note" style="margin:0">(no boxes)</div>'; return; }
-      host.innerHTML = arr.map((b, idx) => {
-        const id = String(b?.id||idx);
-        const w = Math.abs((b.x1||0)-(b.x0||0));
-        const d = Math.abs((b.z1||0)-(b.z0||0));
-        const h = Math.abs((b.y1||0)-(b.y0||0));
-        return `<div class="row" style="margin-top:${idx?6:0}px; gap:8px; align-items:center; justify-content:space-between">
-          <span class="mono" style="font-size:11px; opacity:.75">${escapeHtml(id)} · W${w} D${d} H${h}</span>
-          <button class="btn danger smallbtn" type="button" data-del-box="${escapeHtml(id)}">Del</button>
-        </div>`;
-      }).join('');
-    };
-
-    document.getElementById('boxList')?.addEventListener('click', (ev) => {
-      const btn = ev.target?.closest?.('button[data-del-box]');
-      if(!btn) return;
-      const id = btn.getAttribute('data-del-box');
-      if(!id) return;
-      window.__prebimBoxes = (Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : []).filter(b => String(b?.id) !== String(id));
-      scheduleApply(0);
-      renderBoxList();
-      view?.setBoxEditMode?.(true, getForm(), window.__boxEditApiLast || undefined);
-    });
-
     document.getElementById('btnBoxClearBoxes')?.addEventListener('click', () => {
       if(!confirm('Clear all added boxes?')) return;
       window.__prebimBoxes = [];
       scheduleApply(0);
-      renderBoxList();
     });
     document.getElementById('btnBoxClearMembers')?.addEventListener('click', () => {
       if(!confirm('Clear all added members/nodes?')) return;
@@ -4396,30 +4374,28 @@ function renderEditor(projectId){
       popSection?.classList.remove('open');
       popFree?.classList.remove('open');
 
-      // Defensive: ensure popBox can become visible even if an inline style was left behind.
+      // Defensive: older builds had style="display:none" in the markup.
       try{ popBox?.removeAttribute?.('style'); }catch{}
+
       popBox?.classList.toggle('open');
       updateBraceMode(false);
 
       const on = popBox?.classList.contains('open');
       try{ if(popBox) popBox.style.display = on ? 'block' : 'none'; }catch{}
 
-      renderBoxList();
       // wire box edit callbacks into view
-      const api = {
+      view?.setBoxEditMode?.(!!on, getForm(), {
         getConfig: () => ({
           wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
           dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
           hMm: parseFloat(document.getElementById('boxH')?.value||'0')||0,
           topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
           braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
-          tool: (document.getElementById('boxMode')?.checked === true) ? 'members' : 'boxes',
         }),
         onAddBox: (box) => {
           window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
           window.__prebimBoxes.push(box);
           scheduleApply(0);
-          renderBoxList();
         },
         onAddMember: (kind, aMm, bMm) => {
           const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
@@ -4446,9 +4422,7 @@ function renderEditor(projectId){
           window.__prebimFree = fm0;
           scheduleApply(0);
         },
-      };
-      window.__boxEditApiLast = api;
-      view?.setBoxEditMode?.(!!on, getForm(), api);
+      });
     });
 
     document.getElementById('btnPopFree')?.addEventListener('click', async () => {
@@ -6274,7 +6248,7 @@ async function createThreeView(container){
         const c=new THREE.Vector3(...e[1]);
         const mid=a.clone().add(c).multiplyScalar(0.5);
         const len=a.distanceTo(c);
-        const thick=0.10; // 10cm pick thickness (easier)
+        const thick=0.03; // 3cm pick thickness
         const g=new THREE.BoxGeometry(Math.max(thick, thick), Math.max(thick, thick), Math.max(thick, len));
         const m=new THREE.MeshBasicMaterial({ transparent:true, opacity:0.0 });
         const mesh=new THREE.Mesh(g,m);
@@ -6311,7 +6285,7 @@ async function createThreeView(container){
         const vb = new THREE.Vector3(...c);
         const mid = va.clone().add(vb).multiplyScalar(0.5);
         const len = va.distanceTo(vb);
-        const thick = 0.10;
+        const thick = 0.03;
         const g = new THREE.BoxGeometry(thick, thick, Math.max(thick, len));
         const m = new THREE.MeshBasicMaterial({ transparent:true, opacity:0.0 });
         const mesh = new THREE.Mesh(g, m);
@@ -6493,7 +6467,7 @@ async function createThreeView(container){
       if(!hits.length) return;
       const obj = hits[0].object;
       const kind = obj?.userData?.kind;
-      const cfg = boxEditApi?.getConfig?.() || { wMm:0, dMm:0, hMm:0, topMm:0, braceDir:'/', tool:'boxes' };
+      const cfg = boxEditApi?.getConfig?.() || { wMm:0, dMm:0, hMm:0, topMm:0, braceDir:'/' };
 
       const addMember = (k, aM, bM) => {
         if(!boxEditApi?.onAddMember) return;
@@ -6501,7 +6475,6 @@ async function createThreeView(container){
       };
 
       if(kind==='edge' || kind==='diag'){
-        if(String(cfg.tool||'boxes') !== 'members') return;
         const a = obj.userData.a;
         const b = obj.userData.b;
         if(a && b) showBoxHotLine(a, b);
@@ -6510,7 +6483,6 @@ async function createThreeView(container){
       }
 
       if(kind==='face'){
-        if(String(cfg.tool||'boxes') !== 'boxes') return;
         const faceKey = String(obj.userData.faceKey||'');
         if(!['X0','X1','Z0','Z1'].includes(faceKey)) return; // side faces only
         const model = lastClipModel || {};
@@ -6626,7 +6598,6 @@ async function createThreeView(container){
   // Box edit: hover highlight (faces/edges/diagonals)
   renderer.domElement.addEventListener('pointermove', (ev) => {
     if(!boxEditMode) return;
-    const cfg = boxEditApi?.getConfig?.() || { tool:'boxes' };
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
@@ -6645,76 +6616,11 @@ async function createThreeView(container){
     const kind = obj?.userData?.kind;
 
     if(kind==='face'){
-      if(String(cfg.tool||'boxes') !== 'boxes') return;
       try{ if(obj.material) obj.material = faceMatHot.clone(); }catch{}
       boxHot = { kind:'face', obj };
-
-      // preview attached box placement
-      try{
-        const cfg2 = boxEditApi?.getConfig?.() || { wMm:0,dMm:0,hMm:0,topMm:0,braceDir:'/' };
-        const faceKey = String(obj.userData.faceKey||'');
-        if(['X0','X1','Z0','Z1'].includes(faceKey)){
-          const model = lastClipModel || {};
-          const boxes = modelBoxesM(model);
-          const host = boxes.find(bb => String(bb.id)===String(obj.userData.boxId)) || boxes[0];
-          const wM = Math.max(0.05, (Number(cfg2.wMm)||0)/1000);
-          const dM = Math.max(0.05, (Number(cfg2.dMm)||0)/1000);
-          const hM = Math.max(0.05, (Number(cfg2.hMm)||0)/1000);
-          const topM = (Number(cfg2.topMm)||0)/1000;
-
-          const spansX = model?.grid?.spansXmm || [];
-          const spansY = model?.grid?.spansYmm || [];
-          const xs=[0], zs=[0];
-          for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
-          for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
-          const snapFloor = (arr, v) => {
-            let best = arr[0] || 0;
-            for(const t of arr){ if(t <= v) best = t; }
-            return best;
-          };
-
-          const pt = hits[0].point;
-          const y1 = topM;
-          const y0 = topM - hM;
-          let x0=0,x1=0,z0=0,z1=0;
-
-          if(faceKey==='X1'){
-            x0 = host.x1; x1 = host.x1 + wM;
-            const span = Math.max(0.001, host.z1 - host.z0);
-            const dd = Math.min(dM, span);
-            z0 = snapFloor(zs, pt.z);
-            z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
-            z1 = z0 + dd;
-          }else if(faceKey==='X0'){
-            x1 = host.x0; x0 = host.x0 - wM;
-            const span = Math.max(0.001, host.z1 - host.z0);
-            const dd = Math.min(dM, span);
-            z0 = snapFloor(zs, pt.z);
-            z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
-            z1 = z0 + dd;
-          }else if(faceKey==='Z1'){
-            z0 = host.z1; z1 = host.z1 + dM;
-            const span = Math.max(0.001, host.x1 - host.x0);
-            const ww = Math.min(wM, span);
-            x0 = snapFloor(xs, pt.x);
-            x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
-            x1 = x0 + ww;
-          }else if(faceKey==='Z0'){
-            z1 = host.z0; z0 = host.z0 - dM;
-            const span = Math.max(0.001, host.x1 - host.x0);
-            const ww = Math.min(wM, span);
-            x0 = snapFloor(xs, pt.x);
-            x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
-            x1 = x0 + ww;
-          }
-          showBoxHotPreviewBox({ x0,x1,y0,y1,z0,z1 });
-        }
-      }catch{}
-
       return;
     }
     if(kind==='edge' || kind==='diag'){
-      if(String(cfg.tool||'boxes') !== 'members') return;
       const a = obj.userData.a;
       const b = obj.userData.b;
       if(a && b) showBoxHotLine(a, b);

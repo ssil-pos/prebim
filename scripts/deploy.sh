@@ -40,12 +40,18 @@ COMMIT="$(git rev-parse --short=7 HEAD)"
 perl -0777 -pi -e "s/const BUILD = '[^']*';/const BUILD = '$BUILD_KST';/g" "$ROOT_DIR/public/prebim/app.js"
 perl -0777 -pi -e "s#/prebim/app\\.css\\?v=[^\"']+#/prebim/app.css?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/index.html"
 perl -0777 -pi -e "s#/prebim/app\\.js\\?v=[^\"']+#/prebim/app.js?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/index.html"
-perl -0777 -pi -e "s#/prebim/engine\\.js\\?v=[^\"']+#/prebim/engine.js?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/app.js"
-perl -0777 -pi -e "s#/prebim/app_profiles\\.js\\?v=[^\"']+#/prebim/app_profiles.js?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/app.js"
+perl -0777 -pi -e "s#/prebim/app\\.css\\?v=[^\"']+#/prebim/app.css?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/run.html"
+perl -0777 -pi -e "s#/prebim/app\\.js\\?v=[^\"']+#/prebim/app.js?v=$BUILD_KST#g" "$ROOT_DIR/public/prebim/run.html"
+# NOTE: Do not rewrite dynamic import URLs inside app.js.
+# It is easy to break template literals and cause a blank app.
+# app.js already uses BUILD (const) for cache-busting.
+
+# Validate after cache-buster injections (fail fast)
+node -c "$ROOT_DIR/public/prebim/app.js" >/dev/null
 
 # Commit build bump if anything changed (best-effort; don't fail deploy)
-if ! git diff --quiet -- "$ROOT_DIR/public/prebim/app.js" "$ROOT_DIR/public/prebim/index.html"; then
-  git add "$ROOT_DIR/public/prebim/app.js" "$ROOT_DIR/public/prebim/index.html"
+if ! git diff --quiet -- "$ROOT_DIR/public/prebim/app.js" "$ROOT_DIR/public/prebim/index.html" "$ROOT_DIR/public/prebim/run.html"; then
+  git add "$ROOT_DIR/public/prebim/app.js" "$ROOT_DIR/public/prebim/index.html" "$ROOT_DIR/public/prebim/run.html"
   git commit -m "chore: bump build ${BUILD_KST}" >/dev/null 2>&1 || true
 fi
 
