@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1030KST';
+const BUILD = '20260211-1041KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-1030KST'),
-    import('/prebim/app_profiles.js?v=20260211-1030KST'),
+    import('/prebim/engine.js?v=20260211-1041KST'),
+    import('/prebim/app_profiles.js?v=20260211-1041KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -3335,7 +3335,7 @@ function renderEditor(projectId){
             <button class="pill" id="btn3dSection" type="button">Section Box</button>
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
-            <button class="pill" id="btnPopFree" type="button">Free Edit</button>
+            <button class="pill" id="btnPopFree" type="button" style="display:none">Free Edit</button>
           </div>
         </div>
         <div class="pane-b" id="view3dWrap" style="position:relative">
@@ -3421,7 +3421,7 @@ function renderEditor(projectId){
           </div>
         </div></div>
 
-        <div class="popwrap" id="popFree"><div class="popcard">
+        <div class="popwrap" id="popFree" style="display:none"><div class="popcard">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
             <b>Free Edit (3D)</b>
             <button class="pill" id="btnPopFreeClose" type="button">Close</button>
@@ -3769,8 +3769,8 @@ function renderEditor(projectId){
     let psView = null;
     const ensurePsView = async () => {
       if(psView) return psView;
-      // unhide container so it has size
-      document.body.classList.remove('ps-hidden');
+      // (disabled) keep plan/section hidden unless explicitly enabled
+      // document.body.classList.remove('ps-hidden');
       window.__three = __three;
       window.__OrbitControls = __OrbitControls;
       window.__csg = __csg;
