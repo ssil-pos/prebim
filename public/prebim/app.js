@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1327KST';
+const BUILD = '20260211-1334KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -3465,11 +3465,15 @@ function renderEditor(projectId){
           <div class="note" style="margin-top:8px">Mode is separated:</div>
           <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
             <label class="badge" style="cursor:pointer"><input id="boxMode" type="checkbox" style="margin:0 8px 0 0" /> Member add mode</label>
-            <label class="badge" style="cursor:pointer">Member kind
-              <select id="boxMemberKind" class="input" style="max-width:130px; margin-left:8px">
+            <label class="badge" style="cursor:pointer">Member type
+              <select id="boxMemberKind" class="input" style="max-width:110px; margin-left:8px">
                 <option value="beam">Beam</option>
                 <option value="brace">Brace</option>
               </select>
+            </label>
+            <label class="badge" style="cursor:pointer">Section
+              <select id="boxMemShape" class="input" style="max-width:70px; margin-left:8px"></select>
+              <select id="boxMemSize" class="input" style="max-width:150px; margin-left:6px"></select>
             </label>
           </div>
           <div class="note" style="margin-top:8px">• Box mode: hover face → preview, click face → add box (position follows mouse)
@@ -3513,7 +3517,10 @@ function renderEditor(projectId){
             <button class="btn danger" id="btnBoxClearBoxes" type="button">Clear boxes</button>
           </div>
           <div class="note" style="margin-top:10px"><b>Boxes</b></div>
-          <div id="boxList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
+          <div id="boxList" style="max-height:120px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
+
+          <div class="note" style="margin-top:10px"><b>Added members</b></div>
+          <div id="boxMemberList" style="max-height:120px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
 
           <div class="note" style="margin-top:10px">Tip: edge click → member, diagonal click → brace.</div>
         </div></div>
@@ -4382,6 +4389,69 @@ function renderEditor(projectId){
       if(el) el.textContent = `Selected: ${window.__boxSelectedId || '-'}`;
     };
 
+    const renderMemberList = () => {
+      const host = document.getElementById('boxMemberList');
+      if(!host) return;
+      const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? window.__prebimFree : null;
+      const mems = Array.isArray(fm0?.members) ? fm0.members : [];
+      if(!mems.length){ host.innerHTML = '<div class="note" style="margin:0">(no members)</div>'; return; }
+      host.innerHTML = mems.map((m, idx) => {
+        const id = String(m?.id||idx);
+        const kind = String(m?.kind||'beam');
+        const prof = m?.profile;
+        const pTxt = prof?.shapeKey && prof?.sizeKey ? `${prof.shapeKey} ${prof.sizeKey}` : '';
+        return `<div class="row" style="margin-top:${idx?6:0}px; gap:8px; align-items:center; justify-content:space-between">
+          <span class="mono" style="font-size:11px; opacity:.75">${escapeHtml(id)} · ${escapeHtml(kind)}${pTxt?(' · '+escapeHtml(pTxt)):''}</span>
+          <button class="btn danger smallbtn" type="button" data-del-mem="${escapeHtml(id)}">Del</button>
+        </div>`;
+      }).join('');
+    };
+
+    document.getElementById('boxMemberList')?.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('button[data-del-mem]');
+      if(!btn) return;
+      const id = btn.getAttribute('data-del-mem');
+      if(!id) return;
+      if(!confirm(`Delete member: ${id}?`)) return;
+      const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
+      fm0.nodes = Array.isArray(fm0.nodes) ? fm0.nodes : [];
+      fm0.members = Array.isArray(fm0.members) ? fm0.members : [];
+      fm0.members = fm0.members.filter(m => String(m?.id) !== String(id));
+      // prune orphan nodes
+      const used = new Set();
+      for(const m of fm0.members){ if(m?.i) used.add(String(m.i)); if(m?.j) used.add(String(m.j)); }
+      fm0.nodes = fm0.nodes.filter(n => used.has(String(n?.id)));
+      window.__prebimFree = fm0;
+      scheduleApply(0);
+      renderMemberList();
+    });
+
+    // member section selector (same catalog as override)
+    const rebuildBoxMemSection = () => {
+      const stdKey = document.getElementById('stdAll')?.value || 'KS';
+      const data = (window.CIVILARCHI_STEEL_DATA && window.CIVILARCHI_STEEL_DATA.standards) || {};
+      const SHAPE_KEYS = ['H','C','L','LC','Rect','I','T'];
+      const shapes = data[stdKey]?.shapes || {};
+      const keys = SHAPE_KEYS.filter(k=>shapes[k]);
+      const sh = document.getElementById('boxMemShape');
+      const sz = document.getElementById('boxMemSize');
+      if(sh && sh.options.length===0){
+        sh.innerHTML='';
+        keys.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=k; sh.appendChild(o); });
+        if(keys.includes('H')) sh.value='H';
+      }
+      const items = data[stdKey]?.shapes?.[sh?.value||'H']?.items || [];
+      if(sz){
+        const prev=sz.value;
+        sz.innerHTML='';
+        items.forEach(it=>{ const o=document.createElement('option'); o.value=it.key; o.textContent = `${it.name}${(it.kgm!=null && Number.isFinite(it.kgm)) ? ` · ${it.kgm} kg/m` : ''}`; sz.appendChild(o); });
+        if(items.some(it=>it.key===prev)) sz.value=prev;
+      }
+    };
+    document.getElementById('boxMemShape')?.addEventListener('change', rebuildBoxMemSection);
+    document.getElementById('stdAll')?.addEventListener('change', rebuildBoxMemSection);
+
+
     document.getElementById('btnBoxDeleteSelected')?.addEventListener('click', () => {
       const id = String(window.__boxSelectedId||'');
       if(!id){ alert('No box selected.'); return; }
@@ -4449,6 +4519,8 @@ function renderEditor(projectId){
       try{ if(popBox) popBox.style.display = on ? 'block' : 'none'; }catch{}
 
       renderBoxList();
+      renderMemberList();
+      rebuildBoxMemSection();
 
       // wire box edit callbacks into view
       const api = {
@@ -4460,6 +4532,11 @@ function renderEditor(projectId){
           braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
           tool: (document.getElementById('boxMode')?.checked === true) ? 'members' : 'boxes',
           memberKind: String(document.getElementById('boxMemberKind')?.value||'beam'),
+          memProfile: {
+            stdKey: String(document.getElementById('stdAll')?.value||'KS'),
+            shapeKey: String(document.getElementById('boxMemShape')?.value||'H'),
+            sizeKey: String(document.getElementById('boxMemSize')?.value||''),
+          },
         }),
         onAddBox: (box) => {
           window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
@@ -4487,10 +4564,12 @@ function renderEditor(projectId){
           const i = findOrAddNode(aMm);
           const j = findOrAddNode(bMm);
           const id = String(fm0.nextMemId++);
-          fm0.members.push({ id, i, j, kind: (kind==='brace')?'brace':'beam' });
+          const prof = cfg?.memProfile && typeof cfg.memProfile==='object' ? cfg.memProfile : null;
+          fm0.members.push({ id, i, j, kind: (kind==='brace')?'brace':'beam', profile: prof||undefined });
           fm0.enabled = false; // kept internal; do not replace grid model
           window.__prebimFree = fm0;
           scheduleApply(0);
+          renderMemberList();
         },
       };
       window.__boxEditApiLast = api;
@@ -6376,14 +6455,30 @@ async function createThreeView(container){
     }
   }
 
-  function showBoxHotLine(a, b){
+  function showBoxHotLine(a, b, color=0xff3b30){
     // clears previous hot visuals (line/box)
     while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
     if(!a || !b) return;
-    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
-    const ln = new THREE.Line(g, boxHotLineMat);
-    ln.renderOrder = 20;
-    boxHotGroup.add(ln);
+
+    // Use a thin cylinder so width is visible (LineBasicMaterial linewidth is ignored on most platforms)
+    const A = new THREE.Vector3(...a);
+    const B = new THREE.Vector3(...b);
+    const dir = B.clone().sub(A);
+    const len = dir.length();
+    if(len <= 1e-6) return;
+    const mid = A.clone().add(B).multiplyScalar(0.5);
+
+    const r = 0.05; // 5cm visual thickness
+    const g = new THREE.CylinderGeometry(r, r, len, 10, 1, true);
+    const m = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.95, depthTest:false });
+    const mesh = new THREE.Mesh(g, m);
+    mesh.position.copy(mid);
+    // cylinder default axis is Y; rotate Y to align with dir
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+    mesh.quaternion.copy(q);
+    mesh.renderOrder = 999;
+    mesh.frustumCulled = false;
+    boxHotGroup.add(mesh);
   }
 
   function showBoxHotPreviewBox(b){
@@ -6568,7 +6663,8 @@ async function createThreeView(container){
         if(String(cfg.tool||'boxes') !== 'members') return;
         const a = obj.userData.a;
         const b = obj.userData.b;
-        if(a && b) showBoxHotLine(a, b);
+        const color = (String(cfg.memberKind||'beam')==='brace' || kind==='diag') ? 0xff3b30 : 0x22c55e;
+        if(a && b) showBoxHotLine(a, b, color);
         const mk = (cfg.memberKind==='brace') ? 'brace' : ((kind==='diag') ? 'brace' : 'beam');
         if(a && b) addMember(mk, a, b);
         return;
@@ -6789,7 +6885,8 @@ async function createThreeView(container){
       if(String(cfg.tool||'boxes') !== 'members') return;
       const a = obj.userData.a;
       const b = obj.userData.b;
-      if(a && b) showBoxHotLine(a, b);
+      const color = (String(cfg.memberKind||'beam')==='brace' || kind==='diag') ? 0xff3b30 : 0x22c55e;
+      if(a && b) showBoxHotLine(a, b, color);
       boxHot = { kind, obj };
       return;
     }
