@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1621KST';
+const BUILD = '20260211-1637KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -417,6 +417,7 @@ function defaultConnModeByKind(model){
 
 function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=null, extraLoads=null){
   const windStoryX = Array.isArray(extraLoads?.windStoryX) ? extraLoads.windStoryX : null;
+  const pointLoads = Array.isArray(extraLoads?.pointLoads) ? extraLoads.pointLoads : [];
   const windStoryZ = Array.isArray(extraLoads?.windStoryZ) ? extraLoads.windStoryZ : null;
   const eqStoryX = Array.isArray(extraLoads?.eqStoryX) ? extraLoads.eqStoryX : null;
   const eqStoryZ = Array.isArray(extraLoads?.eqStoryZ) ? extraLoads.eqStoryZ : null;
@@ -880,6 +881,19 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 
   // Load cases
   const caseD = { name:'D', selfweightY: -1.0, memberUDL: [], nodeLoads: [] };
+  // Point loads (kN) applied to Dead load case
+  try{
+    for(const pl of pointLoads){
+      const nodeId = String(pl?.nodeId||'');
+      if(!nodeId) continue;
+      const Fx = Number(pl?.Fx||0)||0;
+      const Fy = Number(pl?.Fy||0)||0;
+      const Fz = Number(pl?.Fz||0)||0;
+      if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GX', F: Fx });
+      if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GY', F: Fy });
+      if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GZ', F: Fz });
+    }
+  }catch(e){ console.warn('pointLoads apply failed', e); }
   const caseL = { name:'L', selfweightY: 0.0, memberUDL: liveLoads, nodeLoads: [] };
   const caseS = { name:'S', selfweightY: 0.0, memberUDL: snowLoads, nodeLoads: [] };
   const caseWX = { name:'WX', selfweightY: 0.0, memberUDL: [], nodeLoads: (hasWindStoryX ? buildStoryNodeLoads(windStoryX,'GX') : splitToTop(windX).map(x=>({ ...x, dir:'GX' }))) };
@@ -1053,6 +1067,40 @@ function renderAnalysis(projectId){
               <div class="note" style="margin-top:6px">Select members in 3D to edit end conditions.</div>
             </div>
 
+            <button class="acc-btn" type="button" data-acc="loads">Point loads <span class="chev" id="chevLoads">▾</span></button>
+            <div class="acc-panel" id="panelLoads">
+              <div class="note" style="margin-top:0">Click nodes in 3D to add a point load to case <b>D</b> (kN).</div>
+              <div class="grid2">
+                <div>
+                  <div class="note" style="margin-top:0">Fx (kN)</div>
+                  <input class="input" id="plFx" value="0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Fy (kN)</div>
+                  <input class="input" id="plFy" value="-10" />
+                </div>
+              </div>
+              <div class="grid2" style="margin-top:6px">
+                <div>
+                  <div class="note" style="margin-top:0">Fz (kN)</div>
+                  <input class="input" id="plFz" value="0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Selected load</div>
+                  <div class="mono" id="plSel" style="font-size:12px; opacity:.75">-</div>
+                </div>
+              </div>
+
+              <div class="note" style="margin-top:10px"><b>Point load list</b></div>
+              <div id="plList" style="max-height:180px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
+
+              <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
+                <button class="btn" id="plUpdate" type="button">Update selected</button>
+                <button class="btn danger" id="plDelete" type="button">Delete selected</button>
+                <button class="btn" id="plClear" type="button">Clear all</button>
+              </div>
+            </div>
+
             <button class="acc-btn" type="button" data-acc="crit">Criteria <span class="chev" id="chevCrit">▾</span></button>
             <div class="acc-panel" id="panelCrit">
               <label class="label">Design method</label>
@@ -1212,11 +1260,13 @@ function renderAnalysis(projectId){
           sup: document.getElementById('panelSup'),
           conn: document.getElementById('panelConn'),
           crit: document.getElementById('panelCrit'),
+          loads: document.getElementById('panelLoads'),
           view: document.getElementById('panelView'),
         };
         const chevs = {
           sup: document.getElementById('chevSup'),
           conn: document.getElementById('chevConn'),
+          loads: document.getElementById('chevLoads'),
           crit: document.getElementById('chevCrit'),
           view: document.getElementById('chevView'),
         };
@@ -1226,6 +1276,22 @@ function renderAnalysis(projectId){
         pEl.classList.toggle('open', open);
         const cEl = chevs[which];
         if(cEl) cEl.textContent = open ? '▴' : '▾';
+
+        // Point load picking mode when the panel is open
+        try{
+          if(which === 'loads'){
+            const qLive0 = parseFloat((document.getElementById('qLive')?.value||'3').toString())||0;
+            const supportMode0 = (document.getElementById('supportMode')?.value||'PINNED').toString();
+            const connCfg = loadConnSettings(p.id);
+            const saved0 = loadAnalysisSettings(p.id);
+            const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg, { pointLoads: (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]) });
+            view?.setPointLoadEditMode?.(open, payload0.nodes, (nodeId) => { window.__onPointLoadPick?.(nodeId); });
+            view?.setPointLoadMarkers?.(payload0.nodes, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
+          } else {
+            view?.setPointLoadEditMode?.(false, null, null);
+          }
+        }catch{}
+
       };
 
       document.querySelectorAll('#settingsAcc button.acc-btn[data-acc]')
@@ -1234,6 +1300,87 @@ function renderAnalysis(projectId){
 
     // restore settings
     const saved = loadAnalysisSettings(p.id);
+
+    // Point loads state + UI
+    let pointLoadsState = Array.isArray(saved.pointLoads) ? saved.pointLoads.slice() : [];
+    let pointLoadNextNo = Math.max(0, ...pointLoadsState.map(x => Number(x?.no||0)||0)) + 1;
+    let pointLoadSelId = '';
+
+    const renderPlList = () => {
+      const host = document.getElementById('plList');
+      if(!host) return;
+      if(!pointLoadsState.length){ host.innerHTML = '<div class="note" style="margin:0">(none)</div>'; return; }
+      host.innerHTML = pointLoadsState.map((pl) => {
+        const id = String(pl.id);
+        const sel = (id===pointLoadSelId);
+        return `<div class="row" style="margin-top:6px; gap:8px; align-items:center; justify-content:space-between">
+          <button class="btn ${sel?'primary':''}" type="button" data-pl-sel="${escapeHtml(id)}">P${escapeHtml(pl.no)} @ node ${escapeHtml(pl.nodeId)}</button>
+          <span class="mono" style="font-size:11px; opacity:.75">Fx ${Number(pl.Fx||0)} Fy ${Number(pl.Fy||0)} Fz ${Number(pl.Fz||0)}</span>
+        </div>`;
+      }).join('');
+    };
+
+    const syncPl = () => {
+      saveAnalysisSettings(p.id, { pointLoads: pointLoadsState });
+      renderPlList();
+      try{ refreshSupportViz(); }catch{}
+    };
+
+    document.getElementById('plList')?.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('button[data-pl-sel]');
+      if(!btn) return;
+      const id = btn.getAttribute('data-pl-sel');
+      if(!id) return;
+      pointLoadSelId = String(id);
+      const pl = pointLoadsState.find(x => String(x.id)===pointLoadSelId);
+      const el = document.getElementById('plSel');
+      if(el) el.textContent = pl ? `P${pl.no} node ${pl.nodeId}` : '-';
+      if(pl){
+        const fx=document.getElementById('plFx'); if(fx) fx.value = String(pl.Fx||0);
+        const fy=document.getElementById('plFy'); if(fy) fy.value = String(pl.Fy||0);
+        const fz=document.getElementById('plFz'); if(fz) fz.value = String(pl.Fz||0);
+      }
+      renderPlList();
+    });
+
+    document.getElementById('plUpdate')?.addEventListener('click', () => {
+      if(!pointLoadSelId) return;
+      const pl = pointLoadsState.find(x => String(x.id)===pointLoadSelId);
+      if(!pl) return;
+      pl.Fx = parseFloat(document.getElementById('plFx')?.value||'0')||0;
+      pl.Fy = parseFloat(document.getElementById('plFy')?.value||'0')||0;
+      pl.Fz = parseFloat(document.getElementById('plFz')?.value||'0')||0;
+      syncPl();
+    });
+    document.getElementById('plDelete')?.addEventListener('click', () => {
+      if(!pointLoadSelId) return;
+      pointLoadsState = pointLoadsState.filter(x => String(x.id)!==pointLoadSelId);
+      pointLoadSelId='';
+      const el = document.getElementById('plSel'); if(el) el.textContent='-';
+      syncPl();
+    });
+    document.getElementById('plClear')?.addEventListener('click', () => {
+      if(!confirm('Clear all point loads?')) return;
+      pointLoadsState = [];
+      pointLoadSelId='';
+      const el = document.getElementById('plSel'); if(el) el.textContent='-';
+      syncPl();
+    });
+
+    window.__onPointLoadPick = (nodeId) => {
+      const Fx = parseFloat(document.getElementById('plFx')?.value||'0')||0;
+      const Fy = parseFloat(document.getElementById('plFy')?.value||'0')||0;
+      const Fz = parseFloat(document.getElementById('plFz')?.value||'0')||0;
+      const id = `pl_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+      const rec = { id, no: pointLoadNextNo++, nodeId: String(nodeId), Fx, Fy, Fz };
+      pointLoadsState.push(rec);
+      pointLoadSelId = id;
+      const el = document.getElementById('plSel'); if(el) el.textContent = `P${rec.no} node ${rec.nodeId}`;
+      syncPl();
+    };
+
+    renderPlList();
+
     const setIf = (id, v) => { const el=document.getElementById(id); if(el!=null && v!=null && v!=='') el.value = String(v); };
     setIf('supportMode', saved.supportMode);
     setIf('comboMode', saved.comboMode);
@@ -3264,13 +3411,15 @@ function renderAnalysis(projectId){
         const qLive0 = parseFloat((document.getElementById('qLive')?.value||'3').toString())||0;
         const supportMode0 = (document.getElementById('supportMode')?.value||'PINNED').toString();
         const connCfg = loadConnSettings(p.id);
-        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg);
+        const saved0 = loadAnalysisSettings(p.id);
+        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg, { pointLoads: (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]) });
         const ids = curSupportIds();
         const fixed = supportMode0.toUpperCase()==='FIXED';
         payload0.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
         view.setSupportMarkers?.(payload0.supports, payload0.nodes, supportMode0);
         view.setBaseNodes?.(payload0.nodes, ids, supportMode0);
         view.setConnectionMarkers?.(members, connCfg);
+        view.setPointLoadMarkers?.(payload0.nodes, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
       }catch{}
     };
 
@@ -5842,6 +5991,15 @@ async function createThreeView(container){
   const baseNodeGroup = new THREE.Group();
   scene.add(baseNodeGroup);
 
+  // point load node pickers (analysis)
+  const plNodeGroup = new THREE.Group();
+  scene.add(plNodeGroup);
+  const plMarkGroup = new THREE.Group();
+  scene.add(plMarkGroup);
+  let pointLoadEdit = false;
+  let plHover = null;
+  let onPointLoadNode = null; // (nodeId)=>void
+
   // connection end markers (PIN/FIX)
   const connGroup = new THREE.Group();
   scene.add(connGroup);
@@ -6915,6 +7073,17 @@ async function createThreeView(container){
       }
     }
 
+    // Point load edit mode (analysis): pick any node spheres
+    if(pointLoadEdit){
+      raycaster.setFromCamera(pointer, camera);
+      const nh = raycaster.intersectObjects(plNodeGroup.children, false);
+      if(nh.length){
+        const nid = nh[0]?.object?.userData?.nodeId;
+        if(nid && onPointLoadNode) onPointLoadNode(String(nid));
+      }
+      return;
+    }
+
     // Support edit mode: pick base nodes only, disable member selection
     if(supportEdit){
       raycaster.setFromCamera(pointer, camera);
@@ -7212,6 +7381,23 @@ async function createThreeView(container){
 
   // Box edit: hover highlight (faces/edges/diagonals)
   renderer.domElement.addEventListener('pointermove', (ev) => {
+    if(pointLoadEdit){
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(plNodeGroup.children, false);
+      // reset
+      if(plHover?.material){ try{ plHover.material.color.setHex(0xfbbf24); }catch{} }
+      plHover = null;
+      if(hits.length){
+        const obj = hits[0].object;
+        plHover = obj;
+        try{ obj.material.color.setHex(0xff3b30); }catch{}
+      }
+      return;
+    }
+
     if(!boxEditMode) return;
     const cfg = boxEditApi?.getConfig?.() || { tool:'boxes', wMm:0,dMm:0,hMm:0,topMm:0, braceDir:'/' };
     const rect = renderer.domElement.getBoundingClientRect();
@@ -7769,6 +7955,67 @@ async function createThreeView(container){
     while(connGroup.children.length) connGroup.remove(connGroup.children[0]);
   }
 
+  function setPointLoadEditMode(on, nodes, cb){
+    pointLoadEdit = !!on;
+    onPointLoadNode = cb || null;
+    while(plNodeGroup.children.length) plNodeGroup.remove(plNodeGroup.children[0]);
+    plNodeGroup.visible = pointLoadEdit;
+    if(!pointLoadEdit || !nodes) return;
+
+    const mat = new THREE.MeshBasicMaterial({ color:0xfbbf24, transparent:true, opacity:0.55, depthWrite:false });
+    const geom = new THREE.SphereGeometry(0.30, 14, 14); // diameter ~600mm
+
+    for(const n of nodes){
+      const s = new THREE.Mesh(geom, mat.clone());
+      s.position.set(n.x, n.y, n.z);
+      s.userData.nodeId = String(n.id);
+      s.renderOrder = 200;
+      plNodeGroup.add(s);
+    }
+  }
+
+  function setPointLoadMarkers(nodes, pointLoads=[]){
+    while(plMarkGroup.children.length) plMarkGroup.remove(plMarkGroup.children[0]);
+    if(!nodes) return;
+    const nodeMap = new Map((nodes||[]).map(n => [String(n.id), n]));
+
+    const makeTextSprite = (text) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256; canvas.height = 128;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = 'rgba(2,6,23,0.75)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 48px ui-sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(String(text), canvas.width/2, canvas.height/2);
+      const tex = new THREE.CanvasTexture(canvas);
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthTest:false });
+      const spr = new THREE.Sprite(mat);
+      spr.scale.set(0.9, 0.45, 1);
+      spr.renderOrder = 300;
+      return spr;
+    };
+
+    for(const pl of (pointLoads||[])){
+      const nid = String(pl?.nodeId||'');
+      const n = nodeMap.get(nid);
+      if(!n) continue;
+      const no = pl?.no ?? pl?.id ?? '';
+      // arrow down (800mm)
+      const dir = new THREE.Vector3(0,-1,0);
+      const ah = new THREE.ArrowHelper(dir, new THREE.Vector3(n.x,n.y,n.z), 0.8, 0x0ea5e9, 0.25, 0.12);
+      ah.cone.material.depthTest = false;
+      ah.line.material.depthTest = false;
+      ah.renderOrder = 299;
+      plMarkGroup.add(ah);
+      const spr = makeTextSprite(`P${no}`);
+      spr.position.set(n.x, n.y+0.6, n.z);
+      plMarkGroup.add(spr);
+    }
+  }
+
   function setConnectionMarkers(engineMembers, connCfg){
     clearConnMarkers();
     if(!engineMembers || !engineMembers.length) return;
@@ -7945,6 +8192,8 @@ async function createThreeView(container){
     setSupportEditMode,
     setConnectionMarkers,
     clearConnMarkers,
+    setPointLoadEditMode,
+    setPointLoadMarkers,
     setFailMembers,
     setFailHighlightEnabled,
 
