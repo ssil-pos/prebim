@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1239KST';
+const BUILD = '20260211-1247KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,7 +33,7 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import(`/prebim/engine.js?v=20260211-1239KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
+    import(`/prebim/engine.js?v=20260211-1247KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
 
 function loadProjects(){
   try{
@@ -3486,7 +3486,6 @@ function renderEditor(projectId){
             <button class="btn" id="btnBoxClearMembers" type="button">Clear added members</button>
             <button class="btn danger" id="btnBoxClearBoxes" type="button">Clear boxes</button>
           </div>
-
           <div class="note" style="margin-top:10px"><b>Boxes</b></div>
           <div id="boxList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
 
@@ -4400,8 +4399,9 @@ function renderEditor(projectId){
       updateBraceMode(false);
 
       const on = popBox?.classList.contains('open');
+      renderBoxList();
       // wire box edit callbacks into view
-      view?.setBoxEditMode?.(!!on, getForm(), {
+      const api = {
         getConfig: () => ({
           wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
           dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
@@ -4414,6 +4414,7 @@ function renderEditor(projectId){
           window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
           window.__prebimBoxes.push(box);
           scheduleApply(0);
+          renderBoxList();
         },
         onAddMember: (kind, aMm, bMm) => {
           const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
@@ -4440,7 +4441,9 @@ function renderEditor(projectId){
           window.__prebimFree = fm0;
           scheduleApply(0);
         },
-      });
+      };
+      window.__boxEditApiLast = api;
+      view?.setBoxEditMode?.(!!on, getForm(), api);
     });
 
     document.getElementById('btnPopFree')?.addEventListener('click', async () => {
@@ -6323,11 +6326,28 @@ async function createThreeView(container){
   }
 
   function showBoxHotLine(a, b){
+    // clears previous hot visuals (line/box)
     while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
     if(!a || !b) return;
     const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
     const ln = new THREE.Line(g, boxHotLineMat);
     ln.renderOrder = 20;
+    boxHotGroup.add(ln);
+  }
+
+  function showBoxHotPreviewBox(b){
+    // b: {x0,x1,y0,y1,z0,z1} in meters
+    while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
+    if(!b) return;
+    const w = Math.max(0.001, Math.abs(b.x1-b.x0));
+    const h = Math.max(0.001, Math.abs(b.y1-b.y0));
+    const d = Math.max(0.001, Math.abs(b.z1-b.z0));
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate((b.x0+b.x1)/2, (b.y0+b.y1)/2, (b.z0+b.z1)/2);
+    const edges = new THREE.EdgesGeometry(g, 1);
+    const mat = new THREE.LineBasicMaterial({ color:0x7c3aed, transparent:true, opacity:0.85 });
+    const ln = new THREE.LineSegments(edges, mat);
+    ln.renderOrder = 21;
     boxHotGroup.add(ln);
   }
 
@@ -6640,7 +6660,8 @@ async function createThreeView(container){
       if(String(cfg.tool||'boxes') !== 'boxes') return;
       try{ if(obj.material) obj.material = faceMatHot.clone(); }catch{}
       boxHot = { kind:'face', obj };
-      // preview box placement
+
+      // preview attached box placement
       try{
         const cfg2 = boxEditApi?.getConfig?.() || { wMm:0,dMm:0,hMm:0,topMm:0,braceDir:'/' };
         const faceKey = String(obj.userData.faceKey||'');
@@ -6652,6 +6673,7 @@ async function createThreeView(container){
           const dM = Math.max(0.05, (Number(cfg2.dMm)||0)/1000);
           const hM = Math.max(0.05, (Number(cfg2.hMm)||0)/1000);
           const topM = (Number(cfg2.topMm)||0)/1000;
+
           const spansX = model?.grid?.spansXmm || [];
           const spansY = model?.grid?.spansYmm || [];
           const xs=[0], zs=[0];
@@ -6662,10 +6684,12 @@ async function createThreeView(container){
             for(const t of arr){ if(t <= v) best = t; }
             return best;
           };
+
           const pt = hits[0].point;
           const y1 = topM;
           const y0 = topM - hM;
           let x0=0,x1=0,z0=0,z1=0;
+
           if(faceKey==='X1'){
             x0 = host.x1; x1 = host.x1 + wM;
             const span = Math.max(0.001, host.z1 - host.z0);
@@ -6698,6 +6722,7 @@ async function createThreeView(container){
           showBoxHotPreviewBox({ x0,x1,y0,y1,z0,z1 });
         }
       }catch{}
+
       return;
     }
     if(kind==='edge' || kind==='diag'){
