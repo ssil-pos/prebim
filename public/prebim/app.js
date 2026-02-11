@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1319KST';
+const BUILD = '20260211-1327KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -3465,8 +3465,20 @@ function renderEditor(projectId){
           <div class="note" style="margin-top:8px">Mode is separated:</div>
           <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
             <label class="badge" style="cursor:pointer"><input id="boxMode" type="checkbox" style="margin:0 8px 0 0" /> Member add mode</label>
+            <label class="badge" style="cursor:pointer">Member kind
+              <select id="boxMemberKind" class="input" style="max-width:130px; margin-left:8px">
+                <option value="beam">Beam</option>
+                <option value="brace">Brace</option>
+              </select>
+            </label>
           </div>
-          <div class="note" style="margin-top:8px">• Box mode: hover face → preview, click face → add box<br/>• Member mode: hover edge/diagonal → highlight, click → add member</div>
+          <div class="note" style="margin-top:8px">• Box mode: hover face → preview, click face → add box (position follows mouse)
+          <br/>• Member mode: hover edge/diagonal → strong highlight + preview line, click → add member</div>
+
+          <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
+            <button class="btn danger" id="btnBoxDeleteSelected" type="button">Delete selected box</button>
+            <span class="note" id="boxSelInfo" style="margin:0">Selected: -</span>
+          </div>
 
           <div class="grid2" style="margin-top:10px">
             <div>
@@ -4364,6 +4376,23 @@ function renderEditor(projectId){
       scheduleApply(0);
     });
 
+    const setSelectedBoxUi = (id) => {
+      window.__boxSelectedId = id ? String(id) : '';
+      const el = document.getElementById('boxSelInfo');
+      if(el) el.textContent = `Selected: ${window.__boxSelectedId || '-'}`;
+    };
+
+    document.getElementById('btnBoxDeleteSelected')?.addEventListener('click', () => {
+      const id = String(window.__boxSelectedId||'');
+      if(!id){ alert('No box selected.'); return; }
+      if(!confirm(`Delete selected box: ${id}?`)) return;
+      window.__prebimBoxes = (Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : []).filter(b => String(b?.id) !== String(id));
+      setSelectedBoxUi('');
+      scheduleApply(0);
+      renderBoxList();
+      try{ view?.setBoxEditMode?.(true, getForm(), window.__boxEditApiLast || undefined); }catch{}
+    });
+
     // popovers
     const popBr = document.getElementById('popBr');
     const popOv = document.getElementById('popOv');
@@ -4430,6 +4459,7 @@ function renderEditor(projectId){
           topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
           braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
           tool: (document.getElementById('boxMode')?.checked === true) ? 'members' : 'boxes',
+          memberKind: String(document.getElementById('boxMemberKind')?.value||'beam'),
         }),
         onAddBox: (box) => {
           window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
@@ -6539,7 +6569,8 @@ async function createThreeView(container){
         const a = obj.userData.a;
         const b = obj.userData.b;
         if(a && b) showBoxHotLine(a, b);
-        if(a && b) addMember(kind==='diag' ? 'brace' : 'beam', a, b);
+        const mk = (cfg.memberKind==='brace') ? 'brace' : ((kind==='diag') ? 'brace' : 'beam');
+        if(a && b) addMember(mk, a, b);
         return;
       }
 
@@ -6561,9 +6592,13 @@ async function createThreeView(container){
         const xs=[0], zs=[0];
         for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
         for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
-        const snapFloor = (arr, v) => {
+        const snapNearest = (arr, v) => {
           let best = arr[0] || 0;
-          for(const t of arr){ if(t <= v) best = t; }
+          let bestD = Infinity;
+          for(const t of arr){
+            const d = Math.abs(t - v);
+            if(d < bestD){ bestD = d; best = t; }
+          }
           return best;
         };
 
@@ -6576,28 +6611,28 @@ async function createThreeView(container){
           x0 = host.x1; x1 = host.x1 + wM;
           const span = Math.max(0.001, host.z1 - host.z0);
           const dd = Math.min(dM, span);
-          z0 = snapFloor(zs, pt.z);
+          z0 = snapNearest(zs, pt.z);
           z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
           z1 = z0 + dd;
         }else if(faceKey==='X0'){
           x1 = host.x0; x0 = host.x0 - wM;
           const span = Math.max(0.001, host.z1 - host.z0);
           const dd = Math.min(dM, span);
-          z0 = snapFloor(zs, pt.z);
+          z0 = snapNearest(zs, pt.z);
           z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
           z1 = z0 + dd;
         }else if(faceKey==='Z1'){
           z0 = host.z1; z1 = host.z1 + dM;
           const span = Math.max(0.001, host.x1 - host.x0);
           const ww = Math.min(wM, span);
-          x0 = snapFloor(xs, pt.x);
+          x0 = snapNearest(xs, pt.x);
           x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
           x1 = x0 + ww;
         }else if(faceKey==='Z0'){
           z1 = host.z0; z0 = host.z0 - dM;
           const span = Math.max(0.001, host.x1 - host.x0);
           const ww = Math.min(wM, span);
-          x0 = snapFloor(xs, pt.x);
+          x0 = snapNearest(xs, pt.x);
           x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
           x1 = x0 + ww;
         }
@@ -6700,9 +6735,13 @@ async function createThreeView(container){
           const xs=[0], zs=[0];
           for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
           for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
-          const snapFloor = (arr, v) => {
+          const snapNearest = (arr, v) => {
             let best = arr[0] || 0;
-            for(const t of arr){ if(t <= v) best = t; }
+            let bestD = Infinity;
+            for(const t of arr){
+              const d = Math.abs(t - v);
+              if(d < bestD){ bestD = d; best = t; }
+            }
             return best;
           };
 
@@ -6715,28 +6754,28 @@ async function createThreeView(container){
             x0 = host.x1; x1 = host.x1 + wM;
             const span = Math.max(0.001, host.z1 - host.z0);
             const dd = Math.min(dM, span);
-            z0 = snapFloor(zs, pt.z);
+            z0 = snapNearest(zs, pt.z);
             z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
             z1 = z0 + dd;
           }else if(faceKey==='X0'){
             x1 = host.x0; x0 = host.x0 - wM;
             const span = Math.max(0.001, host.z1 - host.z0);
             const dd = Math.min(dM, span);
-            z0 = snapFloor(zs, pt.z);
+            z0 = snapNearest(zs, pt.z);
             z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
             z1 = z0 + dd;
           }else if(faceKey==='Z1'){
             z0 = host.z1; z1 = host.z1 + dM;
             const span = Math.max(0.001, host.x1 - host.x0);
             const ww = Math.min(wM, span);
-            x0 = snapFloor(xs, pt.x);
+            x0 = snapNearest(xs, pt.x);
             x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
             x1 = x0 + ww;
           }else if(faceKey==='Z0'){
             z1 = host.z0; z0 = host.z0 - dM;
             const span = Math.max(0.001, host.x1 - host.x0);
             const ww = Math.min(wM, span);
-            x0 = snapFloor(xs, pt.x);
+            x0 = snapNearest(xs, pt.x);
             x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
             x1 = x0 + ww;
           }
