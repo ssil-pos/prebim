@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1637KST';
+const BUILD = '20260211-1638KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -7957,7 +7957,11 @@ async function createThreeView(container){
 
   function setPointLoadEditMode(on, nodes, cb){
     pointLoadEdit = !!on;
-    onPointLoadNode = cb || null;
+    onPointLoadNode = (pointLoadEdit ? (cb || null) : null);
+    // clear hover
+    try{ if(plHover?.material) plHover.material.color.setHex(0xfbbf24); }catch{}
+    plHover = null;
+
     while(plNodeGroup.children.length) plNodeGroup.remove(plNodeGroup.children[0]);
     plNodeGroup.visible = pointLoadEdit;
     if(!pointLoadEdit || !nodes) return;
