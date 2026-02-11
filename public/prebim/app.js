@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1513KST';
+const BUILD = '20260211-1515KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -548,6 +548,63 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     if(Math.abs(mem.a[1] - minY) < yEps) supportJoints.add(mm.j1);
     if(Math.abs(mem.b[1] - minY) < yEps) supportJoints.add(mm.j2);
   }
+
+  // Prune disconnected components (prevents analysis-api: "disconnected model" errors)
+  // Keep only members reachable from any support joint.
+  try{
+    const adj = new Map();
+    const addAdj = (a,b) => {
+      if(!adj.has(a)) adj.set(a, new Set());
+      if(!adj.has(b)) adj.set(b, new Set());
+      adj.get(a).add(b);
+      adj.get(b).add(a);
+    };
+    for(const mm of memList) addAdj(String(mm.j1), String(mm.j2));
+
+    const q = [];
+    const reach = new Set();
+    for(const s of supportJoints){ reach.add(String(s)); q.push(String(s)); }
+    while(q.length){
+      const cur = q.pop();
+      const nb = adj.get(cur);
+      if(!nb) continue;
+      for(const nxt of nb){
+        if(reach.has(nxt)) continue;
+        reach.add(nxt);
+        q.push(nxt);
+      }
+    }
+
+    const beforeN = memList.length;
+    const kept = memList.filter(mm => reach.has(String(mm.j1)) && reach.has(String(mm.j2)));
+    if(kept.length !== beforeN){
+      console.warn(`[analysis] pruned disconnected members: ${beforeN-kept.length}`);
+      // rebuild joints + member ids so payload is consistent
+      joints.clear();
+      jointList.length = 0;
+      const ensureJoint2 = (pt) => {
+        const k = keyOf(pt);
+        if(joints.has(k)) return joints.get(k);
+        const id = String(jointList.length + 1);
+        joints.set(k, id);
+        jointList.push({ id, pt });
+        return id;
+      };
+      memList.length = 0;
+      for(const mm0 of kept){
+        const j1 = ensureJoint2(mm0.mem.a);
+        const j2 = ensureJoint2(mm0.mem.b);
+        memList.push({ id: String(memList.length+1), kind:mm0.kind, j1, j2, mem:mm0.mem });
+      }
+      // recompute support joints with rebuilt joint ids
+      supportJoints.clear();
+      for(const mm of memList){
+        const mem = mm.mem;
+        if(Math.abs(mem.a[1] - minY) < yEps) supportJoints.add(mm.j1);
+        if(Math.abs(mem.b[1] - minY) < yEps) supportJoints.add(mm.j2);
+      }
+    }
+  }catch(err){ console.warn('prune disconnected failed', err); }
 
   // loads
   const liveLoads = [];
