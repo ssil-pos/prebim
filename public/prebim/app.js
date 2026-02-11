@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1502KST';
+const BUILD = '20260211-1513KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -4436,7 +4436,7 @@ function renderEditor(projectId){
     window.__boxDeleteMode = false;
     window.__delSel = { boxes: [], members: [] }; // ids
 
-    const renderDelList = () => {
+    window.__renderDelList = () => {
       const host = document.getElementById('delList');
       if(!host) return;
       const b = Array.isArray(window.__delSel?.boxes) ? window.__delSel.boxes : [];
@@ -4474,7 +4474,7 @@ function renderEditor(projectId){
       const api = ensureBoxEditApi();
       try{ view?.setBoxEditMode?.(tool!=='none', getForm(), api); }catch{}
 
-      if(tool==='delete') renderDelList();
+      if(tool==='delete') window.__renderDelList?.();
       if(tool==='members') rebuildBoxMemSection();
     };
 
@@ -4492,7 +4492,7 @@ function renderEditor(projectId){
 
     document.getElementById('btnPopMemberClose')?.addEventListener('click', () => openTool('none'));
     document.getElementById('btnPopDelClose')?.addEventListener('click', () => openTool('none'));
-    document.getElementById('btnDelClear')?.addEventListener('click', () => { window.__delSel = { boxes:[], members:[] }; renderDelList(); });
+    document.getElementById('btnDelClear')?.addEventListener('click', () => { window.__delSel = { boxes:[], members:[] }; window.__renderDelList?.(); });
     document.getElementById('btnDelApply')?.addEventListener('click', () => {
       const b = Array.isArray(window.__delSel?.boxes) ? window.__delSel.boxes : [];
       const m = Array.isArray(window.__delSel?.members) ? window.__delSel.members : [];
@@ -4521,7 +4521,7 @@ function renderEditor(projectId){
       }
 
       window.__delSel = { boxes:[], members:[] };
-      renderDelList();
+      window.__renderDelList?.();
       scheduleApply(0);
       try{ view?.setBoxEditMode?.(true, getForm(), ensureBoxEditApi()); }catch{}
     });
@@ -6791,7 +6791,7 @@ async function createThreeView(container){
                 const arr = Array.isArray(window.__delSel.members) ? window.__delSel.members : [];
                 if(!arr.includes(id)) arr.push(id);
                 window.__delSel.members = arr;
-                renderDelList?.();
+                window.__renderDelList?.();
               }
             }
           }catch{}
@@ -6818,7 +6818,7 @@ async function createThreeView(container){
               const arr = Array.isArray(window.__delSel.boxes) ? window.__delSel.boxes : [];
               if(!arr.includes(id)) arr.push(id);
               window.__delSel.boxes = arr;
-              renderDelList?.();
+              window.__renderDelList?.();
             }
           }catch{}
           return;
