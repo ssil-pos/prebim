@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1537KST';
+const BUILD = '20260211-1608KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -4683,6 +4683,48 @@ function renderEditor(projectId){
           fm0.nextNodeId = Math.max(1, parseInt(fm0.nextNodeId,10)||1);
           fm0.nextMemId = Math.max(1, parseInt(fm0.nextMemId,10)||1);
 
+          // Snap endpoints onto existing main-frame members (exact connectivity via analysis-time beam splitting).
+          const snapToMainFrameMm = (pMm) => {
+            try{
+              const p = [Number(pMm?.[0]||0), Number(pMm?.[1]||0), Number(pMm?.[2]||0)];
+              if(!p.every(Number.isFinite)) return pMm;
+              const model0 = getForm();
+              const m0 = __engine.normalizeModel(model0);
+              // remove free so we only snap to main frame + braces
+              m0.free = { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
+              const base = __engine.generateMembers(m0).filter(mm => (mm.kind==='beamX' || mm.kind==='beamY' || mm.kind==='subBeam' || mm.kind==='column'));
+
+              const px = p[0]/1000, py = p[1]/1000, pz = p[2]/1000;
+              const distPointToSeg = (P,A,B) => {
+                const abx=B[0]-A[0], aby=B[1]-A[1], abz=B[2]-A[2];
+                const apx=P[0]-A[0], apy=P[1]-A[1], apz=P[2]-A[2];
+                const ab2=abx*abx+aby*aby+abz*abz;
+                if(ab2 < 1e-12) return { d: Math.hypot(apx,apy,apz), t:0, C:A };
+                let t=(apx*abx+apy*aby+apz*abz)/ab2;
+                t=Math.max(0,Math.min(1,t));
+                const C=[A[0]+abx*t, A[1]+aby*t, A[2]+abz*t];
+                return { d: Math.hypot(P[0]-C[0], P[1]-C[1], P[2]-C[2]), t, C };
+              };
+
+              const P=[px,py,pz];
+              let best=null;
+              for(const mm2 of base){
+                const A=mm2.a, B=mm2.b;
+                if(!A||!B) continue;
+                const r=distPointToSeg(P,A,B);
+                if(!best || r.d < best.d) best={...r};
+              }
+              const tolM = 0.03; // 30mm snap tolerance
+              if(best && best.d <= tolM){
+                return [Math.round(best.C[0]*1000), Math.round(best.C[1]*1000), Math.round(best.C[2]*1000)];
+              }
+              return pMm;
+            }catch{ return pMm; }
+          };
+
+          const a2 = snapToMainFrameMm(aMm);
+          const b2 = snapToMainFrameMm(bMm);
+
           const findOrAddNode = (p) => {
             const eps = 1; // mm
             for(const n of fm0.nodes){
@@ -4693,8 +4735,8 @@ function renderEditor(projectId){
             return id;
           };
 
-          const i = findOrAddNode(aMm);
-          const j = findOrAddNode(bMm);
+          const i = findOrAddNode(a2);
+          const j = findOrAddNode(b2);
           const id = String(fm0.nextMemId++);
           const cfg = api.getConfig();
           const prof = (cfg?.memProfile && typeof cfg.memProfile==='object') ? cfg.memProfile : null;
