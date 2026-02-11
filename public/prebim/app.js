@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1530KST';
+const BUILD = '20260211-1533KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -6581,6 +6581,7 @@ async function createThreeView(container){
         const g=new THREE.BoxGeometry(Math.max(thick, thick), Math.max(thick, thick), Math.max(thick, len));
         const m=new THREE.MeshBasicMaterial({ transparent:true, opacity:0.0 });
         const mesh=new THREE.Mesh(g,m);
+        mesh.userData.boxId = b.id;
         // align local Z to edge direction
         const dir=c.clone().sub(a).normalize();
         const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
@@ -6906,6 +6907,9 @@ async function createThreeView(container){
       };
 
       if(kind==='edge' || kind==='diag'){
+        const boxId = String(obj.userData.boxId||'');
+        // In Member/Delete modes, ignore base grid box.
+        if(boxId==='grid' && (cfg.deleteMode || String(cfg.tool||'')==='members')) return;
         const a = obj.userData.a;
         const b = obj.userData.b;
 
@@ -7181,6 +7185,8 @@ async function createThreeView(container){
       return;
     }
     if(kind==='edge' || kind==='diag'){
+      const boxId = String(obj.userData.boxId||'');
+      if(boxId==='grid' && String(cfg.tool||'')==='members') return;
       if(String(cfg.tool||'boxes') !== 'members') return;
       const a = obj.userData.a;
       const b = obj.userData.b;
