@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1420KST';
+const BUILD = '20260211-1422KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -4413,26 +4413,81 @@ function renderEditor(projectId){
     // Delete tool (separate button)
     window.__boxDeleteMode = false;
     const btnBoxDelete = document.getElementById('btnBoxDelete');
+    const ensureBoxEditApi = () => {
+      if(window.__boxEditApiLast) return window.__boxEditApiLast;
+      // Minimal API for delete-mode without opening the popover
+      const api = {
+        getConfig: () => ({
+          wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
+          dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
+          hMm: parseFloat(document.getElementById('boxH')?.value||'0')||0,
+          topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
+          braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
+          tool: (document.getElementById('boxMode')?.checked === true) ? 'members' : 'boxes',
+          deleteMode: (window.__boxDeleteMode === true),
+          memberKind: String(document.getElementById('boxMemberKind')?.value||'brace'),
+          memProfile: {
+            stdKey: String(document.getElementById('stdAll')?.value||'KS'),
+            shapeKey: String(document.getElementById('boxMemShape')?.value||'H'),
+            sizeKey: String(document.getElementById('boxMemSize')?.value||''),
+          },
+        }),
+        onAddBox: (box) => {
+          window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
+          window.__prebimBoxes.push(box);
+          scheduleApply(0);
+        },
+        onAddMember: (kind, aMm, bMm) => {
+          const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
+          fm0.nodes = Array.isArray(fm0.nodes) ? fm0.nodes : [];
+          fm0.members = Array.isArray(fm0.members) ? fm0.members : [];
+          fm0.nextNodeId = Math.max(1, parseInt(fm0.nextNodeId,10)||1);
+          fm0.nextMemId = Math.max(1, parseInt(fm0.nextMemId,10)||1);
+
+          const findOrAddNode = (p) => {
+            const eps = 1; // mm
+            for(const n of fm0.nodes){
+              if(Math.abs((n.x||0)-p[0])<=eps && Math.abs((n.y||0)-p[1])<=eps && Math.abs((n.z||0)-p[2])<=eps) return String(n.id);
+            }
+            const id = String(fm0.nextNodeId++);
+            fm0.nodes.push({ id, x: Math.round(p[0]), y: Math.round(p[1]), z: Math.round(p[2]) });
+            return id;
+          };
+
+          const i = findOrAddNode(aMm);
+          const j = findOrAddNode(bMm);
+          const id = String(fm0.nextMemId++);
+          const cfg = api.getConfig();
+          const prof = (cfg?.memProfile && typeof cfg.memProfile==='object') ? cfg.memProfile : null;
+          fm0.members.push({ id, i, j, kind: (kind==='brace')?'brace':'beam', profile: prof||undefined });
+          fm0.enabled = false;
+          window.__prebimFree = fm0;
+          scheduleApply(0);
+        },
+      };
+      window.__boxEditApiLast = api;
+      return api;
+    };
+
     btnBoxDelete?.addEventListener('click', () => {
       window.__boxDeleteMode = !window.__boxDeleteMode;
-      if(window.__boxDeleteMode){
-        // ensure box edit is open so user knows what's deletable
-        popBr?.classList.remove('open');
-        popOv?.classList.remove('open');
-        popSection?.classList.remove('open');
-        popFree?.classList.remove('open');
-        try{ popBox?.removeAttribute?.('style'); }catch{}
-        popBox?.classList.add('open');
-        try{ if(popBox) popBox.style.display='block'; }catch{}
-      }
       btnBoxDelete?.classList.toggle('active', !!window.__boxDeleteMode);
-      // refresh 3D pick targets
-      try{ view?.setBoxEditMode?.(true, getForm(), window.__boxEditApiLast || undefined); }catch{}
+
+      // Enable 3D pick targets for immediate delete without forcing the popover open
+      const api = ensureBoxEditApi();
+      try{ view?.setBoxEditMode?.(true, getForm(), api); }catch{}
     });
     document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
     document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
     document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
-    document.getElementById('btnPopBoxClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
+    document.getElementById('btnPopBoxClose')?.addEventListener('click', () => {
+      closeAll();
+      updateBraceMode(false);
+      try{ if(popBox){ popBox.classList.remove('open'); popBox.style.display='none'; } }catch{}
+      view?.setBoxEditMode?.(false, getForm());
+      window.__boxDeleteMode = false;
+      document.getElementById('btnBoxDelete')?.classList.remove('active');
+    });
     document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); psView?.setEditMode?.(false); });
 
     document.getElementById('btnPopBox')?.addEventListener('click', () => {
@@ -4450,6 +4505,8 @@ function renderEditor(projectId){
       const on = popBox?.classList.contains('open');
       try{ if(popBox) popBox.style.display = on ? 'block' : 'none'; }catch{}
       if(!on){ window.__boxDeleteMode = false; document.getElementById('btnBoxDelete')?.classList.remove('active'); }
+      // if opened, keep delete api in sync
+      try{ if(on) window.__boxEditApiLast = api; }catch{}
 
       rebuildBoxMemSection();
 
