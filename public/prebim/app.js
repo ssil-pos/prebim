@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1608KST';
+const BUILD = '20260211-1617KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -4674,7 +4674,7 @@ function renderEditor(projectId){
         onAddBox: (box) => {
           window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
           window.__prebimBoxes.push(box);
-          scheduleApply(0);
+          try{ applyNow(getForm()); }catch{ scheduleApply(0); }
         },
         onAddMember: (kind, aMm, bMm) => {
           const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
@@ -4743,7 +4743,7 @@ function renderEditor(projectId){
           fm0.members.push({ id, i, j, kind: (kind==='brace')?'brace':'beam', profile: prof||undefined });
           fm0.enabled = false;
           window.__prebimFree = fm0;
-          scheduleApply(0);
+          try{ applyNow(getForm()); }catch{ scheduleApply(0); }
         },
       };
       window.__boxEditApiLast = api;
@@ -6980,7 +6980,7 @@ async function createThreeView(container){
         fm0.nodes = fm0.nodes.filter(n => used.has(String(n?.id)));
 
         window.__prebimFree = fm0;
-        scheduleApply(0);
+        try{ applyNow(getForm()); }catch{ scheduleApply(0); }
         return true;
       };
 
