@@ -32,7 +32,18 @@ export function defaultModel(){
       beamShape: 'H', beamSize: '',
       subShape: 'H', subSize: '',
       braceShape: 'L', braceSize: '',
-    }
+    },
+    // user-defined attached volumes (axis-aligned boxes) in mm
+    boxes: [],
+    // free-form additions (non-grid nodes/members) used by Box Edit, etc.
+    free: {
+      enabled: false,
+      nodes: [],
+      members: [],
+      lastKind: 'beam',
+      nextNodeId: 1,
+      nextMemId: 1,
+    },
   };
 }
 
@@ -49,6 +60,8 @@ export function normalizeModel(m){
     if(Array.isArray(m.braces)) out.braces = m.braces.slice();
     if(m.overrides && typeof m.overrides === 'object') out.overrides = structuredClone(m.overrides);
     if(m.profiles && typeof m.profiles === 'object') out.profiles = { ...out.profiles, ...structuredClone(m.profiles) };
+    if(Array.isArray(m.boxes)) out.boxes = structuredClone(m.boxes);
+    if(m.free && typeof m.free === 'object') out.free = { ...out.free, ...structuredClone(m.free) };
   }
   // grid base
   out.grid.nx = Math.max(1, parseInt(out.grid.nx,10) || d.grid.nx);
@@ -117,12 +130,69 @@ export function normalizeModel(m){
 
   // overrides normalization (kept as-is; validated in UI)
   if(!out.overrides || typeof out.overrides !== 'object') out.overrides = {};
+
+  // boxes normalization (axis-aligned mm extents)
+  if(!Array.isArray(out.boxes)) out.boxes = [];
+  out.boxes = out.boxes
+    .filter(b => b && typeof b === 'object')
+    .map((b, idx) => {
+      const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+      const x0 = n(b.x0), x1 = n(b.x1);
+      const y0 = n(b.y0), y1 = n(b.y1);
+      const z0 = n(b.z0), z1 = n(b.z1);
+      return {
+        id: String(b.id || `b${idx+1}`),
+        x0: Math.min(x0,x1), x1: Math.max(x0,x1),
+        y0: Math.min(y0,y1), y1: Math.max(y0,y1),
+        z0: Math.min(z0,z1), z1: Math.max(z0,z1),
+      };
+    });
+
+  // free model normalization (used for non-grid additions)
+  if(!out.free || typeof out.free !== 'object') out.free = { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
+  out.free.enabled = (out.free.enabled === true);
+  if(!Array.isArray(out.free.nodes)) out.free.nodes = [];
+  if(!Array.isArray(out.free.members)) out.free.members = [];
+  out.free.lastKind = String(out.free.lastKind||'beam');
+  out.free.nextNodeId = Math.max(1, parseInt(out.free.nextNodeId,10)||1);
+  out.free.nextMemId = Math.max(1, parseInt(out.free.nextMemId,10)||1);
+
   return out;
 }
 
 /**
  * @typedef {{id:string, kind:string, a:[number,number,number], b:[number,number,number]}} Member
  */
+
+function generateMembersFree(m){
+  const fm = m.free || {};
+  const nodes = Array.isArray(fm.nodes) ? fm.nodes : [];
+  const mems = Array.isArray(fm.members) ? fm.members : [];
+  const nodeMap = new Map(nodes.map(n => [String(n.id), [mmToM(n.x), mmToM(n.y), mmToM(n.z)]]));
+
+  /** @type {Member[]} */
+  const out = [];
+  for(const mm of mems){
+    const a = nodeMap.get(String(mm.i));
+    const b = nodeMap.get(String(mm.j));
+    if(!a || !b) continue;
+    const dx = b[0]-a[0];
+    const dy = b[1]-a[1];
+    const dz = b[2]-a[2];
+
+    let kind = String(mm.kind||'beam');
+    if(kind === 'beam'){
+      // Determine major direction by plan projection
+      if(Math.abs(dy) > (Math.abs(dx)+Math.abs(dz)) * 0.8) kind = 'column';
+      else kind = (Math.abs(dx) >= Math.abs(dz)) ? 'beamX' : 'beamY';
+    }
+    if(kind === 'column') kind = 'column';
+    if(kind === 'brace') kind = 'brace';
+
+    out.push({ id: `free:${String(mm.id)}`, kind, a, b });
+  }
+  return out;
+}
 
 export function generateMembers(model){
   const m = normalizeModel(model);
@@ -264,7 +334,8 @@ export function generateMembers(model){
     }
   }
 
-  return members;
+  const extra = generateMembersFree(m);
+  return members.concat(extra);
 }
 
 export function quantities(members){

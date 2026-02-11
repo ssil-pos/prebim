@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1041KST';
+const BUILD = '20260211-1410UTC';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-1041KST'),
-    import('/prebim/app_profiles.js?v=20260211-1041KST'),
+    import(`/prebim/engine.js?v=${BUILD}`),
+    import(`/prebim/app_profiles.js?v=${BUILD}`),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -3335,6 +3335,7 @@ function renderEditor(projectId){
             <button class="pill" id="btn3dSection" type="button">Section Box</button>
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
+            <button class="pill" id="btnPopBox" type="button">Box Edit</button>
             <button class="pill" id="btnPopFree" type="button" style="display:none">Free Edit</button>
           </div>
         </div>
@@ -3456,6 +3457,48 @@ function renderEditor(projectId){
           <div class="note" id="freeHint" style="margin-top:10px">Tip: Add node → click. Add beam → click two nodes. Add column → click one node (to next level).</div>
         </div></div>
 
+        <div class="popwrap" id="popBox" style="display:none"><div class="popcard">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+            <b>Box Edit</b>
+            <button class="pill" id="btnPopBoxClose" type="button">Close</button>
+          </div>
+          <div class="note" style="margin-top:8px">Click an outer face to add an attached box. Hover edges/diagonals to add members.</div>
+
+          <div class="grid2" style="margin-top:10px">
+            <div>
+              <label class="label">Width (mm)</label>
+              <input id="boxW" class="input" value="3000" />
+            </div>
+            <div>
+              <label class="label">Depth (mm)</label>
+              <input id="boxD" class="input" value="3000" />
+            </div>
+          </div>
+
+          <div class="grid2" style="margin-top:10px">
+            <div>
+              <label class="label">Height (mm)</label>
+              <input id="boxH" class="input" value="6000" />
+            </div>
+            <div>
+              <label class="label">Top level (mm)</label>
+              <input id="boxTop" class="input" value="6000" />
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
+            <label class="badge" style="cursor:pointer">Brace dir
+              <select id="boxBraceDir" class="input" style="max-width:90px; margin-left:8px">
+                <option value="/">/</option>
+                <option value="\\">\\</option>
+              </select>
+            </label>
+            <button class="btn" id="btnBoxClearMembers" type="button">Clear added members</button>
+            <button class="btn danger" id="btnBoxClearBoxes" type="button">Clear boxes</button>
+          </div>
+          <div class="note" style="margin-top:10px">Tip: edge click → member, diagonal click → brace.</div>
+        </div></div>
+
         <div class="popwrap" id="popOv"><div class="popcard">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
             <b>Override</b>
@@ -3544,6 +3587,7 @@ function renderEditor(projectId){
     // globals (so getForm can read them without threading)
     window.__prebimBraces = Array.isArray(engineModel.braces) ? engineModel.braces.slice() : [];
     window.__prebimOverrides = (engineModel.overrides && typeof engineModel.overrides === 'object') ? structuredClone(engineModel.overrides) : {};
+    window.__prebimBoxes = Array.isArray(engineModel.boxes) ? structuredClone(engineModel.boxes) : [];
     window.__prebimFree = (engineModel.free && typeof engineModel.free === 'object') ? structuredClone(engineModel.free) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
 
     const renderLevelsList = (levelsMm) => {
@@ -3635,6 +3679,7 @@ function renderEditor(projectId){
         // panel braces + overrides
         braces: (window.__prebimBraces || []),
         overrides: (window.__prebimOverrides || {}),
+        boxes: (window.__prebimBoxes || []),
         free: (window.__prebimFree || { enabled:false, nodes:[], members:[] }),
         profiles: {
           stdAll: document.getElementById('stdAll').value || 'KS',
@@ -4271,35 +4316,108 @@ function renderEditor(projectId){
       setFreeToolUi('toolSelect');
     });
 
+    // Box edit helpers
+    document.getElementById('btnBoxClearBoxes')?.addEventListener('click', () => {
+      if(!confirm('Clear all added boxes?')) return;
+      window.__prebimBoxes = [];
+      scheduleApply(0);
+    });
+    document.getElementById('btnBoxClearMembers')?.addEventListener('click', () => {
+      if(!confirm('Clear all added members/nodes?')) return;
+      window.__prebimFree = { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
+      scheduleApply(0);
+    });
+
     // popovers
     const popBr = document.getElementById('popBr');
     const popOv = document.getElementById('popOv');
     const popSection = document.getElementById('popSection');
     const popFree = document.getElementById('popFree');
-    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); popSection?.classList.remove('open'); popFree?.classList.remove('open'); };
+    const popBox = document.getElementById('popBox');
+    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); popSection?.classList.remove('open'); popFree?.classList.remove('open'); popBox?.classList.remove('open'); };
     document.getElementById('btnPopBr')?.addEventListener('click', () => {
       popOv?.classList.remove('open');
       popSection?.classList.remove('open');
       popFree?.classList.remove('open');
+      popBox?.classList.remove('open');
       popBr?.classList.toggle('open');
       updateBraceMode(popBr?.classList.contains('open'));
+      view?.setBoxEditMode?.(false, getForm());
     });
     document.getElementById('btnPopOv')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
       popSection?.classList.remove('open');
       popFree?.classList.remove('open');
+      popBox?.classList.remove('open');
       popOv?.classList.toggle('open');
+      updateBraceMode(false);
+      view?.setBoxEditMode?.(false, getForm());
     });
     document.getElementById('btn3dSection')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
       popOv?.classList.remove('open');
       popFree?.classList.remove('open');
+      popBox?.classList.remove('open');
       popSection?.classList.toggle('open');
+      updateBraceMode(false);
+      view?.setBoxEditMode?.(false, getForm());
     });
-    document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
-    document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
-    document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
-    document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); psView?.setEditMode?.(false); });
+    document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
+    document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
+    document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
+    document.getElementById('btnPopBoxClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
+    document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); psView?.setEditMode?.(false); });
+
+    document.getElementById('btnPopBox')?.addEventListener('click', () => {
+      popBr?.classList.remove('open');
+      popOv?.classList.remove('open');
+      popSection?.classList.remove('open');
+      popFree?.classList.remove('open');
+      popBox?.classList.toggle('open');
+      updateBraceMode(false);
+
+      const on = popBox?.classList.contains('open');
+      // wire box edit callbacks into view
+      view?.setBoxEditMode?.(!!on, getForm(), {
+        getConfig: () => ({
+          wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
+          dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
+          hMm: parseFloat(document.getElementById('boxH')?.value||'0')||0,
+          topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
+          braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
+        }),
+        onAddBox: (box) => {
+          window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
+          window.__prebimBoxes.push(box);
+          scheduleApply(0);
+        },
+        onAddMember: (kind, aMm, bMm) => {
+          const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
+          fm0.nodes = Array.isArray(fm0.nodes) ? fm0.nodes : [];
+          fm0.members = Array.isArray(fm0.members) ? fm0.members : [];
+          fm0.nextNodeId = Math.max(1, parseInt(fm0.nextNodeId,10)||1);
+          fm0.nextMemId = Math.max(1, parseInt(fm0.nextMemId,10)||1);
+
+          const findOrAddNode = (p) => {
+            const eps = 1; // mm
+            for(const n of fm0.nodes){
+              if(Math.abs((n.x||0)-p[0])<=eps && Math.abs((n.y||0)-p[1])<=eps && Math.abs((n.z||0)-p[2])<=eps) return String(n.id);
+            }
+            const id = String(fm0.nextNodeId++);
+            fm0.nodes.push({ id, x: Math.round(p[0]), y: Math.round(p[1]), z: Math.round(p[2]) });
+            return id;
+          };
+
+          const i = findOrAddNode(aMm);
+          const j = findOrAddNode(bMm);
+          const id = String(fm0.nextMemId++);
+          fm0.members.push({ id, i, j, kind: (kind==='brace')?'brace':'beam' });
+          fm0.enabled = false; // kept internal; do not replace grid model
+          window.__prebimFree = fm0;
+          scheduleApply(0);
+        },
+      });
+    });
 
     document.getElementById('btnPopFree')?.addEventListener('click', async () => {
       popBr?.classList.remove('open');
@@ -5309,6 +5427,17 @@ async function createThreeView(container){
   const faceGroup = new THREE.Group();
   scene.add(faceGroup);
 
+  // box edit overlays (faces/edges + outlines)
+  const boxOutlineGroup = new THREE.Group();
+  scene.add(boxOutlineGroup);
+  const boxPickGroup = new THREE.Group();
+  scene.add(boxPickGroup);
+  const boxHotGroup = new THREE.Group();
+  scene.add(boxHotGroup);
+  let boxEditMode = false;
+  let boxEditApi = null; // { getConfig, onAddBox, onAddMember }
+  let boxHot = null; // { kind:'face'|'edge'|'diag', ... }
+
   // analysis overlay (deformed shape + displacement colormap)
   const analysisGroup = new THREE.Group();
   scene.add(analysisGroup);
@@ -5421,6 +5550,9 @@ async function createThreeView(container){
     side: THREE.DoubleSide,
     depthWrite: false,
   });
+
+  const boxOutlineMat = new THREE.LineBasicMaterial({ color:0x0ea5e9, transparent:true, opacity:0.70 });
+  const boxHotLineMat = new THREE.LineBasicMaterial({ color:0x7c3aed, transparent:true, opacity:0.95 });
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -5897,6 +6029,9 @@ async function createThreeView(container){
 
     if(braceMode) buildFacePlanes(model);
 
+    buildBoxOutlines(model);
+    if(boxEditMode) buildBoxEditTargets(model);
+
     applyClipping(model);
 
     // guides: grid lines + labels at base, and level outlines + labels
@@ -5983,6 +6118,193 @@ async function createThreeView(container){
         hasCentered = true;
       }
     }
+  }
+
+  function gridBoxFromModel(model){
+    const spansX = model?.grid?.spansXmm || [];
+    const spansY = model?.grid?.spansYmm || [];
+    const xs=[0], zs=[0];
+    for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+    for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
+    const lv = Array.isArray(model?.levels) ? model.levels : [0,6000];
+    const y0 = (lv[0]||0)/1000;
+    const y1 = (lv[lv.length-1]||6000)/1000;
+    return {
+      id: 'grid',
+      x0: 0, x1: xs[xs.length-1] || 1,
+      y0, y1,
+      z0: 0, z1: zs[zs.length-1] || 1,
+    };
+  }
+
+  function modelBoxesM(model){
+    const base = gridBoxFromModel(model||{});
+    const extra = Array.isArray(model?.boxes) ? model.boxes : [];
+    const out = [base];
+    for(const b of extra){
+      if(!b) continue;
+      out.push({
+        id: String(b.id||'box'),
+        x0: (Number(b.x0)||0)/1000, x1: (Number(b.x1)||0)/1000,
+        y0: (Number(b.y0)||0)/1000, y1: (Number(b.y1)||0)/1000,
+        z0: (Number(b.z0)||0)/1000, z1: (Number(b.z1)||0)/1000,
+      });
+    }
+    return out;
+  }
+
+  function clearBoxEditTargets(){
+    while(boxPickGroup.children.length) boxPickGroup.remove(boxPickGroup.children[0]);
+    while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
+    boxHot = null;
+  }
+
+  function buildBoxOutlines(model){
+    while(boxOutlineGroup.children.length) boxOutlineGroup.remove(boxOutlineGroup.children[0]);
+    if(!model) return;
+    const boxes = modelBoxesM(model);
+    for(const b of boxes){
+      const w = Math.abs(b.x1-b.x0);
+      const h = Math.abs(b.y1-b.y0);
+      const d = Math.abs(b.z1-b.z0);
+      const g = new THREE.BoxGeometry(Math.max(0.001,w), Math.max(0.001,h), Math.max(0.001,d));
+      // center at box center
+      g.translate((b.x0+b.x1)/2, (b.y0+b.y1)/2, (b.z0+b.z1)/2);
+      const edges = new THREE.EdgesGeometry(g, 1);
+      const ln = new THREE.LineSegments(edges, boxOutlineMat);
+      ln.userData.boxId = b.id;
+      ln.userData.isBoxOutline = true;
+      // grid box slightly faded
+      if(b.id==='grid') ln.material = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.35 });
+      boxOutlineGroup.add(ln);
+    }
+  }
+
+  function buildBoxEditTargets(model){
+    clearBoxEditTargets();
+    if(!model) return;
+    const boxes = modelBoxesM(model);
+
+    const addFace = (b, faceKey) => {
+      const eps = 0.002; // 2mm thickness not needed (plane)
+      let w=1,h=1, pos=new THREE.Vector3(), rot=new THREE.Euler();
+      if(faceKey==='X0' || faceKey==='X1'){
+        w = Math.abs(b.z1-b.z0);
+        h = Math.abs(b.y1-b.y0);
+        pos.set((faceKey==='X0')?b.x0:b.x1, (b.y0+b.y1)/2, (b.z0+b.z1)/2);
+        rot.set(0, (faceKey==='X0')?Math.PI/2:-Math.PI/2, 0);
+      }else if(faceKey==='Z0' || faceKey==='Z1'){
+        w = Math.abs(b.x1-b.x0);
+        h = Math.abs(b.y1-b.y0);
+        pos.set((b.x0+b.x1)/2, (b.y0+b.y1)/2, (faceKey==='Z0')?b.z0:b.z1);
+        rot.set(0, (faceKey==='Z0')?0:Math.PI, 0);
+      }else if(faceKey==='Y0' || faceKey==='Y1'){
+        w = Math.abs(b.x1-b.x0);
+        h = Math.abs(b.z1-b.z0);
+        pos.set((b.x0+b.x1)/2, (faceKey==='Y0')?b.y0:b.y1, (b.z0+b.z1)/2);
+        rot.set((faceKey==='Y0')?-Math.PI/2:Math.PI/2, 0, 0);
+      }
+      w=Math.max(0.001,w); h=Math.max(0.001,h);
+      const g = new THREE.PlaneGeometry(w, h);
+      const mesh = new THREE.Mesh(g, faceMat.clone());
+      mesh.position.copy(pos);
+      mesh.rotation.copy(rot);
+      mesh.userData.kind='face';
+      mesh.userData.boxId=b.id;
+      mesh.userData.faceKey=faceKey;
+      boxPickGroup.add(mesh);
+    };
+
+    const faceKeys = ['X0','X1','Z0','Z1','Y0','Y1'];
+    for(const b of boxes){
+      for(const fk of faceKeys) addFace(b, fk);
+
+      // edge pickers (thin boxes)
+      const edges = [
+        // bottom rectangle
+        [[b.x0,b.y0,b.z0],[b.x1,b.y0,b.z0]],
+        [[b.x1,b.y0,b.z0],[b.x1,b.y0,b.z1]],
+        [[b.x1,b.y0,b.z1],[b.x0,b.y0,b.z1]],
+        [[b.x0,b.y0,b.z1],[b.x0,b.y0,b.z0]],
+        // top rectangle
+        [[b.x0,b.y1,b.z0],[b.x1,b.y1,b.z0]],
+        [[b.x1,b.y1,b.z0],[b.x1,b.y1,b.z1]],
+        [[b.x1,b.y1,b.z1],[b.x0,b.y1,b.z1]],
+        [[b.x0,b.y1,b.z1],[b.x0,b.y1,b.z0]],
+        // verticals
+        [[b.x0,b.y0,b.z0],[b.x0,b.y1,b.z0]],
+        [[b.x1,b.y0,b.z0],[b.x1,b.y1,b.z0]],
+        [[b.x1,b.y0,b.z1],[b.x1,b.y1,b.z1]],
+        [[b.x0,b.y0,b.z1],[b.x0,b.y1,b.z1]],
+      ];
+      for(const e of edges){
+        const a=new THREE.Vector3(...e[0]);
+        const c=new THREE.Vector3(...e[1]);
+        const mid=a.clone().add(c).multiplyScalar(0.5);
+        const len=a.distanceTo(c);
+        const thick=0.03; // 3cm pick thickness
+        const g=new THREE.BoxGeometry(Math.max(thick, thick), Math.max(thick, thick), Math.max(thick, len));
+        const m=new THREE.MeshBasicMaterial({ transparent:true, opacity:0.0 });
+        const mesh=new THREE.Mesh(g,m);
+        // align local Z to edge direction
+        const dir=c.clone().sub(a).normalize();
+        const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), dir);
+        mesh.quaternion.copy(q);
+        mesh.position.copy(mid);
+        mesh.userData.kind='edge';
+        mesh.userData.boxId=b.id;
+        mesh.userData.a=[a.x,a.y,a.z];
+        mesh.userData.b=[c.x,c.y,c.z];
+        boxPickGroup.add(mesh);
+      }
+
+      // diagonal guides (pick-only) on vertical faces
+      const addDiag = (faceKey, dirKey) => {
+        let a=null, c=null;
+        if(faceKey==='X0'){
+          a = (dirKey==='/' ) ? [b.x0,b.y0,b.z0] : [b.x0,b.y0,b.z1];
+          c = (dirKey==='/' ) ? [b.x0,b.y1,b.z1] : [b.x0,b.y1,b.z0];
+        }else if(faceKey==='X1'){
+          a = (dirKey==='/' ) ? [b.x1,b.y0,b.z0] : [b.x1,b.y0,b.z1];
+          c = (dirKey==='/' ) ? [b.x1,b.y1,b.z1] : [b.x1,b.y1,b.z0];
+        }else if(faceKey==='Z0'){
+          a = (dirKey==='/' ) ? [b.x0,b.y0,b.z0] : [b.x1,b.y0,b.z0];
+          c = (dirKey==='/' ) ? [b.x1,b.y1,b.z0] : [b.x0,b.y1,b.z0];
+        }else if(faceKey==='Z1'){
+          a = (dirKey==='/' ) ? [b.x0,b.y0,b.z1] : [b.x1,b.y0,b.z1];
+          c = (dirKey==='/' ) ? [b.x1,b.y1,b.z1] : [b.x0,b.y1,b.z1];
+        }
+        if(!a || !c) return;
+        const va = new THREE.Vector3(...a);
+        const vb = new THREE.Vector3(...c);
+        const mid = va.clone().add(vb).multiplyScalar(0.5);
+        const len = va.distanceTo(vb);
+        const thick = 0.03;
+        const g = new THREE.BoxGeometry(thick, thick, Math.max(thick, len));
+        const m = new THREE.MeshBasicMaterial({ transparent:true, opacity:0.0 });
+        const mesh = new THREE.Mesh(g, m);
+        const d = vb.clone().sub(va).normalize();
+        mesh.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), d));
+        mesh.position.copy(mid);
+        mesh.userData.kind='diag';
+        mesh.userData.boxId=b.id;
+        mesh.userData.faceKey=faceKey;
+        mesh.userData.dirKey=dirKey;
+        mesh.userData.a=a;
+        mesh.userData.b=c;
+        boxPickGroup.add(mesh);
+      };
+      for(const fk of ['X0','X1','Z0','Z1']){ addDiag(fk,'/'); addDiag(fk,'\\'); }
+    }
+  }
+
+  function showBoxHotLine(a, b){
+    while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
+    if(!a || !b) return;
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+    const ln = new THREE.Line(g, boxHotLineMat);
+    ln.renderOrder = 20;
+    boxHotGroup.add(ln);
   }
 
   function setBraceMode(on, model, cb){
@@ -6133,6 +6455,98 @@ async function createThreeView(container){
       return;
     }
 
+    if(boxEditMode){
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(boxPickGroup.children, false);
+      if(!hits.length) return;
+      const obj = hits[0].object;
+      const kind = obj?.userData?.kind;
+      const cfg = boxEditApi?.getConfig?.() || { wMm:0, dMm:0, hMm:0, topMm:0, braceDir:'/' };
+
+      const addMember = (k, aM, bM) => {
+        if(!boxEditApi?.onAddMember) return;
+        boxEditApi.onAddMember(k, [aM[0]*1000, aM[1]*1000, aM[2]*1000], [bM[0]*1000, bM[1]*1000, bM[2]*1000]);
+      };
+
+      if(kind==='edge' || kind==='diag'){
+        const a = obj.userData.a;
+        const b = obj.userData.b;
+        if(a && b) showBoxHotLine(a, b);
+        if(a && b) addMember(kind==='diag' ? 'brace' : 'beam', a, b);
+        return;
+      }
+
+      if(kind==='face'){
+        const faceKey = String(obj.userData.faceKey||'');
+        if(!['X0','X1','Z0','Z1'].includes(faceKey)) return; // side faces only
+        const model = lastClipModel || {};
+        const boxes = modelBoxesM(model);
+        const host = boxes.find(bb => String(bb.id)===String(obj.userData.boxId)) || boxes[0];
+        const wM = Math.max(0.05, (Number(cfg.wMm)||0)/1000);
+        const dM = Math.max(0.05, (Number(cfg.dMm)||0)/1000);
+        const hM = Math.max(0.05, (Number(cfg.hMm)||0)/1000);
+        const topM = (Number(cfg.topMm)||0)/1000;
+
+        // grid snap lines
+        const spansX = model?.grid?.spansXmm || [];
+        const spansY = model?.grid?.spansYmm || [];
+        const xs=[0], zs=[0];
+        for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+        for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
+        const snapFloor = (arr, v) => {
+          let best = arr[0] || 0;
+          for(const t of arr){ if(t <= v) best = t; }
+          return best;
+        };
+
+        const pt = hits[0].point;
+        const y1 = topM;
+        const y0 = topM - hM;
+        let x0=0,x1=0,z0=0,z1=0;
+
+        if(faceKey==='X1'){
+          x0 = host.x1; x1 = host.x1 + wM;
+          const span = Math.max(0.001, host.z1 - host.z0);
+          const dd = Math.min(dM, span);
+          z0 = snapFloor(zs, pt.z);
+          z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
+          z1 = z0 + dd;
+        }else if(faceKey==='X0'){
+          x1 = host.x0; x0 = host.x0 - wM;
+          const span = Math.max(0.001, host.z1 - host.z0);
+          const dd = Math.min(dM, span);
+          z0 = snapFloor(zs, pt.z);
+          z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
+          z1 = z0 + dd;
+        }else if(faceKey==='Z1'){
+          z0 = host.z1; z1 = host.z1 + dM;
+          const span = Math.max(0.001, host.x1 - host.x0);
+          const ww = Math.min(wM, span);
+          x0 = snapFloor(xs, pt.x);
+          x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
+          x1 = x0 + ww;
+        }else if(faceKey==='Z0'){
+          z1 = host.z0; z0 = host.z0 - dM;
+          const span = Math.max(0.001, host.x1 - host.x0);
+          const ww = Math.min(wM, span);
+          x0 = snapFloor(xs, pt.x);
+          x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
+          x1 = x0 + ww;
+        }
+
+        const newBox = {
+          id: `b_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`,
+          x0: Math.round(x0*1000), x1: Math.round(x1*1000),
+          y0: Math.round(y0*1000), y1: Math.round(y1*1000),
+          z0: Math.round(z0*1000), z1: Math.round(z1*1000),
+        };
+        boxEditApi?.onAddBox?.(newBox);
+        return;
+      }
+
+      return;
+    }
+
     if(!memberPickEnabled) return;
 
     // member selection
@@ -6174,6 +6588,40 @@ async function createThreeView(container){
   }
 
   renderer.domElement.addEventListener('pointerdown', pick);
+
+  // Box edit: hover highlight (faces/edges/diagonals)
+  renderer.domElement.addEventListener('pointermove', (ev) => {
+    if(!boxEditMode) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(boxPickGroup.children, false);
+
+    // reset face material hot state
+    if(boxHot && boxHot.kind==='face'){
+      try{ if(boxHot.obj?.material) boxHot.obj.material = faceMat.clone(); }catch{}
+    }
+    boxHot = null;
+    showBoxHotLine(null, null);
+
+    if(!hits.length) return;
+    const obj = hits[0].object;
+    const kind = obj?.userData?.kind;
+
+    if(kind==='face'){
+      try{ if(obj.material) obj.material = faceMatHot.clone(); }catch{}
+      boxHot = { kind:'face', obj };
+      return;
+    }
+    if(kind==='edge' || kind==='diag'){
+      const a = obj.userData.a;
+      const b = obj.userData.b;
+      if(a && b) showBoxHotLine(a, b);
+      boxHot = { kind, obj };
+      return;
+    }
+  });
 
   // Shift+drag box selection (members). Disabled in braceMode and supportEdit.
   const selBox = document.createElement('div');
@@ -6731,6 +7179,17 @@ async function createThreeView(container){
   return {
     setMembers,
     setBraceMode,
+    setBoxEditMode(on, model, api){
+      boxEditMode = !!on;
+      boxEditApi = api || null;
+      boxPickGroup.visible = boxEditMode;
+      boxHotGroup.visible = boxEditMode;
+      if(boxEditMode){
+        buildBoxEditTargets(model||lastClipModel||{});
+      }else{
+        clearBoxEditTargets();
+      }
+    },
     toggleGuides,
     setSectionBox,
     setAnalysisResult,
