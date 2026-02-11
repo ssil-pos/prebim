@@ -30,8 +30,6 @@
   - [B6) Seismic (KDS ELF) helper — equations/assumptions](#b6-seismic-kds-elf-helper--equationsassumptions)
   - [B7) Load combinations (combo generation)](#b7-load-combinations-combo-generation)
   - [B8) Known limitations](#b8-known-limitations)
-- [Screenshots / images](#screenshots--images)
-
 ---
 
 # Part A — Model Edit (Editor)
@@ -284,22 +282,3 @@ Notes:
 - KDS helpers include simplifications (especially wind Kzr and open-structure CD).
 - Results are for rapid concept checks; final design should use full-detail modeling and code verification.
 
----
-
-# Screenshots / images
-Yes—screenshots can be embedded directly into this manual.
-
-Recommended approach:
-1. Put image files into: `docs/manual/images/`
-2. Reference them with relative Markdown links:
-
-```md
-![Analysis — Point loads panel](docs/manual/images/analysis-point-loads.png)
-```
-
-Tips:
-- Use short filenames, kebab-case.
-- Prefer PNG for UI screenshots.
-- Keep width reasonable (~1400–2000px).
-
-> If you want, tell me which features to capture first (Editor/Analysis), and I can add placeholders + captions now, then we just drop the images into the folder.
