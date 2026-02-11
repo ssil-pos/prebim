@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1403KST';
+const BUILD = '20260211-1420KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -4495,7 +4495,8 @@ function renderEditor(projectId){
           const i = findOrAddNode(aMm);
           const j = findOrAddNode(bMm);
           const id = String(fm0.nextMemId++);
-          const prof = cfg?.memProfile && typeof cfg.memProfile==='object' ? cfg.memProfile : null;
+          const cfg = boxEditApi?.getConfig?.() || {};
+          const prof = (cfg?.memProfile && typeof cfg.memProfile==='object') ? cfg.memProfile : null;
           fm0.members.push({ id, i, j, kind: (kind==='brace')?'brace':'beam', profile: prof||undefined });
           fm0.enabled = false; // kept internal; do not replace grid model
           window.__prebimFree = fm0;
@@ -6250,6 +6251,25 @@ async function createThreeView(container){
     while(boxOutlineGroup.children.length) boxOutlineGroup.remove(boxOutlineGroup.children[0]);
     if(!model) return;
     const boxes = modelBoxesM(model);
+
+    const addGuideSegment = (a, b, color=0xff3b30, r=0.015) => {
+      // Visible thick guide line using a cylinder (lines are often 1px only)
+      const A = new THREE.Vector3(...a);
+      const B = new THREE.Vector3(...b);
+      const dir = B.clone().sub(A);
+      const len = dir.length();
+      if(len <= 1e-6) return;
+      const mid = A.clone().add(B).multiplyScalar(0.5);
+      const g = new THREE.CylinderGeometry(r, r, len, 10, 1, true);
+      const m = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.80, depthTest:false });
+      const mesh = new THREE.Mesh(g, m);
+      mesh.position.copy(mid);
+      mesh.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize()));
+      mesh.renderOrder = 200;
+      mesh.frustumCulled = false;
+      boxOutlineGroup.add(mesh);
+    };
+
     for(const b of boxes){
       const w = Math.abs(b.x1-b.x0);
       const h = Math.abs(b.y1-b.y0);
@@ -6264,6 +6284,21 @@ async function createThreeView(container){
       // grid box slightly faded
       if(b.id==='grid') ln.material = new THREE.LineBasicMaterial({ color:0x94a3b8, transparent:true, opacity:0.35 });
       boxOutlineGroup.add(ln);
+
+      // Brace guides: show diagonals on the 4 side faces as solid lines (same style as edge guides)
+      // Only in Box Edit mode (so the model doesn't look cluttered normally).
+      if(boxEditMode){
+        // X0 face (x=b.x0) and X1 face (x=b.x1): diagonals in Y-Z
+        addGuideSegment([b.x0,b.y0,b.z0],[b.x0,b.y1,b.z1], 0xff3b30);
+        addGuideSegment([b.x0,b.y0,b.z1],[b.x0,b.y1,b.z0], 0xff3b30);
+        addGuideSegment([b.x1,b.y0,b.z0],[b.x1,b.y1,b.z1], 0xff3b30);
+        addGuideSegment([b.x1,b.y0,b.z1],[b.x1,b.y1,b.z0], 0xff3b30);
+        // Z0 face (z=b.z0) and Z1 face (z=b.z1): diagonals in Y-X
+        addGuideSegment([b.x0,b.y0,b.z0],[b.x1,b.y1,b.z0], 0xff3b30);
+        addGuideSegment([b.x1,b.y0,b.z0],[b.x0,b.y1,b.z0], 0xff3b30);
+        addGuideSegment([b.x0,b.y0,b.z1],[b.x1,b.y1,b.z1], 0xff3b30);
+        addGuideSegment([b.x1,b.y0,b.z1],[b.x0,b.y1,b.z1], 0xff3b30);
+      }
     }
   }
 
