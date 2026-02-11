@@ -189,7 +189,13 @@ function generateMembersFree(m){
     if(kind === 'column') kind = 'column';
     if(kind === 'brace') kind = 'brace';
 
-    out.push({ id: `free:${String(mm.id)}`, kind, a, b });
+    const prof = (mm.profile && typeof mm.profile === 'object') ? {
+      stdKey: String(mm.profile.stdKey||''),
+      shapeKey: String(mm.profile.shapeKey||''),
+      sizeKey: String(mm.profile.sizeKey||''),
+    } : null;
+
+    out.push({ id: `free:${String(mm.id)}`, kind, a, b, profile: prof||undefined });
   }
   return out;
 }
