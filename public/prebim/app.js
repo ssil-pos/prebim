@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1343KST';
+const BUILD = '20260211-1403KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -3336,6 +3336,7 @@ function renderEditor(projectId){
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
             <button class="pill" id="btnPopBox" type="button">Box Edit</button>
+            <button class="pill" id="btnBoxDelete" type="button">Delete</button>
             <button class="pill" id="btnPopFree" type="button" style="display:none">Free Edit</button>
           </div>
         </div>
@@ -3465,7 +3466,7 @@ function renderEditor(projectId){
           <div class="note" style="margin-top:8px">Mode is separated:</div>
           <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
             <label class="badge" style="cursor:pointer"><input id="boxMode" type="checkbox" style="margin:0 8px 0 0" /> Member add mode</label>
-            <label class="badge" style="cursor:pointer"><input id="boxDeleteMode" type="checkbox" style="margin:0 8px 0 0" /> Delete mode (click in 3D)</label>
+            <!-- delete mode moved to top button -->
             <label class="badge" style="cursor:pointer">Diag kind
               <select id="boxMemberKind" class="input" style="max-width:110px; margin-left:8px">
                 <option value="brace">Brace</option>
@@ -4372,17 +4373,7 @@ function renderEditor(projectId){
     document.getElementById('boxMemShape')?.addEventListener('change', rebuildBoxMemSection);
     document.getElementById('stdAll')?.addEventListener('change', rebuildBoxMemSection);
 
-
-    document.getElementById('btnBoxDeleteSelected')?.addEventListener('click', () => {
-      const id = String(window.__boxSelectedId||'');
-      if(!id){ alert('No box selected.'); return; }
-      if(!confirm(`Delete selected box: ${id}?`)) return;
-      window.__prebimBoxes = (Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : []).filter(b => String(b?.id) !== String(id));
-      setSelectedBoxUi('');
-      scheduleApply(0);
-      renderBoxList();
-      try{ view?.setBoxEditMode?.(true, getForm(), window.__boxEditApiLast || undefined); }catch{}
-    });
+    // (delete selected button removed; deletion is handled via top Delete button + 3D click)
 
     // popovers
     const popBr = document.getElementById('popBr');
@@ -4418,6 +4409,26 @@ function renderEditor(projectId){
       updateBraceMode(false);
       view?.setBoxEditMode?.(false, getForm());
     });
+
+    // Delete tool (separate button)
+    window.__boxDeleteMode = false;
+    const btnBoxDelete = document.getElementById('btnBoxDelete');
+    btnBoxDelete?.addEventListener('click', () => {
+      window.__boxDeleteMode = !window.__boxDeleteMode;
+      if(window.__boxDeleteMode){
+        // ensure box edit is open so user knows what's deletable
+        popBr?.classList.remove('open');
+        popOv?.classList.remove('open');
+        popSection?.classList.remove('open');
+        popFree?.classList.remove('open');
+        try{ popBox?.removeAttribute?.('style'); }catch{}
+        popBox?.classList.add('open');
+        try{ if(popBox) popBox.style.display='block'; }catch{}
+      }
+      btnBoxDelete?.classList.toggle('active', !!window.__boxDeleteMode);
+      // refresh 3D pick targets
+      try{ view?.setBoxEditMode?.(true, getForm(), window.__boxEditApiLast || undefined); }catch{}
+    });
     document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
     document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
     document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
@@ -4438,6 +4449,7 @@ function renderEditor(projectId){
 
       const on = popBox?.classList.contains('open');
       try{ if(popBox) popBox.style.display = on ? 'block' : 'none'; }catch{}
+      if(!on){ window.__boxDeleteMode = false; document.getElementById('btnBoxDelete')?.classList.remove('active'); }
 
       rebuildBoxMemSection();
 
@@ -4450,7 +4462,7 @@ function renderEditor(projectId){
           topMm: parseFloat(document.getElementById('boxTop')?.value||'0')||0,
           braceDir: String(document.getElementById('boxBraceDir')?.value||'/'),
           tool: (document.getElementById('boxMode')?.checked === true) ? 'members' : 'boxes',
-          deleteMode: (document.getElementById('boxDeleteMode')?.checked === true),
+          deleteMode: (window.__boxDeleteMode === true),
           memberKind: String(document.getElementById('boxMemberKind')?.value||'beam'),
           memProfile: {
             stdKey: String(document.getElementById('stdAll')?.value||'KS'),
