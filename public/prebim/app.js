@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1617KST';
+const BUILD = '20260211-1621KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -84,6 +84,36 @@ function escapeHtml(s){
     .replaceAll('"','&quot;')
     .replaceAll("'",'&#39;');
 }
+
+// tiny toast helper (non-blocking UI feedback)
+window.__toast = (msg, ms=900) => {
+  try{
+    let el = document.getElementById('toast');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'toast';
+      el.style.position = 'fixed';
+      el.style.left = '50%';
+      el.style.bottom = '18px';
+      el.style.transform = 'translateX(-50%)';
+      el.style.zIndex = '99999';
+      el.style.padding = '8px 12px';
+      el.style.borderRadius = '999px';
+      el.style.background = 'rgba(2,6,23,0.80)';
+      el.style.color = 'white';
+      el.style.fontWeight = '800';
+      el.style.fontSize = '12px';
+      el.style.boxShadow = '0 10px 24px rgba(2,6,23,0.25)';
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 120ms ease';
+      document.body.appendChild(el);
+    }
+    el.textContent = String(msg||'');
+    el.style.opacity = '1';
+    clearTimeout(window.__toastT);
+    window.__toastT = setTimeout(() => { try{ el.style.opacity='0'; }catch{} }, Math.max(300, ms|0));
+  }catch{}
+};
 
 function download(filename, text, mime='application/json'){
   const blob = new Blob([text], {type:mime});
@@ -4737,6 +4767,18 @@ function renderEditor(projectId){
 
           const i = findOrAddNode(a2);
           const j = findOrAddNode(b2);
+
+          // Prevent duplicate members (same segment, either direction)
+          const exists = fm0.members.some(m => {
+            const mi = String(m?.i||'');
+            const mj = String(m?.j||'');
+            return (mi===String(i) && mj===String(j)) || (mi===String(j) && mj===String(i));
+          });
+          if(exists){
+            try{ window.__toast?.('Member already exists'); }catch{}
+            return;
+          }
+
           const id = String(fm0.nextMemId++);
           const cfg = api.getConfig();
           const prof = (cfg?.memProfile && typeof cfg.memProfile==='object') ? cfg.memProfile : null;
