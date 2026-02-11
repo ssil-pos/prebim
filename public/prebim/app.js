@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1027KST';
+const BUILD = '20260211-1030KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-1027KST'),
-    import('/prebim/app_profiles.js?v=20260211-1027KST'),
+    import('/prebim/engine.js?v=20260211-1030KST'),
+    import('/prebim/app_profiles.js?v=20260211-1030KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -3169,6 +3169,8 @@ function renderEditor(projectId){
   setMode('editor');
   // default UI state
   document.body.classList.add('qty-collapsed');
+  // Plan/Section is normally hidden to save a WebGL context.
+  // Free Edit can enable it dynamically.
   document.body.classList.add('ps-hidden');
   const p = findProjectById(projectId);
   if(!p){
@@ -3763,9 +3765,12 @@ function renderEditor(projectId){
       secApply();
     });
 
-    // Plan/Section is hidden for now; avoid creating extra WebGL contexts.
+    // Plan/Section view (created lazily when needed, e.g. Free Edit)
     let psView = null;
-    if(!document.body.classList.contains('ps-hidden')){
+    const ensurePsView = async () => {
+      if(psView) return psView;
+      // unhide container so it has size
+      document.body.classList.remove('ps-hidden');
       window.__three = __three;
       window.__OrbitControls = __OrbitControls;
       window.__csg = __csg;
@@ -3780,7 +3785,8 @@ function renderEditor(projectId){
         planCard,
         secCard,
       });
-    }
+      return psView;
+    };
 
     // 2D plan/section helpers
     let __planRot = 0; // degrees: 0/90/180/270
@@ -4115,7 +4121,12 @@ function renderEditor(projectId){
 
     let __psMode = 'plan';
 
-    const applyPSMode = () => {
+    const applyPSMode = async () => {
+      // lazy-init plan/section view when needed
+      if(!psView && !document.body.classList.contains('ps-hidden')){
+        // if ps isn't hidden but psView not created yet, create it
+        try{ await ensurePsView(); }catch{}
+      }
       psView?.setMode?.(__psMode);
       psView?.setModel?.(__lastMembers||[], __lastModel||getForm());
     };
@@ -4290,7 +4301,7 @@ function renderEditor(projectId){
     document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
     document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); psView?.setEditMode?.(false); });
 
-    document.getElementById('btnPopFree')?.addEventListener('click', () => {
+    document.getElementById('btnPopFree')?.addEventListener('click', async () => {
       popBr?.classList.remove('open');
       popOv?.classList.remove('open');
       popSection?.classList.remove('open');
@@ -4298,18 +4309,21 @@ function renderEditor(projectId){
       // enable/disable free edit visuals
       // When opening Free Edit, switch to Plan view and enable plan edit mode
       __psMode = 'plan';
-      applyPSMode();
       const on = popFree?.classList.contains('open');
       if(on){
-        psView?.setEditMode?.(true, {
-          levelIdx: parseInt(document.getElementById('freeLevel')?.value||'0',10)||0,
-          tool: 'select',
-          snapMm: parseInt(document.getElementById('freeSnapMm')?.value||'10',10)||10,
-          onChange: (fm) => {
-            window.__prebimFree = { ...(window.__prebimFree||{}), ...(fm||{}) };
-            scheduleApply(0);
-          }
-        });
+        try{
+          await ensurePsView();
+          await applyPSMode();
+          psView?.setEditMode?.(true, {
+            levelIdx: parseInt(document.getElementById('freeLevel')?.value||'0',10)||0,
+            tool: 'select',
+            snapMm: parseInt(document.getElementById('freeSnapMm')?.value||'10',10)||10,
+            onChange: (fm) => {
+              window.__prebimFree = { ...(window.__prebimFree||{}), ...(fm||{}) };
+              scheduleApply(0);
+            }
+          });
+        }catch(e){ console.warn('ensure plan view failed', e); }
       }else{
         psView?.setEditMode?.(false);
       }
