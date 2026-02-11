@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1640KST';
+const BUILD = '20260211-1649KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -2696,6 +2696,7 @@ function renderAnalysis(projectId){
           rigidDia,
           autoKds,
           analysisScale,
+          pointLoads: pointLoadsState,
         });
 
         const connCfg = loadConnSettings(p.id);
@@ -2707,6 +2708,7 @@ function renderAnalysis(projectId){
           eqStoryZ: lateralStory.eqStoryZ,
           designMethod,
           rigidDia,
+          pointLoads: pointLoadsState,
         });
         // Keep helper fields (_engineIds/_kinds/_connModes) locally for UI computations.
         lastPayload = payload;
