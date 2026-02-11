@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1216KST';
+const BUILD = '20260211-1224KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,7 +33,7 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import(`/prebim/engine.js?v=20260211-1216KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
+    import(`/prebim/engine.js?v=20260211-1224KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
 
 function loadProjects(){
   try{
@@ -3443,7 +3443,7 @@ function renderEditor(projectId){
           <div class="note" id="freeHint" style="margin-top:10px">Tip: Add node → click. Add beam → click two nodes. Add column → click one node (to next level).</div>
         </div></div>
 
-        <div class="popwrap" id="popBox" style="display:none"><div class="popcard">
+        <div class="popwrap" id="popBox"><div class="popcard">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
             <b>Box Edit</b>
             <button class="pill" id="btnPopBoxClose" type="button">Close</button>
@@ -3482,7 +3482,10 @@ function renderEditor(projectId){
             <button class="btn" id="btnBoxClearMembers" type="button">Clear added members</button>
             <button class="btn danger" id="btnBoxClearBoxes" type="button">Clear boxes</button>
           </div>
-          <div class="note" style="margin-top:10px">Tip: edge click → member, diagonal click → brace.</div>
+          <div class="note" style="margin-top:10px">Tip: hover a face → preview; click face → add box. Edge click → member. Diagonal click → brace.</div>
+
+          <div class="note" style="margin-top:10px"><b>Boxes</b></div>
+          <div id="boxList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
         </div></div>
 
         <div class="popwrap" id="popOv"><div class="popcard">
@@ -4354,6 +4357,37 @@ function renderEditor(projectId){
     document.getElementById('btnPopBoxClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); });
     document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setBoxEditMode?.(false, getForm()); psView?.setEditMode?.(false); });
 
+    const renderBoxList = () => {
+      const host = document.getElementById('boxList');
+      if(!host) return;
+      const arr = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
+      if(!arr.length){ host.innerHTML = '<div class="note" style="margin:0">(no boxes)</div>'; return; }
+      host.innerHTML = arr.map((b, idx) => {
+        const id = String(b?.id||idx);
+        const w = Math.abs((b.x1||0)-(b.x0||0));
+        const d = Math.abs((b.z1||0)-(b.z0||0));
+        const h = Math.abs((b.y1||0)-(b.y0||0));
+        return `<div class="row" style="margin-top:${idx?6:0}px; gap:8px; align-items:center; justify-content:space-between">
+          <span class="mono" style="font-size:11px; opacity:.75">${escapeHtml(id)} · W${w} D${d} H${h}</span>
+          <button class="btn danger smallbtn" type="button" data-del-box="${escapeHtml(id)}">Del</button>
+        </div>`;
+      }).join('');
+    };
+
+    document.getElementById('boxList')?.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('button[data-del-box]');
+      if(!btn) return;
+      const id = btn.getAttribute('data-del-box');
+      if(!id) return;
+      window.__prebimBoxes = (Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : []).filter(b => String(b?.id) !== String(id));
+      scheduleApply(0);
+      renderBoxList();
+      // refresh 3D box targets
+      view?.setBoxEditMode?.(true, getForm(), boxEditApiLast || undefined);
+    });
+
+    let boxEditApiLast = null;
+
     document.getElementById('btnPopBox')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
       popOv?.classList.remove('open');
@@ -4363,8 +4397,9 @@ function renderEditor(projectId){
       updateBraceMode(false);
 
       const on = popBox?.classList.contains('open');
+      renderBoxList();
       // wire box edit callbacks into view
-      view?.setBoxEditMode?.(!!on, getForm(), {
+      const api = {
         getConfig: () => ({
           wMm: parseFloat(document.getElementById('boxW')?.value||'0')||0,
           dMm: parseFloat(document.getElementById('boxD')?.value||'0')||0,
@@ -4376,6 +4411,7 @@ function renderEditor(projectId){
           window.__prebimBoxes = Array.isArray(window.__prebimBoxes) ? window.__prebimBoxes : [];
           window.__prebimBoxes.push(box);
           scheduleApply(0);
+          renderBoxList();
         },
         onAddMember: (kind, aMm, bMm) => {
           const fm0 = (window.__prebimFree && typeof window.__prebimFree==='object') ? structuredClone(window.__prebimFree) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
@@ -4402,7 +4438,9 @@ function renderEditor(projectId){
           window.__prebimFree = fm0;
           scheduleApply(0);
         },
-      });
+      };
+      boxEditApiLast = api;
+      view?.setBoxEditMode?.(!!on, getForm(), api);
     });
 
     document.getElementById('btnPopFree')?.addEventListener('click', async () => {
@@ -6285,11 +6323,28 @@ async function createThreeView(container){
   }
 
   function showBoxHotLine(a, b){
+    // clears previous hot visuals (line/box)
     while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
     if(!a || !b) return;
     const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
     const ln = new THREE.Line(g, boxHotLineMat);
     ln.renderOrder = 20;
+    boxHotGroup.add(ln);
+  }
+
+  function showBoxHotPreviewBox(b){
+    // b: {x0,x1,y0,y1,z0,z1} in meters
+    while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
+    if(!b) return;
+    const w = Math.max(0.001, Math.abs(b.x1-b.x0));
+    const h = Math.max(0.001, Math.abs(b.y1-b.y0));
+    const d = Math.max(0.001, Math.abs(b.z1-b.z0));
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate((b.x0+b.x1)/2, (b.y0+b.y1)/2, (b.z0+b.z1)/2);
+    const edges = new THREE.EdgesGeometry(g, 1);
+    const mat = new THREE.LineBasicMaterial({ color:0x7c3aed, transparent:true, opacity:0.85 });
+    const ln = new THREE.LineSegments(edges, mat);
+    ln.renderOrder = 21;
     boxHotGroup.add(ln);
   }
 
@@ -6598,6 +6653,69 @@ async function createThreeView(container){
     if(kind==='face'){
       try{ if(obj.material) obj.material = faceMatHot.clone(); }catch{}
       boxHot = { kind:'face', obj };
+
+      // preview attached box placement using current UI config
+      try{
+        const cfg = boxEditApi?.getConfig?.() || { wMm:0,dMm:0,hMm:0,topMm:0,braceDir:'/' };
+        const faceKey = String(obj.userData.faceKey||'');
+        if(['X0','X1','Z0','Z1'].includes(faceKey)){
+          const model = lastClipModel || {};
+          const boxes = modelBoxesM(model);
+          const host = boxes.find(bb => String(bb.id)===String(obj.userData.boxId)) || boxes[0];
+          const wM = Math.max(0.05, (Number(cfg.wMm)||0)/1000);
+          const dM = Math.max(0.05, (Number(cfg.dMm)||0)/1000);
+          const hM = Math.max(0.05, (Number(cfg.hMm)||0)/1000);
+          const topM = (Number(cfg.topMm)||0)/1000;
+
+          const spansX = model?.grid?.spansXmm || [];
+          const spansY = model?.grid?.spansYmm || [];
+          const xs=[0], zs=[0];
+          for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+          for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
+          const snapFloor = (arr, v) => {
+            let best = arr[0] || 0;
+            for(const t of arr){ if(t <= v) best = t; }
+            return best;
+          };
+
+          const pt = hits[0].point;
+          const y1 = topM;
+          const y0 = topM - hM;
+          let x0=0,x1=0,z0=0,z1=0;
+
+          if(faceKey==='X1'){
+            x0 = host.x1; x1 = host.x1 + wM;
+            const span = Math.max(0.001, host.z1 - host.z0);
+            const dd = Math.min(dM, span);
+            z0 = snapFloor(zs, pt.z);
+            z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
+            z1 = z0 + dd;
+          }else if(faceKey==='X0'){
+            x1 = host.x0; x0 = host.x0 - wM;
+            const span = Math.max(0.001, host.z1 - host.z0);
+            const dd = Math.min(dM, span);
+            z0 = snapFloor(zs, pt.z);
+            z0 = Math.max(host.z0, Math.min(host.z1 - dd, z0));
+            z1 = z0 + dd;
+          }else if(faceKey==='Z1'){
+            z0 = host.z1; z1 = host.z1 + dM;
+            const span = Math.max(0.001, host.x1 - host.x0);
+            const ww = Math.min(wM, span);
+            x0 = snapFloor(xs, pt.x);
+            x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
+            x1 = x0 + ww;
+          }else if(faceKey==='Z0'){
+            z1 = host.z0; z0 = host.z0 - dM;
+            const span = Math.max(0.001, host.x1 - host.x0);
+            const ww = Math.min(wM, span);
+            x0 = snapFloor(xs, pt.x);
+            x0 = Math.max(host.x0, Math.min(host.x1 - ww, x0));
+            x1 = x0 + ww;
+          }
+          showBoxHotPreviewBox({ x0,x1,y0,y1,z0,z1 });
+        }
+      }catch{}
+
       return;
     }
     if(kind==='edge' || kind==='diag'){
