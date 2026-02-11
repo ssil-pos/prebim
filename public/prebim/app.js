@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1410UTC';
+const BUILD = '20260211-1100KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,21 +33,7 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import(`/prebim/engine.js?v=${BUILD}`),
-    import(`/prebim/app_profiles.js?v=${BUILD}`),
-  ]);
-  __three = threeMod;
-  __OrbitControls = controlsMod.OrbitControls;
-  __threeUtils = utilsMod;
-  __csg = csgMod;
-  __engine = engineMod;
-  __profiles = profilesMod;
-}
-
-/** @typedef {{ id: string, name: string, createdAt: number, updatedAt: number, schemaVersion: 1, data: any }} PrebimProject */
-
-function now(){ return Date.now(); }
-function uid(){ return 'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
+    import(`/prebim/engine.js?v=20260211-1100KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
 
 function loadProjects(){
   try{
