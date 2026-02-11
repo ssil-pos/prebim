@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1125KST';
+const BUILD = '20260211-1130KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,7 +33,7 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import(`/prebim/engine.js?v=20260211-1125KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
+    import(`/prebim/engine.js?v=20260211-1130KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
 
 function loadProjects(){
   try{
