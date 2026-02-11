@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1251KST';
+const BUILD = '20260211-1259KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,7 +33,7 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import(`/prebim/engine.js?v=20260211-1251KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
+    import(`/prebim/app_profiles.js?v=20260211-1259KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
 
 function loadProjects(){
   try{
@@ -4395,10 +4395,15 @@ function renderEditor(projectId){
       popOv?.classList.remove('open');
       popSection?.classList.remove('open');
       popFree?.classList.remove('open');
+
+      // Defensive: ensure popBox can become visible even if an inline style was left behind.
+      try{ popBox?.removeAttribute?.('style'); }catch{}
       popBox?.classList.toggle('open');
       updateBraceMode(false);
 
       const on = popBox?.classList.contains('open');
+      try{ if(popBox) popBox.style.display = on ? 'block' : 'none'; }catch{}
+
       renderBoxList();
       // wire box edit callbacks into view
       const api = {
@@ -6326,28 +6331,11 @@ async function createThreeView(container){
   }
 
   function showBoxHotLine(a, b){
-    // clears previous hot visuals (line/box)
     while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
     if(!a || !b) return;
     const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
     const ln = new THREE.Line(g, boxHotLineMat);
     ln.renderOrder = 20;
-    boxHotGroup.add(ln);
-  }
-
-  function showBoxHotPreviewBox(b){
-    // b: {x0,x1,y0,y1,z0,z1} in meters
-    while(boxHotGroup.children.length) boxHotGroup.remove(boxHotGroup.children[0]);
-    if(!b) return;
-    const w = Math.max(0.001, Math.abs(b.x1-b.x0));
-    const h = Math.max(0.001, Math.abs(b.y1-b.y0));
-    const d = Math.max(0.001, Math.abs(b.z1-b.z0));
-    const g = new THREE.BoxGeometry(w, h, d);
-    g.translate((b.x0+b.x1)/2, (b.y0+b.y1)/2, (b.z0+b.z1)/2);
-    const edges = new THREE.EdgesGeometry(g, 1);
-    const mat = new THREE.LineBasicMaterial({ color:0x7c3aed, transparent:true, opacity:0.85 });
-    const ln = new THREE.LineSegments(edges, mat);
-    ln.renderOrder = 21;
     boxHotGroup.add(ln);
   }
 
