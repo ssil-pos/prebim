@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1133KST';
+const BUILD = '20260211-1136KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -28,12 +28,22 @@ function saveAnalysisSettings(projectId, patch){
 
 async function loadDeps(){
   if(__three && __OrbitControls && __engine) return;
-  const [threeMod, controlsMod, utilsMod, csgMod, engineMod] = await Promise.all([
+  const [threeMod, controlsMod, utilsMod, csgMod, engineMod, profilesMod] = await Promise.all([
     import('https://esm.sh/three@0.160.0'),
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import(`/prebim/engine.js?v=20260211-1133KST'Failed to load projects', e);
+    import(`/prebim/engine.js?v=20260211-1136KST'p_' + Math.random().toString(16).slice(2) + '_' + Date.now().toString(16); }
+
+function loadProjects(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return /** @type {PrebimProject[]} */([]);
+    const parsed = JSON.parse(raw);
+    if(!Array.isArray(parsed)) return [];
+    return parsed;
+  }catch(e){
+    console.warn('Failed to load projects', e);
     return [];
   }
 }
