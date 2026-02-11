@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-0930KST';
+const BUILD = '20260211-1004KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -33,8 +33,8 @@ async function loadDeps(){
     import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
     import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
     import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
-    import('/prebim/engine.js?v=20260211-0930KST'),
-    import('/prebim/app_profiles.js?v=20260211-0930KST'),
+    import('/prebim/engine.js?v=20260211-1004KST'),
+    import('/prebim/app_profiles.js?v=20260211-1004KST'),
   ]);
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
@@ -3333,6 +3333,7 @@ function renderEditor(projectId){
             <button class="pill" id="btn3dSection" type="button">Section Box</button>
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
+            <button class="pill" id="btnPopFree" type="button">Free Edit</button>
           </div>
         </div>
         <div class="pane-b" id="view3dWrap" style="position:relative">
@@ -3416,6 +3417,46 @@ function renderEditor(projectId){
               <input id="secZ1" class="input" type="range" min="0" max="100" step="1" value="100" />
             </div>
           </div>
+        </div></div>
+
+        <div class="popwrap" id="popFree"><div class="popcard">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+            <b>Free Edit (3D)</b>
+            <button class="pill" id="btnPopFreeClose" type="button">Close</button>
+          </div>
+          <div class="note" style="margin-top:8px">Directly place nodes and connect members in 3D. Y snaps to nearest Level (mm). First member tool defaults to Beam; then remembers last kind.</div>
+
+          <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
+            <label class="badge" style="cursor:pointer"><input id="freeOn" type="checkbox" style="margin:0 8px 0 0" /> Enable Free model</label>
+            <button class="btn" id="btnFreeClear" type="button">Clear</button>
+          </div>
+
+          <div class="note" style="margin-top:10px"><b>Tool</b></div>
+          <div class="row" style="margin-top:6px; gap:8px; flex-wrap:wrap">
+            <button class="btn" id="toolAddNode" type="button">Add node</button>
+            <button class="btn" id="toolAddMem" type="button">Add member</button>
+            <button class="btn" id="toolMoveNode" type="button">Move node</button>
+            <button class="btn danger" id="toolDelete" type="button">Delete</button>
+          </div>
+
+          <div class="grid2" style="margin-top:10px">
+            <div>
+              <label class="label">Member kind</label>
+              <select id="freeKind" class="input">
+                <option value="beam" selected>Beam (auto X/Y by direction)</option>
+                <option value="column">Column</option>
+                <option value="brace">Brace</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Snap</label>
+              <div class="row" style="gap:8px; margin-top:0">
+                <label class="badge" style="cursor:pointer"><input id="freeSnapNode" type="checkbox" style="margin:0 8px 0 0" checked /> Node</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="note" id="freeHint" style="margin-top:10px">Tip: Add member → click two nodes. Move node → drag. Delete → click node/member.</div>
         </div></div>
 
         <div class="popwrap" id="popOv"><div class="popcard">
@@ -3506,6 +3547,7 @@ function renderEditor(projectId){
     // globals (so getForm can read them without threading)
     window.__prebimBraces = Array.isArray(engineModel.braces) ? engineModel.braces.slice() : [];
     window.__prebimOverrides = (engineModel.overrides && typeof engineModel.overrides === 'object') ? structuredClone(engineModel.overrides) : {};
+    window.__prebimFree = (engineModel.free && typeof engineModel.free === 'object') ? structuredClone(engineModel.free) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
 
     const renderLevelsList = (levelsMm) => {
       const host = document.getElementById('levelsList');
@@ -3596,6 +3638,7 @@ function renderEditor(projectId){
         // panel braces + overrides
         braces: (window.__prebimBraces || []),
         overrides: (window.__prebimOverrides || {}),
+        free: (window.__prebimFree || { enabled:false, nodes:[], members:[] }),
         profiles: {
           stdAll: document.getElementById('stdAll').value || 'KS',
           colShape: document.getElementById('colShape').value || 'H',
@@ -3613,6 +3656,15 @@ function renderEditor(projectId){
     };
 
     setForm(engineModel);
+
+    // Free edit init
+    try{
+      const f = window.__prebimFree || { enabled:false, nodes:[], members:[], lastKind:'beam' };
+      const freeOn = document.getElementById('freeOn');
+      if(freeOn) freeOn.checked = (f.enabled === true);
+      const fk = document.getElementById('freeKind');
+      if(fk) fk.value = String(f.lastKind || 'beam');
+    }catch{}
 
     // Level list handlers
     document.getElementById('btnAddLevel')?.addEventListener('click', () => {
@@ -4077,30 +4129,103 @@ function renderEditor(projectId){
     // 3D toggles
     // (realistic/outline toggles removed)
 
+    // Free edit controls
+    const setFreeToolUi = (tool) => {
+      const ids = ['toolAddNode','toolAddMem','toolMoveNode','toolDelete'];
+      for(const id of ids){
+        const el = document.getElementById(id);
+        if(el) el.classList.toggle('active', id===tool);
+      }
+    };
+
+    document.getElementById('freeOn')?.addEventListener('change', () => {
+      const on = document.getElementById('freeOn')?.checked === true;
+      window.__prebimFree = { ...(window.__prebimFree||{}), enabled: on, nodes: (window.__prebimFree?.nodes||[]), members:(window.__prebimFree?.members||[]) };
+      scheduleApply(0);
+    });
+
+    document.getElementById('freeKind')?.addEventListener('change', () => {
+      const v = document.getElementById('freeKind')?.value || 'beam';
+      window.__prebimFree = { ...(window.__prebimFree||{}), lastKind: String(v||'beam') };
+      view?.setFreeKind?.(String(v||'beam'));
+      scheduleApply(0);
+    });
+
+    document.getElementById('freeSnapNode')?.addEventListener('change', () => {
+      const on = document.getElementById('freeSnapNode')?.checked !== false;
+      view?.setFreeSnapNode?.(on);
+    });
+
+    const setTool = (tool) => {
+      view?.setFreeTool?.(tool);
+      setFreeToolUi(tool==='addNode'?'toolAddNode':tool==='addMember'?'toolAddMem':tool==='moveNode'?'toolMoveNode':tool==='delete'?'toolDelete':'');
+      const hint = document.getElementById('freeHint');
+      if(hint){
+        if(tool==='addNode') hint.textContent='Add node: click in 3D. Y snaps to nearest level.';
+        else if(tool==='addMember') hint.textContent='Add member: click two nodes. Member kind uses selector and remembers last.';
+        else if(tool==='moveNode') hint.textContent='Move node: drag a node.';
+        else if(tool==='delete') hint.textContent='Delete: click node or member.';
+        else hint.textContent='Tip: Add member → click two nodes. Move node → drag. Delete → click node/member.';
+      }
+    };
+
+    document.getElementById('toolAddNode')?.addEventListener('click', () => setTool('addNode'));
+    document.getElementById('toolAddMem')?.addEventListener('click', () => {
+      // default to last kind; initial default is beam
+      const v = String(window.__prebimFree?.lastKind || 'beam');
+      view?.setFreeKind?.(v);
+      setTool('addMember');
+    });
+    document.getElementById('toolMoveNode')?.addEventListener('click', () => setTool('moveNode'));
+    document.getElementById('toolDelete')?.addEventListener('click', () => setTool('delete'));
+
+    document.getElementById('btnFreeClear')?.addEventListener('click', () => {
+      if(!confirm('Clear Free model nodes/members?')) return;
+      window.__prebimFree = { ...(window.__prebimFree||{}), enabled:true, nodes:[], members:[], nextNodeId:1, nextMemId:1 };
+      scheduleApply(0);
+    });
+
     // popovers
     const popBr = document.getElementById('popBr');
     const popOv = document.getElementById('popOv');
     const popSection = document.getElementById('popSection');
-    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); popSection?.classList.remove('open'); };
+    const popFree = document.getElementById('popFree');
+    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); popSection?.classList.remove('open'); popFree?.classList.remove('open'); };
     document.getElementById('btnPopBr')?.addEventListener('click', () => {
       popOv?.classList.remove('open');
       popSection?.classList.remove('open');
+      popFree?.classList.remove('open');
       popBr?.classList.toggle('open');
       updateBraceMode(popBr?.classList.contains('open'));
     });
     document.getElementById('btnPopOv')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
       popSection?.classList.remove('open');
+      popFree?.classList.remove('open');
       popOv?.classList.toggle('open');
     });
     document.getElementById('btn3dSection')?.addEventListener('click', () => {
       popBr?.classList.remove('open');
       popOv?.classList.remove('open');
+      popFree?.classList.remove('open');
       popSection?.classList.toggle('open');
     });
     document.getElementById('btnPopBrClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
     document.getElementById('btnPopOvClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
     document.getElementById('btnPopSectionClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); });
+    document.getElementById('btnPopFreeClose')?.addEventListener('click', () => { closeAll(); updateBraceMode(false); view?.setFreeEditMode?.(false); });
+
+    document.getElementById('btnPopFree')?.addEventListener('click', () => {
+      popBr?.classList.remove('open');
+      popOv?.classList.remove('open');
+      popSection?.classList.remove('open');
+      popFree?.classList.toggle('open');
+      // enable/disable free edit visuals
+      view?.setFreeEditMode?.(popFree?.classList.contains('open'), { onChange: (fm) => {
+        window.__prebimFree = { ...(window.__prebimFree||{}), ...(fm||{}) };
+        scheduleApply(0);
+      }});
+    });
 
     // resizable splitters
     const splitterT = document.getElementById('splitterT');
@@ -5101,6 +5226,17 @@ async function createThreeView(container){
   const connGroup = new THREE.Group();
   scene.add(connGroup);
 
+  // free-model node pickers + edit state
+  const freeNodeGroup = new THREE.Group();
+  scene.add(freeNodeGroup);
+  let freeEdit = false;
+  let freeTool = 'select'; // select|addNode|addMember|moveNode|delete
+  let freeKind = 'beam';
+  let freePendingNode = null; // nodeId
+  let freeDrag = null; // { nodeId, yM }
+  let freeSnapNode = true;
+  let onFreeChange = null; // (freeModel) => void
+
   let supportEdit = false;
   let memberPickEnabled = true;
   let onSupportToggle = null;
@@ -5398,10 +5534,44 @@ async function createThreeView(container){
     }
   }
 
+  function clearFreeNodes(){
+    while(freeNodeGroup.children.length) freeNodeGroup.remove(freeNodeGroup.children[0]);
+  }
+
+  function buildFreeNodes(model){
+    clearFreeNodes();
+    const fm = model?.free;
+    if(!fm || fm.enabled !== true) return;
+    const nodes = Array.isArray(fm.nodes) ? fm.nodes : [];
+    if(!nodes.length) return;
+
+    // scale with model size
+    let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+    for(const n of nodes){
+      const x=(Number(n.x)||0)/1000, y=(Number(n.y)||0)/1000, z=(Number(n.z)||0)/1000;
+      minX=Math.min(minX,x); minY=Math.min(minY,y); minZ=Math.min(minZ,z);
+      maxX=Math.max(maxX,x); maxY=Math.max(maxY,y); maxZ=Math.max(maxZ,z);
+    }
+    const diag = Math.hypot(maxX-minX, maxY-minY, maxZ-minZ) || 10;
+    const r = Math.max(0.06, diag * 0.004);
+
+    const geom = new THREE.SphereGeometry(r, 14, 14);
+    const mat = new THREE.MeshBasicMaterial({ color:0x7c3aed, transparent:true, opacity:0.85, depthWrite:false });
+    for(const n of nodes){
+      const x=(Number(n.x)||0)/1000, y=(Number(n.y)||0)/1000, z=(Number(n.z)||0)/1000;
+      const m = new THREE.Mesh(geom, mat);
+      m.position.set(x,y,z);
+      m.userData.freeNodeId = String(n.id);
+      freeNodeGroup.add(m);
+    }
+    freeNodeGroup.visible = !!freeEdit;
+  }
+
   function setMembers(members, model){
     while(group.children.length) group.remove(group.children[0]);
     while(guideGroup.children.length) guideGroup.remove(guideGroup.children[0]);
     clearAnalysis();
+    buildFreeNodes(model);
 
     const vA = new THREE.Vector3();
     const vB = new THREE.Vector3();
@@ -5723,10 +5893,113 @@ async function createThreeView(container){
     }
   }
 
+  function nearestLevelY(model, yM){
+    const lv = Array.isArray(model?.levels) ? model.levels : [];
+    if(!lv.length) return yM;
+    let best = yM;
+    let bd = Infinity;
+    for(const mm of lv){
+      const yy = (Number(mm)||0)/1000;
+      const d = Math.abs(yy - yM);
+      if(d < bd){ bd=d; best=yy; }
+    }
+    return best;
+  }
+
+  function rayPointAtY(yM){
+    // intersect current pointer ray with plane Y=yM
+    selectRay.setFromCamera(pointer, camera);
+    const o = selectRay.ray.origin;
+    const d = selectRay.ray.direction;
+    if(Math.abs(d.y) < 1e-9) return null;
+    const t = (yM - o.y) / d.y;
+    if(t < 0) return null;
+    return new THREE.Vector3(o.x + d.x*t, o.y + d.y*t, o.z + d.z*t);
+  }
+
   function pick(ev){
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
+
+    // Free edit tools
+    if(freeEdit){
+      // move node drag handled on pointermove
+      if(freeTool === 'addNode'){
+        // place on plane at controls target Y; snap Y to nearest level
+        const p0 = rayPointAtY(controls.target.y);
+        if(p0){
+          const ySnap = freeSnapNode ? nearestLevelY(lastClipModel, p0.y) : p0.y;
+          const fm = (lastClipModel?.free && typeof lastClipModel.free==='object') ? lastClipModel.free : { enabled:true, nodes:[], members:[] };
+          const nodes = Array.isArray(fm.nodes) ? fm.nodes : [];
+          const nid = String(fm.nextNodeId || (nodes.length+1));
+          fm.nextNodeId = (Number(fm.nextNodeId||nodes.length+1) + 1);
+          nodes.push({ id: nid, x: Math.round(p0.x*1000), y: Math.round(ySnap*1000), z: Math.round(p0.z*1000) });
+          fm.nodes = nodes;
+          fm.enabled = true;
+          onFreeChange && onFreeChange(fm);
+        }
+        return;
+      }
+
+      // pick node
+      raycaster.setFromCamera(pointer, camera);
+      const nh = raycaster.intersectObjects(freeNodeGroup.children, false);
+      if(nh.length){
+        const nodeId = nh[0]?.object?.userData?.freeNodeId;
+        if(nodeId){
+          if(freeTool === 'delete'){
+            const fm = (lastClipModel?.free && typeof lastClipModel.free==='object') ? lastClipModel.free : { enabled:true, nodes:[], members:[] };
+            fm.nodes = (fm.nodes||[]).filter(n => String(n.id)!==String(nodeId));
+            fm.members = (fm.members||[]).filter(m => String(m.i)!==String(nodeId) && String(m.j)!==String(nodeId));
+            onFreeChange && onFreeChange(fm);
+            return;
+          }
+          if(freeTool === 'moveNode'){
+            const n = (lastClipModel?.free?.nodes||[]).find(nn => String(nn.id)===String(nodeId));
+            const yM = n ? (Number(n.y||0)/1000) : controls.target.y;
+            freeDrag = { nodeId: String(nodeId), yM };
+            return;
+          }
+          if(freeTool === 'addMember'){
+            if(!freePendingNode){
+              freePendingNode = String(nodeId);
+              return;
+            }
+            const a = String(freePendingNode);
+            const b = String(nodeId);
+            freePendingNode = null;
+            if(a === b) return;
+            const fm = (lastClipModel?.free && typeof lastClipModel.free==='object') ? lastClipModel.free : { enabled:true, nodes:[], members:[] };
+            const mems = Array.isArray(fm.members) ? fm.members : [];
+            const mid = String(fm.nextMemId || (mems.length+1));
+            fm.nextMemId = (Number(fm.nextMemId||mems.length+1) + 1);
+            mems.push({ id: mid, kind: String(freeKind||'beam'), i:a, j:b });
+            fm.members = mems;
+            fm.lastKind = String(freeKind||'beam');
+            fm.enabled = true;
+            onFreeChange && onFreeChange(fm);
+            return;
+          }
+        }
+      }
+
+      // delete member by clicking mesh
+      if(freeTool === 'delete'){
+        selectRay.setFromCamera(pointer, camera);
+        const hits = selectRay.intersectObjects(group.children, false);
+        if(hits.length){
+          const mid = hits[0]?.object?.userData?.memberId;
+          if(mid && String(mid).startsWith('free:')){
+            const rawId = String(mid).slice('free:'.length);
+            const fm = (lastClipModel?.free && typeof lastClipModel.free==='object') ? lastClipModel.free : { enabled:true, nodes:[], members:[] };
+            fm.members = (fm.members||[]).filter(m => String(m.id)!==String(rawId));
+            onFreeChange && onFreeChange(fm);
+          }
+        }
+        return;
+      }
+    }
 
     // Support edit mode: pick base nodes only, disable member selection
     if(supportEdit){
@@ -5891,6 +6164,27 @@ async function createThreeView(container){
   renderer.domElement.addEventListener('pointerdown', onBoxDown, { capture:true });
   window.addEventListener('pointermove', onBoxMove);
   window.addEventListener('pointerup', onBoxUp);
+
+  // Free edit: drag move node
+  window.addEventListener('pointermove', (ev) => {
+    if(!freeEdit) return;
+    if(!freeDrag) return;
+    // update pointer
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
+    const p0 = rayPointAtY(freeDrag.yM);
+    if(!p0) return;
+    const fm = (lastClipModel?.free && typeof lastClipModel.free==='object') ? lastClipModel.free : null;
+    if(!fm) return;
+    const nn = (fm.nodes||[]).find(n => String(n.id)===String(freeDrag.nodeId));
+    if(!nn) return;
+    nn.x = Math.round(p0.x*1000);
+    nn.z = Math.round(p0.z*1000);
+    nn.y = Math.round((freeSnapNode ? nearestLevelY(lastClipModel, p0.y) : p0.y)*1000);
+    onFreeChange && onFreeChange(fm);
+  });
+  window.addEventListener('pointerup', () => { freeDrag = null; });
 
   let raf = 0;
   const animate = () => {
@@ -6347,6 +6641,20 @@ async function createThreeView(container){
     clearConnMarkers,
     setFailMembers,
     setFailHighlightEnabled,
+
+    setFreeEditMode(on, opts={}){
+      freeEdit = !!on;
+      freeNodeGroup.visible = freeEdit;
+      if(opts.tool) freeTool = String(opts.tool);
+      if(opts.kind) freeKind = String(opts.kind);
+      if(typeof opts.snapNode === 'boolean') freeSnapNode = opts.snapNode;
+      if(typeof opts.onChange === 'function') onFreeChange = opts.onChange;
+      freePendingNode = null;
+    },
+    setFreeTool(tool){ freeTool = String(tool||'select'); freePendingNode = null; },
+    setFreeKind(kind){ freeKind = String(kind||'beam'); },
+    setFreeSnapNode(on){ freeSnapNode = !!on; },
+
     resize: doResize,
     getSelection,
     setSelection,
