@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1522KST';
+const BUILD = '20260211-1530KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -392,7 +392,75 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const eqStoryZ = Array.isArray(extraLoads?.eqStoryZ) ? extraLoads.eqStoryZ : null;
   // Build analysis request payload from engine model.
   const m = __engine.normalizeModel(model);
-  const members = __engine.generateMembers(m);
+  let members = __engine.generateMembers(m);
+
+  // --- Connection assist: split frame beams where free-nodes land on them (exact connectivity) ---
+  // This is required so that vertical "posts" created via Box/Member truly connect to the supporting beam in analysis.
+  try{
+    const freeNodes = Array.isArray(m?.free?.nodes) ? m.free.nodes : [];
+    const freePts = freeNodes
+      .map(n => ({ id:String(n.id), pt:[(Number(n.x||0)/1000),(Number(n.y||0)/1000),(Number(n.z||0)/1000)] }))
+      .filter(x => x.pt.every(v => Number.isFinite(v)));
+
+    const distPointToSeg = (p,a,b) => {
+      const px=p[0],py=p[1],pz=p[2];
+      const ax=a[0],ay=a[1],az=a[2];
+      const bx=b[0],by=b[1],bz=b[2];
+      const abx=bx-ax, aby=by-ay, abz=bz-az;
+      const apx=px-ax, apy=py-ay, apz=pz-az;
+      const ab2 = abx*abx + aby*aby + abz*abz;
+      if(ab2 < 1e-12) return { d: Math.hypot(apx,apy,apz), t: 0 };
+      let t = (apx*abx + apy*aby + apz*abz) / ab2;
+      t = Math.max(0, Math.min(1, t));
+      const cx = ax + abx*t, cy = ay + aby*t, cz = az + abz*t;
+      return { d: Math.hypot(px-cx, py-cy, pz-cz), t };
+    };
+
+    const tolM = 0.02; // 20mm
+    const ins = new Map(); // memberId -> [{pt,t}]
+
+    for(const mem of members){
+      if(!(mem?.kind==='beamX' || mem?.kind==='beamY' || mem?.kind==='subBeam')) continue;
+      const a = mem.a, b = mem.b;
+      if(!a || !b) continue;
+      for(const fn of freePts){
+        const res = distPointToSeg(fn.pt, a, b);
+        if(res.d > tolM) continue;
+        if(res.t < 1e-4 || res.t > 1-1e-4) continue; // ignore endpoints
+        const key = String(mem.id);
+        if(!ins.has(key)) ins.set(key, []);
+        ins.get(key).push({ pt: fn.pt, t: res.t });
+      }
+    }
+
+    if(ins.size){
+      const uniqKey = (p) => `${p[0].toFixed(4)},${p[1].toFixed(4)},${p[2].toFixed(4)}`;
+      const out = [];
+      for(const mem of members){
+        const list = ins.get(String(mem.id));
+        if(!list || !list.length){ out.push(mem); continue; }
+        // sort + unique insertion points
+        const arr = list
+          .sort((x,y)=>x.t-y.t)
+          .filter((x,i,all)=> i===0 || uniqKey(x.pt)!==uniqKey(all[i-1].pt));
+
+        const pts = [ { pt: mem.a, t: 0 }, ...arr, { pt: mem.b, t: 1 } ];
+        for(let i=0;i<pts.length-1;i++){
+          const p0 = pts[i].pt, p1 = pts[i+1].pt;
+          if(uniqKey(p0)===uniqKey(p1)) continue;
+          out.push({
+            ...mem,
+            id: `split:${String(mem.id)}:${i}`,
+            parentId: String(mem.id),
+            a: p0,
+            b: p1,
+          });
+        }
+      }
+      members = out;
+    }
+  }catch(err){ console.warn('[analysis] beam split failed', err); }
+
 
   // unique joints
   const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
@@ -473,7 +541,8 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const memberProfileNameLocal = (kind, memberId, memObj) => {
     const prof = m?.profiles || {};
     const overrides = m?.overrides || window.__prebimOverrides || {};
-    const ov = overrides?.[memberId] || null;
+    const baseId = (memObj && typeof memObj==='object' && memObj.parentId) ? String(memObj.parentId) : String(memberId);
+    const ov = overrides?.[baseId] || null;
 
     if(kind === 'column'){
       if(ov) return __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')?.name || ov.sizeKey || '';
