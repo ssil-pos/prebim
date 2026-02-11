@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260211-1649KST';
+const BUILD = '20260211-1703KST';
 
 // lazy-loaded deps
 let __three = null;
@@ -571,6 +571,24 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 
   const memberProfileNameLocal = (kind, memberId, memObj) => {
     const prof = m?.profiles || {};
+
+    // If the member carries its own profile (e.g. created in Member mode), prefer it.
+    if(memObj?.profile && typeof memObj.profile === 'object'){
+      const pr = memObj.profile;
+      const stdKey = pr.stdKey || prof.stdAll || 'KS';
+      const fallbackShape = (kind==='column') ? (prof.colShape||'H')
+        : ((kind==='beamX' || kind==='beamY') ? (prof.beamShape||'H')
+        : (kind==='subBeam' ? (prof.subShape||'H')
+        : (kind==='brace' ? (prof.braceShape||'L') : 'H')));
+      const fallbackSize = (kind==='column') ? (prof.colSize||'')
+        : ((kind==='beamX' || kind==='beamY') ? (prof.beamSize||'')
+        : (kind==='subBeam' ? (prof.subSize||'')
+        : (kind==='brace' ? (prof.braceSize||'') : '')));
+      const shapeKey = pr.shapeKey || fallbackShape;
+      const sizeKey = pr.sizeKey || fallbackSize;
+      return __profiles?.getProfile?.(stdKey, shapeKey, sizeKey)?.name || sizeKey || '';
+    }
+
     const overrides = m?.overrides || window.__prebimOverrides || {};
     const baseId = (memObj && typeof memObj==='object' && memObj.parentId) ? String(memObj.parentId) : String(memberId);
     const ov = overrides?.[baseId] || null;
@@ -588,10 +606,6 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       return __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'')?.name || prof.subSize || '';
     }
     if(kind === 'brace'){
-      if(memObj?.profile && typeof memObj.profile === 'object'){
-        const pr = memObj.profile;
-        return __profiles?.getProfile?.(pr.stdKey||prof.stdAll||'KS', pr.shapeKey||prof.braceShape||'L', pr.sizeKey||prof.braceSize||'')?.name || pr.sizeKey || '';
-      }
       return __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'')?.name || prof.braceSize || '';
     }
     return '';
@@ -4937,6 +4951,7 @@ function renderEditor(projectId){
           fm0.enabled = false;
           window.__prebimFree = fm0;
           try{ applyNow(getForm()); }catch{ scheduleApply(0); }
+          try{ view?.setBoxEditMode?.(true, getForm(), api); }catch{}
         },
       };
       window.__boxEditApiLast = api;
@@ -5171,7 +5186,10 @@ function renderEditor(projectId){
 
     const scheduleApply = (ms = 120) => {
       clearTimeout(__applyTimer);
-      __applyTimer = setTimeout(() => applyNow(getForm()), ms);
+      __applyTimer = setTimeout(() => {
+        try{ applyNow(getForm()); }
+        catch(e){ console.warn('applyNow failed', e); }
+      }, ms);
     };
 
     const apply = (m) => applyNow(m);
@@ -8255,30 +8273,44 @@ function summarizeMembers(members, model){
     let key = mem.kind;
     let p = null;
 
+    // If member has its own profile, prefer it (used for Member-mode created elements)
+    const mp = (mem.profile && typeof mem.profile === 'object') ? mem.profile : null;
+
     if(mem.kind === 'column'){
-      p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')
-             : __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'');
-      const nm = p?.name || p?.key || (ov?.sizeKey) || prof.colSize || 'column';
+      if(mp){
+        p = __profiles?.getProfile?.(mp.stdKey||prof.stdAll||'KS', mp.shapeKey||prof.colShape||'H', mp.sizeKey||prof.colSize||'');
+      }else{
+        p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.colShape||'H', ov.sizeKey||prof.colSize||'')
+               : __profiles?.getProfile?.(prof.stdAll||'KS', prof.colShape||'H', prof.colSize||'');
+      }
+      const nm = p?.name || p?.key || (mp?.sizeKey) || (ov?.sizeKey) || prof.colSize || 'column';
       key = `column:${nm}`;
     } else if(mem.kind === 'beamX' || mem.kind === 'beamY'){
-      p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')
-             : __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
-      const nm = p?.name || p?.key || (ov?.sizeKey) || prof.beamSize || 'beam';
+      if(mp){
+        p = __profiles?.getProfile?.(mp.stdKey||prof.stdAll||'KS', mp.shapeKey||prof.beamShape||'H', mp.sizeKey||prof.beamSize||'');
+      }else{
+        p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.beamShape||'H', ov.sizeKey||prof.beamSize||'')
+               : __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
+      }
+      const nm = p?.name || p?.key || (mp?.sizeKey) || (ov?.sizeKey) || prof.beamSize || 'beam';
       key = `beam:${nm}`;
     } else if(mem.kind === 'subBeam'){
-      p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')
-             : __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'');
-      const nm = p?.name || p?.key || (ov?.sizeKey) || prof.subSize || 'subBeam';
+      if(mp){
+        p = __profiles?.getProfile?.(mp.stdKey||prof.stdAll||'KS', mp.shapeKey||prof.subShape||'H', mp.sizeKey||prof.subSize||'');
+      }else{
+        p = ov ? __profiles?.getProfile?.(ov.stdKey||prof.stdAll||'KS', ov.shapeKey||prof.subShape||'H', ov.sizeKey||prof.subSize||'')
+               : __profiles?.getProfile?.(prof.stdAll||'KS', prof.subShape||'H', prof.subSize||'');
+      }
+      const nm = p?.name || p?.key || (mp?.sizeKey) || (ov?.sizeKey) || prof.subSize || 'subBeam';
       key = `subBeam:${nm}`;
     } else if(mem.kind === 'brace'){
       // Braces may have different profiles per panel.
-      if(mem.profile && typeof mem.profile === 'object'){
-        const pr = mem.profile;
-        p = __profiles?.getProfile?.(pr.stdKey||prof.stdAll||'KS', pr.shapeKey||prof.braceShape||'L', pr.sizeKey||prof.braceSize||'');
+      if(mp){
+        p = __profiles?.getProfile?.(mp.stdKey||prof.stdAll||'KS', mp.shapeKey||prof.braceShape||'L', mp.sizeKey||prof.braceSize||'');
       } else {
         p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.braceShape||'L', prof.braceSize||'');
       }
-      const nm = p?.name || p?.key || prof.braceSize || 'brace';
+      const nm = p?.name || p?.key || (mp?.sizeKey) || prof.braceSize || 'brace';
       key = `brace:${nm}`;
     } else if(mem.kind === 'joist'){
       p = __profiles?.getProfile?.(prof.stdAll||'KS', prof.beamShape||'H', prof.beamSize||'');
