@@ -112,6 +112,12 @@ fi
 rsync -av --delete \
   "$SRC_PAYLOAD/prebim/" "$DEST_APP_DIR/"
 
+# 2c) Deploy /admin/ subtree (no delete: keep other admin assets if any)
+if [ -d "$SRC_PAYLOAD/admin" ]; then
+  rsync -av \
+    "$SRC_PAYLOAD/admin/" "$DEST_DIR/admin/"
+fi
+
 # 3) Snapshot backup of deployed folder
 SNAP_NAME="${TS}_${COMMIT}.tgz"
 SNAP_PATH="$BACKUP_DIR/$SNAP_NAME"
