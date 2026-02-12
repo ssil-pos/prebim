@@ -3,7 +3,7 @@
  */
 
 const STORAGE_KEY = 'prebim.projects.v1';
-const BUILD = '20260212-1248KST';
+const BUILD = '20260212-1252KST';
 
 // lazy-loaded deps
 let __three = null;

@@ -12,7 +12,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://www.bimarchi-pg.com/prebim/" />
 
-  <link rel="stylesheet" href="/prebim/app.css?v=20260212-1248KST" />
+  <link rel="stylesheet" href="/prebim/app.css?v=20260212-1252KST" />
 </head>
 <body>
   <div class="wrap">
@@ -38,7 +38,14 @@
     </main>
   </div>
 
+  <script>
+    // Lightweight pageview tracking (KST dashboards). Logs SPA hash route too.
+    try{
+      const p = location.pathname + location.search + location.hash;
+      fetch('/api/track?p=' + encodeURIComponent(p), { method:'GET', keepalive:true, cache:'no-store' }).catch(()=>{});
+    }catch{}
+  </script>
   <script src="/prebim/steel_data.js?v=20260209-0338" defer></script>
-  <script src="/prebim/app.js?v=20260212-1248KST" defer></script>
+  <script src="/prebim/app.js?v=20260212-1252KST" defer></script>
 </body>
 </html>
