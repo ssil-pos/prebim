@@ -198,8 +198,12 @@
 
         <div class="card">
           <div class="section-h">
-            <h2>7일 Unique IP 추이</h2>
-            <div class="note">KST · 일간 00:00 초기화</div>
+            <h2>7일 추이</h2>
+            <div class="row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <button class="pill" id="btnTrendUV" type="button">Unique IP</button>
+              <button class="pill" id="btnTrendPV" type="button">PV</button>
+              <span class="note">KST · 일간 00:00 초기화</span>
+            </div>
           </div>
           <canvas id="uv7Chart" height="170"></canvas>
         </div>
@@ -207,7 +211,11 @@
         <div class="card">
           <div class="section-h">
             <h2>접속 국가</h2>
-            <div class="note">Today (KST)</div>
+            <div class="row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <button class="pill" id="btnCountryUV" type="button">Unique IP</button>
+              <button class="pill" id="btnCountryPV" type="button">PV</button>
+              <span class="note">Today (KST)</span>
+            </div>
           </div>
           <canvas id="countryPie" height="200"></canvas>
           <div class="note" style="margin-top:10px">※ Cloudflare 헤더(CF-IPCountry)가 없는 경우 ZZ로 표시됩니다.</div>
@@ -307,11 +315,38 @@
       google.accounts.id.renderButton(document.getElementById('gLogin'), { theme:'outline', size:'large', width: 260 });
     }
 
+    const normalizePath = (raw) => {
+      const p0 = String(raw||'');
+      const p = p0.split('?')[0].split('#')[0] || '';
+      // Collapse SPA routes (hash-based) into their base entry path for ranking clarity.
+      if(p0.includes('#/')){
+        if(p0.startsWith('/prebim')) return '/prebim/';
+        // other SPA sections can be collapsed similarly if needed
+      }
+      // normalize trailing slash (keep root '/')
+      if(p.length>1 && p.endsWith('/')) return p;
+      return p;
+    };
+
     function renderTopPages(rows){
       const tb = $('topPagesBody');
       if(!tb) return;
       if(!rows || !rows.length){ tb.innerHTML = '<tr><td colspan="4" class="note">데이터 없음</td></tr>'; return; }
-      tb.innerHTML = rows.slice(0,10).map((r,idx)=>{
+
+      // Aggregate by normalized path (so cache-busters/hash routes don't fragment stats)
+      const agg = new Map();
+      for(const r of rows){
+        const key = normalizePath(r?.path);
+        if(!key) continue;
+        const prev = agg.get(key) || { path:key, hits:0, uvSet:new Set() };
+        prev.hits += Number(r?.hits||0)||0;
+        // API already gives uv count not set; approximate by max (best-effort)
+        prev.uv = Math.max(Number(prev.uv||0)||0, Number(r?.uv||0)||0);
+        agg.set(key, prev);
+      }
+      const list = [...agg.values()].sort((a,b)=> (b.hits-a.hits) || ((b.uv||0)-(a.uv||0))).slice(0,10);
+
+      tb.innerHTML = list.map((r,idx)=>{
         const p = (r.path||'').toString();
         const hits = Number(r.hits||0)||0;
         const uv = Number(r.uv||0)||0;
@@ -324,33 +359,65 @@
       }).join('');
     }
 
-    function renderUv7(daily){
+    let trendMode = 'uv'; // uv|pv
+    let countryMode = 'uv'; // uv|pv
+    let lastTrends = null;
+    let lastCountries = null;
+
+    const setTrendMode = (m) => {
+      trendMode = (m==='pv') ? 'pv' : 'uv';
+      $('btnTrendUV')?.classList.toggle('primary', trendMode==='uv');
+      $('btnTrendPV')?.classList.toggle('primary', trendMode==='pv');
+      if(lastTrends) renderTrend(lastTrends);
+    };
+    const setCountryMode = (m) => {
+      countryMode = (m==='pv') ? 'pv' : 'uv';
+      $('btnCountryUV')?.classList.toggle('primary', countryMode==='uv');
+      $('btnCountryPV')?.classList.toggle('primary', countryMode==='pv');
+      if(lastCountries) renderCountries(lastCountries);
+    };
+
+    function renderTrend(daily){
       const labels = (daily||[]).map(x => String(x.day||'').slice(5));
       const uv = (daily||[]).map(x => Number(x.uv||0)||0);
+      const pv = (daily||[]).map(x => Number(x.pv||0)||0);
       const ctx = $('uv7Chart');
       if(!ctx || !window.Chart) return;
       if(chartUv) chartUv.destroy();
-      chartUv = new Chart(ctx, {
-        type:'line',
-        data:{ labels, datasets:[{ label:'Unique IP', data:uv, tension:0.35, borderColor:'#2563eb', backgroundColor:'rgba(37,99,235,0.12)', fill:true, pointRadius:3 }] },
-        options:{
-          responsive:true,
-          plugins:{ legend:{ display:false } },
-          scales:{ y:{ beginAtZero:true, grid:{ color:'rgba(11,27,58,0.08)' } }, x:{ grid:{ display:false } } }
-        }
-      });
+
+      if(trendMode === 'pv'){
+        chartUv = new Chart(ctx, {
+          type:'bar',
+          data:{ labels, datasets:[{ label:'PV', data:pv, borderColor:'#0ea5e9', backgroundColor:'rgba(14,165,233,0.25)' }] },
+          options:{
+            responsive:true,
+            plugins:{ legend:{ display:false } },
+            scales:{ y:{ beginAtZero:true, grid:{ color:'rgba(11,27,58,0.08)' } }, x:{ grid:{ display:false } } }
+          }
+        });
+      } else {
+        chartUv = new Chart(ctx, {
+          type:'line',
+          data:{ labels, datasets:[{ label:'Unique IP', data:uv, tension:0.35, borderColor:'#2563eb', backgroundColor:'rgba(37,99,235,0.12)', fill:true, pointRadius:3 }] },
+          options:{
+            responsive:true,
+            plugins:{ legend:{ display:false } },
+            scales:{ y:{ beginAtZero:true, grid:{ color:'rgba(11,27,58,0.08)' } }, x:{ grid:{ display:false } } }
+          }
+        });
+      }
     }
 
     function renderCountries(items){
       const labels = (items||[]).map(x => String(x.country||'ZZ'));
-      const hits = (items||[]).map(x => Number(x.uv||x.hits||0)||0);
+      const values = (items||[]).map(x => Number((countryMode==='uv') ? (x.uv||0) : (x.hits||0))||0);
       const ctx = $('countryPie');
       if(!ctx || !window.Chart) return;
       if(chartPie) chartPie.destroy();
       const colors = ['#38BDF8','#A78BFA','#60A5FA','#F472B6','#34D399','#FBBF24','#FB7185','#22C55E','#0EA5E9','#6366F1','#F97316','#94A3B8'];
       chartPie = new Chart(ctx, {
         type:'pie',
-        data:{ labels, datasets:[{ data:hits, backgroundColor: labels.map((_,i)=>colors[i%colors.length]) }] },
+        data:{ labels, datasets:[{ data:values, backgroundColor: labels.map((_,i)=>colors[i%colors.length]) }] },
         options:{ plugins:{ legend:{ position:'bottom' } } }
       });
     }
@@ -368,16 +435,22 @@
       $('topPagesMeta').textContent = `${String(pg.today||'')} · Top 10`;
 
       const tr = await apiAdmin('/api/admin/trends');
-      renderUv7(tr.daily||[]);
+      lastTrends = (tr.daily||[]);
+      renderTrend(lastTrends);
 
       const cc = await apiAdmin('/api/admin/country-traffic');
-      renderCountries(cc.topCountries||[]);
+      lastCountries = (cc.topCountries||[]);
+      renderCountries(lastCountries);
 
       setStatus('ok');
     }
 
     $('btnLogout').addEventListener('click', logout);
     $('btnRefresh').addEventListener('click', async ()=>{ try{ await refreshAll(); }catch(e){ alert(e.message); } });
+    $('btnTrendUV')?.addEventListener('click', ()=>setTrendMode('uv'));
+    $('btnTrendPV')?.addEventListener('click', ()=>setTrendMode('pv'));
+    $('btnCountryUV')?.addEventListener('click', ()=>setCountryMode('uv'));
+    $('btnCountryPV')?.addEventListener('click', ()=>setCountryMode('pv'));
 
     (async ()=>{
       // wait for GSI
@@ -386,6 +459,9 @@
         initGoogle();
         if(authToken){ try{ await refreshAll(); }catch(e){ console.warn(e); } }
       };
+      // defaults
+      try{ setTrendMode('uv'); setCountryMode('uv'); }catch{}
+
       // poll until google/chart loaded enough
       const start = Date.now();
       const tick = () => {
