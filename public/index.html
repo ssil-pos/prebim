@@ -212,6 +212,13 @@
   </style>
 </head>
 <body>
+  <script>
+    // Lightweight pageview tracking (KST dashboards)
+    try{
+      const p = location.pathname + location.search + location.hash;
+      fetch('/api/track?p=' + encodeURIComponent(p), { method:'GET', keepalive:true, cache:'no-store' }).catch(()=>{});
+    }catch{}
+  </script>
   <div class="wrap">
     <header class="nav">
       <div class="nav-inner">
