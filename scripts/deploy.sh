@@ -96,9 +96,17 @@ fi
 
 mkdir -p "$DEST_APP_DIR"
 
-# 2a) Deploy main landing page
+# 2a) Deploy main landing page + root SEO files
 rsync -av \
   "$SRC_PAYLOAD/index.html" "$DEST_DIR/index.html"
+
+# Optional: robots.txt + sitemap.xml at domain root
+if [ -f "$SRC_PAYLOAD/robots.txt" ]; then
+  rsync -av "$SRC_PAYLOAD/robots.txt" "$DEST_DIR/robots.txt"
+fi
+if [ -f "$SRC_PAYLOAD/sitemap.xml" ]; then
+  rsync -av "$SRC_PAYLOAD/sitemap.xml" "$DEST_DIR/sitemap.xml"
+fi
 
 # 2b) Deploy /prebim/ app subtree
 rsync -av --delete \

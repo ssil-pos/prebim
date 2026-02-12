@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+# Block API endpoints (not useful for indexing)
+Disallow: /prebim/api/
+
+Sitemap: https://www.bimarchi-pg.com/sitemap.xml
