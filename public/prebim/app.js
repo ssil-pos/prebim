@@ -174,6 +174,7 @@ function renderProjects(){
   setTopbarActions(`
     <a class="pill" href="/">Home</a>
     <a class="pill" href="/blog/">Blog</a>
+    <a class="pill" href="#/roadmap">Roadmap</a>
     <a class="cta" href="#start">New project</a>
   `);
 
@@ -969,6 +970,232 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     _kinds,
     _connModes,
   };
+}
+
+// --- Roadmap (localStorage-backed) ---
+const ROADMAP_STORE_KEY = 'prebim_roadmap_v1';
+const ROADMAP_DEFAULT = {
+  version: 1,
+  milestones: [
+    {
+      id: 'mvp-ship-v1',
+      title: 'Stabilize v1 (usability + reliability)',
+      status: 'planned',
+      details: [
+        'Remove runtime CDN dependency for core libs (bundle three/controls locally) OR add robust fallback + error surfacing',
+        'Add debug mode to surface hidden errors (avoid silent catch-only failures)',
+        'Improve cross-browser 3D picking diagnostics (event target / mode flags)',
+        'Performance: reduce re-renders & expensive traversals; cap WebGL contexts'
+      ]
+    },
+    {
+      id: 'loads-member-point',
+      title: 'Loads: apply point load to member (not only node)',
+      status: 'planned',
+      details: [
+        'UX: pick a member in 3D → choose location (midpoint / ratio / distance) → apply point load',
+        'Engine: convert member point load into equivalent node loads (auto-split member or create virtual node)',
+        'Export: include member point loads in STAAD/DATA exports'
+      ]
+    },
+    {
+      id: 'bracing-horizontal-floor',
+      title: 'Floor horizontal bracing (diaphragm / in-plane)',
+      status: 'planned',
+      details: [
+        'Allow placing braces on a chosen level plane',
+        'Support X / K / V patterns with bay selection',
+        'Quantities + analysis integration'
+      ]
+    },
+    {
+      id: 'equipment-piping-loads',
+      title: 'Equipment & piping loads (concept-level)',
+      status: 'planned',
+      details: [
+        'Equipment: point loads with presets (kN/ton) + label',
+        'Piping: line/distributed loads along members with simple rules',
+        'Combination support (DL+LL+WL+EQ) and exports'
+      ]
+    },
+    {
+      id: 'opening-frames',
+      title: 'Opening frames (rule-based framing around opening)',
+      status: 'planned',
+      details: [
+        'Define opening rectangle on slab/face',
+        'Auto-generate trimmer/header members with configurable offsets',
+        'Update quantities and exports'
+      ]
+    },
+    {
+      id: 'codes-international',
+      title: 'International codes (strategy)',
+      status: 'planned',
+      details: [
+        'Decide scope: (A) remain code-agnostic with ratios only, or (B) implement limited checks (e.g., AISC LRFD for steel members)',
+        'If (B): define input set, load combos, and report format'
+      ]
+    }
+  ]
+};
+
+function loadRoadmap(){
+  try{
+    const raw = localStorage.getItem(ROADMAP_STORE_KEY);
+    if(!raw) return JSON.parse(JSON.stringify(ROADMAP_DEFAULT));
+    const parsed = JSON.parse(raw);
+    // merge: keep default milestones + user-added milestones
+    const byId = new Map();
+    for(const m of (ROADMAP_DEFAULT.milestones||[])) byId.set(String(m.id), JSON.parse(JSON.stringify(m)));
+    for(const m of (parsed?.milestones||[])){
+      if(!m || !m.id) continue;
+      const id = String(m.id);
+      byId.set(id, { ...byId.get(id), ...m });
+    }
+    return { version: ROADMAP_DEFAULT.version, milestones: Array.from(byId.values()) };
+  }catch{
+    return JSON.parse(JSON.stringify(ROADMAP_DEFAULT));
+  }
+}
+
+function saveRoadmap(rm){
+  try{ localStorage.setItem(ROADMAP_STORE_KEY, JSON.stringify(rm)); }catch{}
+}
+
+function setMilestoneStatus(id, status){
+  const rm = loadRoadmap();
+  rm.milestones = (rm.milestones||[]).map(m => (String(m.id)===String(id)) ? { ...m, status } : m);
+  saveRoadmap(rm);
+}
+
+function addMilestone(title, detailsText){
+  const rm = loadRoadmap();
+  const id = `user_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+  const details = String(detailsText||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  rm.milestones = [{ id, title: String(title||'Untitled'), status:'planned', details }, ...(rm.milestones||[])];
+  saveRoadmap(rm);
+  return id;
+}
+
+function renderRoadmap(){
+  setMode('projects');
+  setTopbarSubtitle('roadmap');
+  setTopbarActions(`
+    <a class="pill" href="#/">Projects</a>
+    <a class="pill" href="/">Home</a>
+    <a class="pill" href="/blog/">Blog</a>
+  `);
+
+  const root = document.getElementById('app');
+  if(!root) return;
+
+  const rm = loadRoadmap();
+  const ms = Array.isArray(rm.milestones) ? rm.milestones : [];
+  const done = ms.filter(m => String(m.status)==='done').length;
+  const total = ms.length || 1;
+  const pct = Math.round((done/total)*100);
+
+  root.innerHTML = `
+    <section class="grid">
+      <div class="card panel" style="grid-column: 1 / -1">
+        <div class="badge"><span class="dot"></span> Roadmap</div>
+        <h1 style="margin-top:10px">PreBIM Roadmap</h1>
+        <p class="sub">Milestones for upcoming work. Mark items as done when completed. Stored in <span class="mono">localStorage</span> (per device).</p>
+
+        <div class="row" style="gap:10px; align-items:center; margin-top:12px">
+          <div class="badge" style="background: rgba(148,163,184,0.10); border-color: rgba(148,163,184,0.18)">${done}/${ms.length} done</div>
+          <div style="flex:1; height:10px; background: rgba(148,163,184,0.22); border-radius: 999px; overflow:hidden">
+            <div style="height:10px; width:${pct}%; background: rgba(34,197,94,0.80)"></div>
+          </div>
+          <div class="mono" style="font-size:12px; opacity:.7">${pct}%</div>
+        </div>
+
+        <details style="margin-top:14px">
+          <summary class="mono" style="cursor:pointer; font-size:12px; opacity:.75">Add milestone</summary>
+          <div style="margin-top:10px">
+            <label class="label">Title</label>
+            <input id="rmTitle" class="input" placeholder="Milestone title" maxlength="120" />
+            <label class="label" style="margin-top:10px">Details (one line per bullet)</label>
+            <textarea id="rmDetails" class="input" style="min-height:120px" placeholder="- what\n- why\n- acceptance criteria"></textarea>
+            <div class="row" style="margin-top:10px">
+              <button class="btn primary" id="rmAddBtn" type="button">Add</button>
+              <button class="btn" id="rmResetBtn" type="button">Reset to defaults</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card preview" style="grid-column: 1 / -1">
+        <div class="panel">
+          <div class="mono" style="font-size:12px; color:rgba(11,27,58,0.62)">milestones</div>
+          <div class="list" id="rmList"></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      <div>© 2026 PreBIM‑SteelStructure</div>
+      <div class="mono">Roadmap</div>
+    </div>
+  `;
+
+  const list = root.querySelector('#rmList');
+  if(list){
+    const badge = (status) => {
+      const s = String(status||'planned');
+      const bg = (s==='done') ? 'rgba(34,197,94,0.10)' : (s==='in_progress') ? 'rgba(59,130,246,0.10)' : 'rgba(148,163,184,0.10)';
+      const bd = (s==='done') ? 'rgba(34,197,94,0.30)' : (s==='in_progress') ? 'rgba(59,130,246,0.30)' : 'rgba(148,163,184,0.18)';
+      const tx = (s==='done') ? 'DONE' : (s==='in_progress') ? 'IN PROGRESS' : 'PLANNED';
+      return `<span class="badge" style="background:${bg}; border-color:${bd}">${tx}</span>`;
+    };
+
+    list.innerHTML = ms.map(m => {
+      const details = Array.isArray(m.details) ? m.details : [];
+      const ds = details.length ? `<ul style="margin:10px 0 0 18px">${details.map(d=>`<li>${escapeHtml(String(d))}</li>`).join('')}</ul>` : '';
+      const st = String(m.status||'planned');
+      return `
+        <div class="item" data-rm-id="${escapeHtml(String(m.id))}" style="align-items:flex-start">
+          <div style="flex:1">
+            <b>${escapeHtml(String(m.title||''))}</b>
+            <div style="margin-top:6px">${badge(st)}</div>
+            ${ds}
+          </div>
+          <div class="row" style="margin-top:0; gap:6px">
+            <button class="btn" data-rm-act="planned">Plan</button>
+            <button class="btn" data-rm-act="in_progress">Doing</button>
+            <button class="btn" data-rm-act="done">Done</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // actions
+  root.querySelector('#rmList')?.addEventListener('click', (ev) => {
+    const host = ev.target?.closest?.('.item[data-rm-id]');
+    if(!host) return;
+    const id = host.getAttribute('data-rm-id');
+    const btn = ev.target?.closest?.('button[data-rm-act]');
+    if(!btn || !id) return;
+    const act = btn.getAttribute('data-rm-act');
+    setMilestoneStatus(id, act);
+    renderRoadmap();
+  });
+
+  root.querySelector('#rmAddBtn')?.addEventListener('click', () => {
+    const t = (document.getElementById('rmTitle')?.value||'').trim();
+    const d = (document.getElementById('rmDetails')?.value||'').trim();
+    if(!t) return;
+    addMilestone(t, d);
+    renderRoadmap();
+  });
+
+  root.querySelector('#rmResetBtn')?.addEventListener('click', () => {
+    if(!confirm('Reset roadmap to defaults? (This clears local edits on this device)')) return;
+    try{ localStorage.removeItem(ROADMAP_STORE_KEY); }catch{}
+    renderRoadmap();
+  });
 }
 
 function renderAnalysis(projectId){
@@ -8506,6 +8733,12 @@ function route(){
   __active3D = null;
 
   const hash = location.hash || '#/';
+
+  // Roadmap
+  if(/^#\/roadmap\/?$/.test(hash)){
+    renderRoadmap();
+    return;
+  }
 
   let m = hash.match(/^#\/editor\/([^/?#]+)/);
   if(m){

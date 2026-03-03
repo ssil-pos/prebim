@@ -1,5 +1,11 @@
 # RUNBOOK_PREBIM.md
 
+## Roadmap
+
+- UI route: `#/roadmap`
+- Default milestones live in `public/prebim/app.js` (`ROADMAP_DEFAULT`).
+- Completion state is stored per device in `localStorage` under key `prebim_roadmap_v1`.
+
 ## Deploy
 
 This repo uses a simple, auditable, AI-assisted deploy script.

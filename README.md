@@ -80,6 +80,17 @@ If a model is too valuable to delete, it’s probably too early to be in Revit.
 
 ---
 
+## Roadmap
+
+A Roadmap tab is available in the PreBIM UI:
+- `#/roadmap`
+
+It lists upcoming milestones (and allows marking them as **PLANNED / IN PROGRESS / DONE**).
+
+Notes:
+- Roadmap state is stored in `localStorage` (per device).
+- Default milestones are defined in `public/prebim/app.js` (`ROADMAP_DEFAULT`).
+
 ## Current status
 
 This is an **experimental, evolving project**.
