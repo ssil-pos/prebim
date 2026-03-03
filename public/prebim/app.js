@@ -1043,7 +1043,8 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 // --- Roadmap (localStorage-backed) ---
 const ROADMAP_STORE_KEY = 'prebim_roadmap_v1';
 const ROADMAP_DEFAULT = {
-  version: 1,
+  // Bump version when defaults change and you want clients to pick up updates.
+  version: 2,
   milestones: [
     {
       id: 'mvp-ship-v1',
@@ -1059,7 +1060,7 @@ const ROADMAP_DEFAULT = {
     {
       id: 'loads-member-point',
       title: 'Loads: apply point load to member (not only node)',
-      status: 'planned',
+      status: 'done',
       details: [
         'UX: pick a member in 3D → choose location (midpoint / ratio / distance) → apply point load',
         'Engine: convert member point load into equivalent node loads (auto-split member or create virtual node)',
@@ -1113,7 +1114,23 @@ function loadRoadmap(){
     const raw = localStorage.getItem(ROADMAP_STORE_KEY);
     if(!raw) return JSON.parse(JSON.stringify(ROADMAP_DEFAULT));
     const parsed = JSON.parse(raw);
-    // merge: keep default milestones + user-added milestones
+
+    // If defaults changed, migrate:
+    // - Take latest default milestones (including updated statuses)
+    // - Preserve only user-created milestones (so our shipped roadmap stays authoritative)
+    const parsedVer = Number(parsed?.version || 0) || 0;
+    if(parsedVer < Number(ROADMAP_DEFAULT.version||0)){
+      const userOnly = (parsed?.milestones||[]).filter(m => m && m.id && String(m.id).startsWith('user_'));
+      const merged = {
+        version: ROADMAP_DEFAULT.version,
+        milestones: [...JSON.parse(JSON.stringify(userOnly)), ...JSON.parse(JSON.stringify(ROADMAP_DEFAULT.milestones||[]))]
+      };
+      // overwrite stored roadmap to avoid repeated migrations
+      try{ localStorage.setItem(ROADMAP_STORE_KEY, JSON.stringify(merged)); }catch{}
+      return merged;
+    }
+
+    // Same version: merge default milestones + local edits (status changes etc.)
     const byId = new Map();
     for(const m of (ROADMAP_DEFAULT.milestones||[])) byId.set(String(m.id), JSON.parse(JSON.stringify(m)));
     for(const m of (parsed?.milestones||[])){
