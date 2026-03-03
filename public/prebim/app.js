@@ -1044,7 +1044,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 const ROADMAP_STORE_KEY = 'prebim_roadmap_v1';
 const ROADMAP_DEFAULT = {
   // Bump version when defaults change and you want clients to pick up updates.
-  version: 2,
+  version: 3,
   milestones: [
     {
       id: 'mvp-ship-v1',
@@ -1070,7 +1070,7 @@ const ROADMAP_DEFAULT = {
     {
       id: 'bracing-horizontal-floor',
       title: 'Floor horizontal bracing (diaphragm / in-plane)',
-      status: 'planned',
+      status: 'done',
       details: [
         'Allow placing braces on a chosen level plane',
         'Support X / K / V patterns with bay selection',
