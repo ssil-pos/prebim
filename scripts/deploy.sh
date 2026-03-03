@@ -144,7 +144,20 @@ fi
 
 echo "- ${TS} | commit=${COMMIT} | tag=${TAG} | dest=${DEST_DIR} | snapshot=${SNAP_PATH} | via=AI-assisted" >> "$LOG_FILE"
 
-git add "$LOG_FILE"
+# Optional human-friendly logs (best effort)
+CHANGELOG="$ROOT_DIR/CHANGELOG.md"
+if [ -f "$CHANGELOG" ]; then
+  echo "" >> "$CHANGELOG"
+  echo "- Deployed ${TS} | commit=${COMMIT} | tag=${TAG}" >> "$CHANGELOG"
+fi
+
+WORKLOG="$ROOT_DIR/WORKLOG_$(date -u +%Y-%m-%d).md"
+if [ -f "$WORKLOG" ]; then
+  echo "" >> "$WORKLOG"
+  echo "Deployed: ${TS} | commit=${COMMIT} | tag=${TAG} | dest=${DEST_DIR} | snapshot=${SNAP_PATH}" >> "$WORKLOG"
+fi
+
+git add "$LOG_FILE" "$CHANGELOG" "$WORKLOG" 2>/dev/null || true
 git commit -m "chore: deploy log ${TS}" >/dev/null 2>&1 || true
 # push log update (best effort)
 git push origin "$BRANCH" >/dev/null 2>&1 || true

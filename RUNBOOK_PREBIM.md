@@ -32,3 +32,7 @@ cd /root/clawd-dev/prebim
 
 - Deploy tag annotation contains `(AI-assisted)`
 - `DEPLOY_LOG.md` is appended on each deploy
+- Human-friendly change summaries:
+  - `CHANGELOG.md` (feature-focused)
+  - `WORKLOG_YYYY-MM-DD.md` (optional, narrative log)
+  - Workspace daily log: `/root/clawd-dev/memory/YYYY-MM-DD.md` (agent work diary)
