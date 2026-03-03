@@ -494,6 +494,53 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   }catch(err){ console.warn('[analysis] beam split failed', err); }
 
 
+  // --- Member point loads assist: split members where member-loads land (so the point becomes a joint) ---
+  const memberPointLoadPtsByPlId = new Map(); // pl.id -> { pt:[x,y,z], nodeId }
+  try{
+    const ins2 = new Map(); // memberId -> [{pt,t,plId}]
+    const vlen = (a,b) => Math.hypot((b[0]-a[0]),(b[1]-a[1]),(b[2]-a[2]));
+    const uniqKey = (p) => `${p[0].toFixed(6)},${p[1].toFixed(6)},${p[2].toFixed(6)}`;
+
+    for(const pl of (pointLoads||[])){
+      const plId = String(pl?.id||'');
+      const memberId = String(pl?.memberId||'');
+      if(!plId || !memberId) continue;
+      const mem = members.find(m => String(m?.id)===memberId);
+      const a = mem?.a, b = mem?.b;
+      if(!mem || !a || !b) continue;
+      const L = vlen(a,b);
+      if(!(L>1e-9)) continue;
+      const distM = (Number(pl?.distMm||0)||0)/1000;
+      let t = distM / L;
+      if(!Number.isFinite(t)) t = 0;
+      t = Math.max(0, Math.min(1, t));
+      const pt = [ a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t, a[2] + (b[2]-a[2])*t ];
+      memberPointLoadPtsByPlId.set(plId, { pt, nodeId: '' });
+      if(t > 1e-4 && t < 1-1e-4){
+        if(!ins2.has(memberId)) ins2.set(memberId, []);
+        ins2.get(memberId).push({ pt, t, plId });
+      }
+    }
+
+    if(ins2.size){
+      const out = [];
+      for(const mem of members){
+        const list = ins2.get(String(mem.id));
+        if(!list || !list.length){ out.push(mem); continue; }
+        const arr = list
+          .sort((x,y)=>x.t-y.t)
+          .filter((x,i,all)=> i===0 || uniqKey(x.pt)!==uniqKey(all[i-1].pt));
+        const pts = [ { pt: mem.a, t: 0 }, ...arr, { pt: mem.b, t: 1 } ];
+        for(let i=0;i<pts.length-1;i++){
+          const p0 = pts[i].pt, p1 = pts[i+1].pt;
+          if(uniqKey(p0)===uniqKey(p1)) continue;
+          out.push({ ...mem, id:`plsplit:${String(mem.id)}:${i}`, parentId:String(mem.id), a:p0, b:p1 });
+        }
+      }
+      members = out;
+    }
+  }catch(err){ console.warn('[analysis] member point load split failed', err); }
+
   // unique joints
   const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
   const joints = new Map();
@@ -512,6 +559,14 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     const j2 = ensureJoint(mem.b);
     return { id: String(idx+1), kind: mem.kind, j1, j2, mem };
   });
+
+  // Resolve member point-load split points to joint ids
+  try{
+    for(const [plId, rec] of memberPointLoadPtsByPlId.entries()){
+      const nid = joints.get(keyOf(rec.pt)) || '';
+      memberPointLoadPtsByPlId.set(plId, { ...rec, nodeId: String(nid||'') });
+    }
+  }catch{}
   const _engineIds = memList.map(mm => String(mm.mem?.id ?? mm.id));
   const _kinds = memList.map(mm => String(mm.kind||''));
 
@@ -899,14 +954,27 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   // Point loads (kN) applied to Dead load case
   try{
     for(const pl of pointLoads){
-      const nodeId = String(pl?.nodeId||'');
-      if(!nodeId) continue;
       const Fx = Number(pl?.Fx||0)||0;
       const Fy = Number(pl?.Fy||0)||0;
       const Fz = Number(pl?.Fz||0)||0;
-      if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GX', F: Fx });
-      if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GY', F: Fy });
-      if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GZ', F: Fz });
+
+      const nodeId = String(pl?.nodeId||'');
+      if(nodeId){
+        if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GX', F: Fx });
+        if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GY', F: Fy });
+        if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GZ', F: Fz });
+        continue;
+      }
+
+      // Member point load: look up precomputed split-point joint id
+      const plId = String(pl?.id||'');
+      const rec = plId ? memberPointLoadPtsByPlId.get(plId) : null;
+      if(!rec) continue;
+      const nid = String(rec.nodeId||'');
+      if(!nid) continue;
+      if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId: nid, dir:'GX', F: Fx });
+      if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId: nid, dir:'GY', F: Fy });
+      if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId: nid, dir:'GZ', F: Fz });
     }
   }catch(e){ console.warn('pointLoads apply failed', e); }
   const caseL = { name:'L', selfweightY: 0.0, memberUDL: liveLoads, nodeLoads: [] };
@@ -1310,7 +1378,22 @@ function renderAnalysis(projectId){
 
             <button class="acc-btn" type="button" data-acc="loads">Point loads <span class="chev" id="chevLoads">▾</span></button>
             <div class="acc-panel" id="panelLoads">
-              <div class="note" style="margin-top:0">Click nodes in 3D to add a point load to case <b>D</b> (kN).</div>
+              <div class="note" style="margin-top:0">Add point loads to case <b>D</b> (kN). You can apply to <b>nodes</b> or directly to a <b>member</b> (distance from i-end).</div>
+
+              <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+                <input id="plToMember" type="checkbox" style="margin:0" />
+                <span>Apply to member (click member in 3D)</span>
+              </label>
+              <div class="grid2" style="margin-top:6px">
+                <div>
+                  <div class="note" style="margin-top:0">Distance from i-end (mm)</div>
+                  <input class="input" id="plDistMm" value="0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Mode</div>
+                  <div class="mono" id="plMode" style="font-size:12px; opacity:.75">node</div>
+                </div>
+              </div>
               <div class="grid2">
                 <div>
                   <div class="note" style="margin-top:0">Fx (kN)</div>
@@ -1526,10 +1609,16 @@ function renderAnalysis(projectId){
             const connCfg = loadConnSettings(p.id);
             const saved0 = loadAnalysisSettings(p.id);
             const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg, { pointLoads: (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]) });
-            view?.setPointLoadEditMode?.(open, payload0.nodes, (nodeId) => { window.__onPointLoadPick?.(nodeId); });
-            view?.setPointLoadMarkers?.(payload0.nodes, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
+            view?.setPointLoadEditMode?.(
+              open,
+              payload0.nodes,
+              payload0.members,
+              (nodeId) => { window.__onPointLoadPick?.(nodeId); },
+              (memberId) => { window.__onPointLoadPickMember?.(memberId); }
+            );
+            view?.setPointLoadMarkers?.(payload0.nodes, payload0.members, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
           } else {
-            view?.setPointLoadEditMode?.(false, null, null);
+            view?.setPointLoadEditMode?.(false, null, null, null, null);
           }
         }catch{}
 
@@ -1608,7 +1697,17 @@ function renderAnalysis(projectId){
       syncPl();
     });
 
+    const updatePlModeLabel = () => {
+      const toMember = !!document.getElementById('plToMember')?.checked;
+      const el = document.getElementById('plMode');
+      if(el) el.textContent = toMember ? 'member' : 'node';
+    };
+    document.getElementById('plToMember')?.addEventListener('change', updatePlModeLabel);
+    updatePlModeLabel();
+
     window.__onPointLoadPick = (nodeId) => {
+      // ignore node picks when in member mode
+      if(!!document.getElementById('plToMember')?.checked) return;
       const Fx = parseFloat(document.getElementById('plFx')?.value||'0')||0;
       const Fy = parseFloat(document.getElementById('plFy')?.value||'0')||0;
       const Fz = parseFloat(document.getElementById('plFz')?.value||'0')||0;
@@ -1617,6 +1716,22 @@ function renderAnalysis(projectId){
       pointLoadsState.push(rec);
       pointLoadSelId = id;
       const el = document.getElementById('plSel'); if(el) el.textContent = `P${rec.no} node ${rec.nodeId}`;
+      syncPl();
+    };
+
+    window.__onPointLoadPickMember = (memberId) => {
+      // ignore member picks when in node mode
+      if(!(!!document.getElementById('plToMember')?.checked)) return;
+      const Fx = parseFloat(document.getElementById('plFx')?.value||'0')||0;
+      const Fy = parseFloat(document.getElementById('plFy')?.value||'0')||0;
+      const Fz = parseFloat(document.getElementById('plFz')?.value||'0')||0;
+      const distMm = parseFloat(document.getElementById('plDistMm')?.value||'0')||0;
+      const id = `plm_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+      const rec = { id, no: pointLoadNextNo++, memberId: String(memberId), distMm, Fx, Fy, Fz };
+      pointLoadsState.push(rec);
+      pointLoadSelId = id;
+      const el = document.getElementById('plSel');
+      if(el) el.textContent = `P${rec.no} mem ${rec.memberId} @ ${Math.round(rec.distMm)}mm`;
       syncPl();
     };
 
@@ -3662,7 +3777,7 @@ function renderAnalysis(projectId){
         view.setSupportMarkers?.(payload0.supports, payload0.nodes, supportMode0);
         view.setBaseNodes?.(payload0.nodes, ids, supportMode0);
         view.setConnectionMarkers?.(members, connCfg);
-        view.setPointLoadMarkers?.(payload0.nodes, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
+        view.setPointLoadMarkers?.(payload0.nodes, payload0.members, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
       }catch{}
     };
 
@@ -7362,14 +7477,22 @@ async function createThreeView(container){
       }
     }
 
-    // Point load edit mode (analysis): pick any node spheres
+    // Point load edit mode (analysis): pick node spheres OR members
     if(pointLoadEdit){
       raycaster.setFromCamera(pointer, camera);
       const nh = raycaster.intersectObjects(plNodeGroup.children, false);
       if(nh.length){
         const nid = nh[0]?.object?.userData?.nodeId;
         if(nid && onPointLoadNode) onPointLoadNode(String(nid));
+        return;
       }
+      // If no node hit, allow member pick (uses existing member meshes)
+      try{
+        const mh = raycaster.intersectObjects(group.children, true);
+        const obj = mh?.[0]?.object;
+        const mid = obj?.userData?.memberId;
+        if(mid && onPointLoadMember) onPointLoadMember(String(mid));
+      }catch{}
       return;
     }
 
@@ -7632,6 +7755,8 @@ async function createThreeView(container){
     selectRay.setFromCamera(pointer, camera);
     const hits = selectRay.intersectObjects(group.children, false);
     if(!hits.length){
+      // If in point-load edit mode and user clicked empty space, just ignore.
+      if(pointLoadEdit) return;
       // click empty clears selection but keep FAIL highlighting
       selected.clear();
       applyHighlight();
@@ -8244,9 +8369,12 @@ async function createThreeView(container){
     while(connGroup.children.length) connGroup.remove(connGroup.children[0]);
   }
 
-  function setPointLoadEditMode(on, nodes, cb){
+  let onPointLoadMember = null; // (memberId)=>void
+
+  function setPointLoadEditMode(on, nodes, engineMembers, cbNode, cbMember){
     pointLoadEdit = !!on;
-    onPointLoadNode = (pointLoadEdit ? (cb || null) : null);
+    onPointLoadNode = (pointLoadEdit ? (cbNode || null) : null);
+    onPointLoadMember = (pointLoadEdit ? (cbMember || null) : null);
     // clear hover
     try{ if(plHover?.material) plHover.material.color.setHex(0xfbbf24); }catch{}
     plHover = null;
@@ -8267,10 +8395,11 @@ async function createThreeView(container){
     }
   }
 
-  function setPointLoadMarkers(nodes, pointLoads=[]){
+  function setPointLoadMarkers(nodes, engineMembers, pointLoads=[]){
     while(plMarkGroup.children.length) plMarkGroup.remove(plMarkGroup.children[0]);
     if(!nodes) return;
     const nodeMap = new Map((nodes||[]).map(n => [String(n.id), n]));
+    const memMap = new Map((engineMembers||[]).map(m => [String(m?.id), m]));
 
     const makeTextSprite = (text) => {
       const canvas = document.createElement('canvas');
@@ -8292,21 +8421,53 @@ async function createThreeView(container){
     };
 
     for(const pl of (pointLoads||[])){
-      const nid = String(pl?.nodeId||'');
-      const n = nodeMap.get(nid);
-      if(!n) continue;
       const no = pl?.no ?? pl?.id ?? '';
-      // arrow down (bigger, bright red) — positioned above the node pointing at it
+
+      // Node-based
+      const nid = String(pl?.nodeId||'');
+      if(nid){
+        const n = nodeMap.get(nid);
+        if(!n) continue;
+        const dir = new THREE.Vector3(0,-1,0);
+        const L = 1.2;
+        const origin = new THREE.Vector3(n.x, n.y + L, n.z);
+        const ah = new THREE.ArrowHelper(dir, origin, L, 0xff0000, 0.40, 0.22);
+        ah.cone.material.depthTest = false;
+        ah.line.material.depthTest = false;
+        ah.renderOrder = 299;
+        plMarkGroup.add(ah);
+        const spr = makeTextSprite(`P${no}`);
+        spr.position.set(n.x, n.y + L + 0.25, n.z);
+        plMarkGroup.add(spr);
+        continue;
+      }
+
+      // Member-based (distance from i-end)
+      const mid = String(pl?.memberId||'');
+      if(!mid) continue;
+      const mem = memMap.get(mid);
+      const a = mem?.a, b = mem?.b;
+      if(!mem || !a || !b) continue;
+      const dx=b[0]-a[0], dy=b[1]-a[1], dz=b[2]-a[2];
+      const Lm = Math.hypot(dx,dy,dz) || 0;
+      if(!(Lm>1e-9)) continue;
+      const distM = (Number(pl?.distMm||0)||0)/1000;
+      let t = distM / Lm;
+      if(!Number.isFinite(t)) t = 0;
+      t = Math.max(0, Math.min(1, t));
+      const px = a[0] + dx*t;
+      const py = a[1] + dy*t;
+      const pz = a[2] + dz*t;
       const dir = new THREE.Vector3(0,-1,0);
-      const L = 1.2; // ~1200mm
-      const origin = new THREE.Vector3(n.x, n.y + L, n.z);
+      const L = 1.2;
+      const origin = new THREE.Vector3(px, py + L, pz);
       const ah = new THREE.ArrowHelper(dir, origin, L, 0xff0000, 0.40, 0.22);
       ah.cone.material.depthTest = false;
       ah.line.material.depthTest = false;
       ah.renderOrder = 299;
       plMarkGroup.add(ah);
       const spr = makeTextSprite(`P${no}`);
-      spr.position.set(n.x, n.y + L + 0.25, n.z);
+      spr.position.set(px, py + L + 0.25, pz);
       plMarkGroup.add(spr);
     }
   }
