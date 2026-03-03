@@ -4049,6 +4049,31 @@ function renderEditor(projectId){
           <div class="row" style="margin-top:8px">
             <span class="badge">Pick panels in 3D (all stories)</span>
           </div>
+
+          <hr style="border:none; border-top:1px solid rgba(148,163,184,0.25); margin:12px 0" />
+
+          <div class="row" style="margin-top:8px; gap:8px; flex-wrap:wrap">
+            <label class="badge" style="cursor:pointer"><input id="optFloorBrace" type="checkbox" style="margin:0 8px 0 0" /> Floor bracing</label>
+            <select id="floorBraceType" class="input" style="max-width:110px">
+              <option value="X">X</option>
+              <option value="V">V</option>
+              <option value="K">K</option>
+            </select>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <span class="badge">Pick bays in 3D (selected level)</span>
+          </div>
+          <div class="grid2" style="margin-top:8px">
+            <div>
+              <label class="label">Level</label>
+              <select id="floorBraceLevel" class="input"></select>
+            </div>
+            <div>
+              <label class="label">Selected bays</label>
+              <div class="mono" id="floorBraceCount" style="font-size:12px; opacity:.75">0</div>
+            </div>
+          </div>
+          <div class="note">Click grid bays (rectangles) on the chosen level. Apply uses A: center node. K is symmetric K2.</div>
           <div class="grid2">
             <div>
               <label class="label">Shape</label>
@@ -4297,6 +4322,7 @@ function renderEditor(projectId){
 
     // globals (so getForm can read them without threading)
     window.__prebimBraces = Array.isArray(engineModel.braces) ? engineModel.braces.slice() : [];
+    window.__prebimFloorBraces = Array.isArray(engineModel.floorBraces) ? structuredClone(engineModel.floorBraces) : [];
     window.__prebimOverrides = (engineModel.overrides && typeof engineModel.overrides === 'object') ? structuredClone(engineModel.overrides) : {};
     window.__prebimBoxes = Array.isArray(engineModel.boxes) ? structuredClone(engineModel.boxes) : [];
     window.__prebimFree = (engineModel.free && typeof engineModel.free === 'object') ? structuredClone(engineModel.free) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
@@ -4328,6 +4354,23 @@ function renderEditor(projectId){
 
       document.getElementById('optBrace').checked = !!m.options.bracing.enabled;
       document.getElementById('braceType').value = m.options.bracing.type || 'X';
+      // floor bracing
+      document.getElementById('optFloorBrace').checked = !!m.options.floorBracing?.enabled;
+      document.getElementById('floorBraceType').value = m.options.floorBracing?.type || 'X';
+      // level options
+      {
+        const el = document.getElementById('floorBraceLevel');
+        if(el){
+          el.innerHTML='';
+          (m.levels||[]).forEach((mm, idx) => {
+            const o=document.createElement('option');
+            o.value=String(idx);
+            o.textContent=`L${idx+1} (${Math.round(mm)}mm)`;
+            el.appendChild(o);
+          });
+          el.value = String(m.options.floorBracing?.level ?? 0);
+        }
+      }
       // story selector removed; bracing panel pick works for all stories
       // brace selection mode is controlled by Bracing popup open/close
 
@@ -4386,9 +4429,15 @@ function renderEditor(projectId){
             enabled: document.getElementById('optBrace').checked,
             type: document.getElementById('braceType').value || 'X',
           },
+          floorBracing: {
+            enabled: document.getElementById('optFloorBrace')?.checked === true,
+            type: document.getElementById('floorBraceType')?.value || 'X',
+            level: parseInt(document.getElementById('floorBraceLevel')?.value || '0', 10) || 0,
+          }
         },
-        // panel braces + overrides
+        // braces + overrides
         braces: (window.__prebimBraces || []),
+        floorBraces: (window.__prebimFloorBraces || []),
         overrides: (window.__prebimOverrides || {}),
         boxes: (window.__prebimBoxes || []),
         free: (window.__prebimFree || { enabled:false, nodes:[], members:[] }),
@@ -6100,12 +6149,47 @@ function renderEditor(projectId){
       window.__prebimBraces = braces;
     };
 
+    const toggleFloorBay = (pick) => {
+      const arr = Array.isArray(window.__prebimFloorBraces) ? window.__prebimFloorBraces : [];
+      const level = parseInt(document.getElementById('floorBraceLevel')?.value || '0', 10) || 0;
+      const kind = String(document.getElementById('floorBraceType')?.value || 'X').toUpperCase();
+      const bayX = Number(pick?.bayX ?? pick?.ix ?? pick?.x ?? 0) || 0;
+      const bayY = Number(pick?.bayY ?? pick?.iy ?? pick?.y ?? 0) || 0;
+      const idx = arr.findIndex(b => (Number(b.level)||0)===level && (Number(b.bayX)||0)===bayX && (Number(b.bayY)||0)===bayY);
+      if(idx >= 0){
+        arr.splice(idx, 1);
+      } else {
+        arr.push({ level, bayX, bayY, kind });
+      }
+      window.__prebimFloorBraces = arr;
+      try{
+        const cnt = arr.filter(b => (Number(b.level)||0)===level).length;
+        const el = document.getElementById('floorBraceCount');
+        if(el) el.textContent = String(cnt);
+      }catch{}
+    };
+
+    const refreshFloorBraceOverlay = (on0) => {
+      const m = getForm();
+      const fbOn = (document.getElementById('optFloorBrace')?.checked === true);
+      const fbLevel = parseInt(document.getElementById('floorBraceLevel')?.value || String(m.options?.floorBracing?.level||0), 10) || 0;
+      const selected = (Array.isArray(window.__prebimFloorBraces) ? window.__prebimFloorBraces : [])
+        .filter(b => (Number(b.level)||0)===fbLevel)
+        .map(b => `${Number(b.bayX)||0},${Number(b.bayY)||0}`);
+      view.setFloorBraceMode?.(!!on0 && fbOn, m, { level: fbLevel, selected }, (pickBay) => {
+        toggleFloorBay(pickBay);
+        refreshFloorBraceOverlay(true);
+        scheduleApply(0);
+      });
+    };
+
     const updateBraceMode = (on) => {
       const m = getForm();
       view.setBraceMode?.(!!on, m, (pick) => {
         toggleBrace(pick);
         scheduleApply(0);
       });
+      refreshFloorBraceOverlay(!!on);
       scheduleApply(0);
     };
 
@@ -6122,7 +6206,7 @@ function renderEditor(projectId){
     // levels (list)
     document.getElementById('levelsList')?.addEventListener('input', () => scheduleApply());
     // toggles
-    ['optSub','subCount','optBrace','braceType','braceShape','braceSize'].forEach(id => wireRealtime(id, 'change'));
+    ['optSub','subCount','optBrace','braceType','braceShape','braceSize','optFloorBrace','floorBraceType','floorBraceLevel'].forEach(id => wireRealtime(id, 'change'));
 
     // profiles
     ['stdAll','colShape','colSize','colStrongAxis','beamShape','beamSize','subShape','subSize'].forEach(id => wireRealtime(id, 'change'));
@@ -6379,9 +6463,13 @@ async function createThreeView(container){
   const group = new THREE.Group();
   scene.add(group);
 
-  // brace face selection overlays
+  // brace face selection overlays (vertical bracing)
   const faceGroup = new THREE.Group();
   scene.add(faceGroup);
+
+  // floor bay selection overlays (horizontal bracing)
+  const bayGroup = new THREE.Group();
+  scene.add(bayGroup);
 
   // box edit overlays (faces/edges + outlines)
   const boxOutlineGroup = new THREE.Group();
@@ -6526,6 +6614,9 @@ async function createThreeView(container){
   const pointer = new THREE.Vector2();
   let braceMode = false;
   let onFaceSelect = null;
+  let floorBraceMode = false;
+  let floorBraceCfg = { level: 0, selected: [] };
+  let onBaySelect = null;
   let hot = null;
 
   // member selection
@@ -6734,6 +6825,53 @@ async function createThreeView(container){
         }
       }
     }
+  }
+
+  function buildBayTiles(model){
+    while(bayGroup.children.length) bayGroup.remove(bayGroup.children[0]);
+    bayGroup.visible = false;
+    if(!floorBraceMode || !model) return;
+
+    const spansX = model.grid?.spansXmm || [];
+    const spansY = model.grid?.spansYmm || [];
+    const xs=[0], zs=[0];
+    for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+    for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
+    const nx=xs.length, ny=zs.length;
+
+    const levels = Array.isArray(model.levels) ? model.levels : [0,6000];
+    const iz = Math.max(0, Math.min(levels.length-1, parseInt(floorBraceCfg?.level,10)||0));
+    const y = (Number(levels?.[iz]||0)/1000) + 0.02; // small lift for visibility
+
+    const selected = new Set(Array.isArray(floorBraceCfg?.selected) ? floorBraceCfg.selected.map(String) : []);
+
+    for(let ix=0; ix<nx-1; ix++){
+      for(let iy=0; iy<ny-1; iy++){
+        const x0=xs[ix], x1=xs[ix+1];
+        const z0=zs[iy], z1=zs[iy+1];
+        const w=x1-x0, d=z1-z0;
+        const g = new THREE.PlaneGeometry(w, d);
+        const key = `${ix},${iy}`;
+        const on = selected.has(key);
+        const mat = new THREE.MeshBasicMaterial({
+          color: on ? 0x22c55e : 0x38bdf8,
+          transparent:true,
+          opacity: on ? 0.22 : 0.10,
+          side: THREE.DoubleSide,
+          depthWrite:false,
+        });
+        const mesh = new THREE.Mesh(g, mat);
+        mesh.rotation.x = -Math.PI/2;
+        mesh.position.set(x0 + w/2, y, z0 + d/2);
+        mesh.userData.kind = 'bay';
+        mesh.userData.bayX = ix;
+        mesh.userData.bayY = iy;
+        mesh.userData.level = iz;
+        bayGroup.add(mesh);
+      }
+    }
+
+    bayGroup.visible = true;
   }
 
   function clearFreeNodes(){
@@ -6996,6 +7134,7 @@ async function createThreeView(container){
     }
 
     if(braceMode) buildFacePlanes(model);
+    if(floorBraceMode) buildBayTiles(model);
 
     buildBoxOutlines(model);
     if(boxEditMode) buildBoxEditTargets(model);
@@ -7384,6 +7523,20 @@ async function createThreeView(container){
     else {
       while(faceGroup.children.length) faceGroup.remove(faceGroup.children[0]);
     }
+    // keep bay overlays up to date too
+    if(floorBraceMode) buildBayTiles(model);
+  }
+
+  function setFloorBraceMode(on, model, cfg, cb){
+    floorBraceMode = !!on;
+    floorBraceCfg = cfg || { level: 0, selected: [] };
+    onBaySelect = cb || null;
+    if(!floorBraceMode){
+      while(bayGroup.children.length) bayGroup.remove(bayGroup.children[0]);
+      bayGroup.visible = false;
+      return;
+    }
+    buildBayTiles(model);
   }
 
   function nearestLevelY(model, yM){
@@ -7510,6 +7663,21 @@ async function createThreeView(container){
         const mid = obj?.userData?.memberId;
         if(mid && onPointLoadMember) onPointLoadMember(String(mid));
       }catch{}
+      return;
+    }
+
+    // Floor bracing bay select mode
+    if(floorBraceMode){
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(bayGroup.children, false);
+      if(hits.length){
+        const obj = hits[0].object;
+        const bayX = obj?.userData?.bayX;
+        const bayY = obj?.userData?.bayY;
+        if(Number.isFinite(bayX) && Number.isFinite(bayY) && onBaySelect){
+          onBaySelect({ bayX: Number(bayX), bayY: Number(bayY), level: obj?.userData?.level ?? 0 });
+        }
+      }
       return;
     }
 
@@ -8644,6 +8812,7 @@ async function createThreeView(container){
   return {
     setMembers,
     setBraceMode,
+    setFloorBraceMode,
     setBoxEditMode(on, model, api){
       boxEditMode = !!on;
       boxEditApi = api || null;

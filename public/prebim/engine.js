@@ -22,9 +22,12 @@ export function defaultModel(){
       subBeams: { enabled: true, countPerBay: 2 },
       joists: { enabled: false },
       bracing: { enabled: true, type: 'X' },
+      floorBracing: { enabled: false, type: 'X', level: 0 }, // X|V|K, level index
     },
     // explicit braces (panel-based) + per-member overrides
     braces: [],
+    // horizontal (floor) bracing by bay
+    floorBraces: [],
     overrides: {},
     profiles: {
       stdAll: 'KS',
@@ -57,7 +60,9 @@ export function normalizeModel(m){
     if(m.options?.subBeams) out.options.subBeams = { ...out.options.subBeams, ...m.options.subBeams };
     if(m.options?.joists) out.options.joists = { ...out.options.joists, ...m.options.joists };
     if(m.options?.bracing) out.options.bracing = { ...out.options.bracing, ...m.options.bracing };
+    if(m.options?.floorBracing) out.options.floorBracing = { ...out.options.floorBracing, ...m.options.floorBracing };
     if(Array.isArray(m.braces)) out.braces = m.braces.slice();
+    if(Array.isArray(m.floorBraces)) out.floorBraces = structuredClone(m.floorBraces);
     if(m.overrides && typeof m.overrides === 'object') out.overrides = structuredClone(m.overrides);
     if(m.profiles && typeof m.profiles === 'object') out.profiles = { ...out.profiles, ...structuredClone(m.profiles) };
     if(Array.isArray(m.boxes)) out.boxes = structuredClone(m.boxes);
@@ -88,6 +93,9 @@ export function normalizeModel(m){
   if(out.levels.length < 2) out.levels = [0, 6000];
   out.options.subBeams.countPerBay = Math.max(0, parseInt(out.options.subBeams.countPerBay,10)||0);
   out.options.bracing.type = (out.options.bracing.type === 'S' || out.options.bracing.type === 'HAT') ? out.options.bracing.type : 'X';
+  out.options.floorBracing.enabled = (out.options.floorBracing.enabled === true);
+  out.options.floorBracing.type = (out.options.floorBracing.type === 'V' || out.options.floorBracing.type === 'K') ? out.options.floorBracing.type : 'X';
+  out.options.floorBracing.level = Math.max(0, parseInt(out.options.floorBracing.level,10)||0);
   // Joist is currently not used (disabled)
   out.options.joists.enabled = false;
 
@@ -127,6 +135,25 @@ export function normalizeModel(m){
         } : undefined,
       };
     });
+
+  // floor braces normalization (by bay)
+  if(!Array.isArray(out.floorBraces)) out.floorBraces = [];
+  out.floorBraces = out.floorBraces
+    .filter(b => b && typeof b === 'object')
+    .map((b) => ({
+      level: Math.max(0, parseInt(b.level,10)||0),
+      bayX: Math.max(0, parseInt(b.bayX,10)||0),
+      bayY: Math.max(0, parseInt(b.bayY,10)||0),
+      kind: (String(b.kind||'X').toUpperCase()==='V') ? 'V' : (String(b.kind||'X').toUpperCase()==='K' ? 'K' : 'X'),
+      // optional per-brace profile override
+      profile: (b.profile && typeof b.profile === 'object') ? {
+        stdKey: String(b.profile.stdKey||''),
+        shapeKey: String(b.profile.shapeKey||''),
+        sizeKey: String(b.profile.sizeKey||''),
+      } : undefined,
+    }))
+    // clamp to grid extents later in generateMembers
+  ;
 
   // overrides normalization (kept as-is; validated in UI)
   if(!out.overrides || typeof out.overrides !== 'object') out.overrides = {};
@@ -283,6 +310,43 @@ export function generateMembers(model){
           const b = [x, levelsM[iz], ys[iy+1]];
           members.push({ id:`joist:${ix},${iy},${iz}`, kind:'joist', a, b });
         }
+      }
+    }
+  }
+
+  // floor bracing (horizontal, by bay)
+  if(m.options.floorBracing.enabled && Array.isArray(m.floorBraces) && m.floorBraces.length){
+    for(const br of m.floorBraces){
+      const iz = Math.max(0, Math.min(levelsM.length-1, parseInt(br.level,10)||0));
+      const ix = parseInt(br.bayX,10)||0;
+      const iy = parseInt(br.bayY,10)||0;
+      if(ix < 0 || iy < 0 || ix >= nx-1 || iy >= ny-1) continue;
+      const y = levelsM[iz];
+      const x0 = xs[ix], x1 = xs[ix+1];
+      const z0 = ys[iy], z1 = ys[iy+1];
+      const a = [x0, y, z0];
+      const b = [x1, y, z1];
+      const c = [x1, y, z0];
+      const d = [x0, y, z1];
+      const cx = (x0+x1)/2;
+      const cz = (z0+z1)/2;
+      const mid = [cx, y, cz];
+      const kind = String(br.kind||m.options.floorBracing.type||'X').toUpperCase();
+      const key = `F:${iz}:${ix}:${iy}:${kind}`;
+      if(kind === 'V'){
+        // Chevron V: two diagonals from the "bottom" edge to center
+        members.push({ id:`fV1:${key}`, kind:'brace', a: c, b: mid, profile: br.profile });
+        members.push({ id:`fV2:${key}`, kind:'brace', a: a, b: mid, profile: br.profile });
+      } else if(kind === 'K'){
+        // Symmetric K2: connect all 4 corners to center (requires center joint)
+        members.push({ id:`fK1:${key}`, kind:'brace', a: a, b: mid, profile: br.profile });
+        members.push({ id:`fK2:${key}`, kind:'brace', a: c, b: mid, profile: br.profile });
+        members.push({ id:`fK3:${key}`, kind:'brace', a: d, b: mid, profile: br.profile });
+        members.push({ id:`fK4:${key}`, kind:'brace', a: b, b: mid, profile: br.profile });
+      } else {
+        // X
+        members.push({ id:`fX1:${key}`, kind:'brace', a, b, profile: br.profile });
+        members.push({ id:`fX2:${key}`, kind:'brace', a: d, b: c, profile: br.profile });
       }
     }
   }
