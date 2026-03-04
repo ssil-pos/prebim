@@ -419,6 +419,8 @@ function defaultConnModeByKind(model){
 function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=null, extraLoads=null){
   const windStoryX = Array.isArray(extraLoads?.windStoryX) ? extraLoads.windStoryX : null;
   const pointLoads = Array.isArray(extraLoads?.pointLoads) ? extraLoads.pointLoads : [];
+  const equipmentLoads = Array.isArray(extraLoads?.equipmentLoads) ? extraLoads.equipmentLoads : [];
+  const pipeLoads = Array.isArray(extraLoads?.pipeLoads) ? extraLoads.pipeLoads : [];
   const windStoryZ = Array.isArray(extraLoads?.windStoryZ) ? extraLoads.windStoryZ : null;
   const eqStoryX = Array.isArray(extraLoads?.eqStoryX) ? extraLoads.eqStoryX : null;
   const eqStoryZ = Array.isArray(extraLoads?.eqStoryZ) ? extraLoads.eqStoryZ : null;
@@ -951,6 +953,15 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 
   // Load cases
   const caseD = { name:'D', selfweightY: -1.0, memberUDL: [], nodeLoads: [] };
+
+  // Node helper
+  const addNodeTriplet = (nodeId, Fx, Fy, Fz) => {
+    if(!nodeId) return;
+    if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GX', F: Fx });
+    if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GY', F: Fy });
+    if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GZ', F: Fz });
+  };
+
   // Point loads (kN) applied to Dead load case
   try{
     for(const pl of pointLoads){
@@ -959,12 +970,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       const Fz = Number(pl?.Fz||0)||0;
 
       const nodeId = String(pl?.nodeId||'');
-      if(nodeId){
-        if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GX', F: Fx });
-        if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GY', F: Fy });
-        if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GZ', F: Fz });
-        continue;
-      }
+      if(nodeId){ addNodeTriplet(nodeId, Fx, Fy, Fz); continue; }
 
       // Member point load: look up precomputed split-point joint id
       const plId = String(pl?.id||'');
@@ -972,11 +978,47 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       if(!rec) continue;
       const nid = String(rec.nodeId||'');
       if(!nid) continue;
-      if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId: nid, dir:'GX', F: Fx });
-      if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId: nid, dir:'GY', F: Fy });
-      if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId: nid, dir:'GZ', F: Fz });
+      addNodeTriplet(nid, Fx, Fy, Fz);
     }
   }catch(e){ console.warn('pointLoads apply failed', e); }
+
+  // Equipment loads (node)
+  try{
+    for(const el of equipmentLoads){
+      const Fx = Number(el?.Fx||0)||0;
+      const Fy = Number(el?.Fy||0)||0;
+      const Fz = Number(el?.Fz||0)||0;
+      const nodeId = String(el?.nodeId||'');
+      if(!nodeId) continue;
+      addNodeTriplet(nodeId, Fx, Fy, Fz);
+    }
+  }catch(e){ console.warn('equipmentLoads apply failed', e); }
+
+  // Piping loads (member UDL -> equivalent nodal)
+  try{
+    const lenM = (a,b) => Math.hypot((b[0]-a[0]),(b[1]-a[1]),(b[2]-a[2]));
+    for(const pl of pipeLoads){
+      const memberId = String(pl?.memberId||'');
+      if(!memberId) continue;
+      const dir = String(pl?.dir||'GY').toUpperCase();
+      const w = Number(pl?.w||0)||0; // kN/m (can be negative)
+      if(!(Math.abs(w)>1e-12)) continue;
+
+      // Apply to all analysis segments matching engine member id or parentId
+      for(const mm of memList){
+        const eid = String(mm.mem?.id ?? mm.id);
+        const pid = String(mm.mem?.parentId || '');
+        if(eid!==memberId && pid!==memberId) continue;
+        const L = lenM(mm.mem.a, mm.mem.b);
+        if(!(L>1e-9)) continue;
+        const Ftot = w * L;
+        const Fi = Ftot/2;
+        const Fj = Ftot/2;
+        if(Math.abs(Fi)>1e-9) caseD.nodeLoads.push({ nodeId: String(mm.j1), dir, F: Fi });
+        if(Math.abs(Fj)>1e-9) caseD.nodeLoads.push({ nodeId: String(mm.j2), dir, F: Fj });
+      }
+    }
+  }catch(e){ console.warn('pipeLoads apply failed', e); }
   const caseL = { name:'L', selfweightY: 0.0, memberUDL: liveLoads, nodeLoads: [] };
   const caseS = { name:'S', selfweightY: 0.0, memberUDL: snowLoads, nodeLoads: [] };
   const caseWX = { name:'WX', selfweightY: 0.0, memberUDL: [], nodeLoads: (hasWindStoryX ? buildStoryNodeLoads(windStoryX,'GX') : splitToTop(windX).map(x=>({ ...x, dir:'GX' }))) };
@@ -1393,13 +1435,23 @@ function renderAnalysis(projectId){
               <div class="note" style="margin-top:6px">Select members in 3D to edit end conditions.</div>
             </div>
 
-            <button class="acc-btn" type="button" data-acc="loads">Point loads <span class="chev" id="chevLoads">▾</span></button>
+            <button class="acc-btn" type="button" data-acc="loads">Loads <span class="chev" id="chevLoads">▾</span></button>
             <div class="acc-panel" id="panelLoads">
-              <div class="note" style="margin-top:0">Add point loads to case <b>D</b> (kN). You can apply to <b>nodes</b> or directly to a <b>member</b> (distance from i-end).</div>
+              <div class="note" style="margin-top:0">Loads are applied to case <b>D</b> (kN, kN/m). MVP: piping member loads are converted to equivalent nodal forces.</div>
 
-              <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+              <div class="note" style="margin-top:10px"><b>Mode</b></div>
+              <label class="badge" style="margin-top:8px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+                <input id="eqPick" type="checkbox" style="margin:0" />
+                <span>Equipment pick (click node in 3D)</span>
+              </label>
+              <label class="badge" style="margin-top:6px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
+                <input id="pipePick" type="checkbox" style="margin:0" />
+                <span>Piping pick (click member in 3D)</span>
+              </label>
+
+              <label class="badge" style="margin-top:8px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
                 <input id="plToMember" type="checkbox" style="margin:0" />
-                <span>Apply to member (click member in 3D)</span>
+                <span>Point load: apply to member (else node)</span>
               </label>
               <div class="grid2" style="margin-top:6px">
                 <div>
@@ -1433,12 +1485,97 @@ function renderAnalysis(projectId){
               </div>
 
               <div class="note" style="margin-top:10px"><b>Point load list</b></div>
-              <div id="plList" style="max-height:180px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
+              <div id="plList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
 
               <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
                 <button class="btn" id="plUpdate" type="button">Update selected</button>
                 <button class="btn danger" id="plDelete" type="button">Delete selected</button>
                 <button class="btn" id="plClear" type="button">Clear all</button>
+              </div>
+
+              <hr style="border:none; border-top:1px solid rgba(148,163,184,0.25); margin:12px 0" />
+
+              <div class="note" style="margin-top:0"><b>Equipment loads (node)</b></div>
+              <div class="grid2" style="margin-top:6px">
+                <div>
+                  <div class="note" style="margin-top:0">Label</div>
+                  <input class="input" id="eqLabel" placeholder="e.g. P-101 skid" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Preset</div>
+                  <div class="row" style="margin-top:6px; gap:6px; flex-wrap:wrap">
+                    <button class="btn smallbtn" id="eq1t" type="button">1t</button>
+                    <button class="btn smallbtn" id="eq2t" type="button">2t</button>
+                    <button class="btn smallbtn" id="eq5t" type="button">5t</button>
+                    <button class="btn smallbtn" id="eq10t" type="button">10t</button>
+                  </div>
+                </div>
+              </div>
+              <div class="grid2" style="margin-top:6px">
+                <div>
+                  <div class="note" style="margin-top:0">Fx (kN)</div>
+                  <input class="input" id="eqFx" value="0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Fy (kN)</div>
+                  <input class="input" id="eqFy" value="-10" />
+                </div>
+              </div>
+              <div class="grid2" style="margin-top:6px">
+                <div>
+                  <div class="note" style="margin-top:0">Fz (kN)</div>
+                  <input class="input" id="eqFz" value="0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Selected</div>
+                  <div class="mono" id="eqSel" style="font-size:12px; opacity:.75">-</div>
+                </div>
+              </div>
+
+              <div class="note" style="margin-top:10px"><b>Equipment list</b></div>
+              <div id="eqList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
+
+              <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
+                <button class="btn" id="eqUpdate" type="button">Update selected</button>
+                <button class="btn danger" id="eqDelete" type="button">Delete selected</button>
+                <button class="btn" id="eqClear" type="button">Clear all</button>
+              </div>
+
+              <hr style="border:none; border-top:1px solid rgba(148,163,184,0.25); margin:12px 0" />
+
+              <div class="note" style="margin-top:0"><b>Piping loads (member UDL)</b></div>
+              <div class="grid2" style="margin-top:6px">
+                <div>
+                  <div class="note" style="margin-top:0">Label</div>
+                  <input class="input" id="pipeLabel" placeholder="e.g. 8\" steam" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Direction</div>
+                  <select class="input" id="pipeDir">
+                    <option value="GY" selected>GY (gravity)</option>
+                    <option value="GX">GX</option>
+                    <option value="GZ">GZ</option>
+                  </select>
+                </div>
+              </div>
+              <div class="grid2" style="margin-top:6px">
+                <div>
+                  <div class="note" style="margin-top:0">w (kN/m)</div>
+                  <input class="input" id="pipeW" value="-1.0" />
+                </div>
+                <div>
+                  <div class="note" style="margin-top:0">Selected</div>
+                  <div class="mono" id="pipeSel" style="font-size:12px; opacity:.75">-</div>
+                </div>
+              </div>
+
+              <div class="note" style="margin-top:10px"><b>Piping list</b></div>
+              <div id="pipeList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
+
+              <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
+                <button class="btn" id="pipeUpdate" type="button">Update selected</button>
+                <button class="btn danger" id="pipeDelete" type="button">Delete selected</button>
+                <button class="btn" id="pipeClear" type="button">Clear all</button>
               </div>
             </div>
 
@@ -1625,7 +1762,11 @@ function renderAnalysis(projectId){
             const supportMode0 = (document.getElementById('supportMode')?.value||'PINNED').toString();
             const connCfg = loadConnSettings(p.id);
             const saved0 = loadAnalysisSettings(p.id);
-            const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg, { pointLoads: (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]) });
+            const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg, {
+              pointLoads: (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]),
+              equipmentLoads: (Array.isArray(saved0.equipmentLoads)?saved0.equipmentLoads:[]),
+              pipeLoads: (Array.isArray(saved0.pipeLoads)?saved0.pipeLoads:[]),
+            });
             view?.setPointLoadEditMode?.(
               open,
               payload0.nodes,
@@ -1633,7 +1774,13 @@ function renderAnalysis(projectId){
               (nodeId) => { window.__onPointLoadPick?.(nodeId); },
               (memberId) => { window.__onPointLoadPickMember?.(memberId); }
             );
-            view?.setPointLoadMarkers?.(payload0.nodes, payload0.members, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
+            view?.setPointLoadMarkers?.(
+              payload0.nodes,
+              payload0.members,
+              (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]),
+              (Array.isArray(saved0.equipmentLoads)?saved0.equipmentLoads:[]),
+              (Array.isArray(saved0.pipeLoads)?saved0.pipeLoads:[]),
+            );
           } else {
             view?.setPointLoadEditMode?.(false, null, null, null, null);
           }
@@ -1648,10 +1795,22 @@ function renderAnalysis(projectId){
     // restore settings
     const saved = loadAnalysisSettings(p.id);
 
-    // Point loads state + UI
+    // Loads state + UI
     let pointLoadsState = Array.isArray(saved.pointLoads) ? saved.pointLoads.slice() : [];
-    let pointLoadNextNo = Math.max(0, ...pointLoadsState.map(x => Number(x?.no||0)||0)) + 1;
+    let equipmentLoadsState = Array.isArray(saved.equipmentLoads) ? saved.equipmentLoads.slice() : [];
+    let pipeLoadsState = Array.isArray(saved.pipeLoads) ? saved.pipeLoads.slice() : [];
+
+    // Shared numbering (P#, E#, W#)
+    let loadNextNo = Math.max(
+      0,
+      ...pointLoadsState.map(x => Number(x?.no||0)||0),
+      ...equipmentLoadsState.map(x => Number(x?.no||0)||0),
+      ...pipeLoadsState.map(x => Number(x?.no||0)||0),
+    ) + 1;
+
     let pointLoadSelId = '';
+    let equipSelId = '';
+    let pipeSelId = '';
 
     const renderPlList = () => {
       const host = document.getElementById('plList');
@@ -1667,9 +1826,15 @@ function renderAnalysis(projectId){
       }).join('');
     };
 
-    const syncPl = () => {
-      saveAnalysisSettings(p.id, { pointLoads: pointLoadsState });
+    const syncLoads = () => {
+      saveAnalysisSettings(p.id, {
+        pointLoads: pointLoadsState,
+        equipmentLoads: equipmentLoadsState,
+        pipeLoads: pipeLoadsState,
+      });
       renderPlList();
+      renderEqList();
+      renderPipeList();
       try{ refreshSupportViz(); }catch{}
     };
 
@@ -1697,62 +1862,232 @@ function renderAnalysis(projectId){
       pl.Fx = parseFloat(document.getElementById('plFx')?.value||'0')||0;
       pl.Fy = parseFloat(document.getElementById('plFy')?.value||'0')||0;
       pl.Fz = parseFloat(document.getElementById('plFz')?.value||'0')||0;
-      syncPl();
+      syncLoads();
     });
     document.getElementById('plDelete')?.addEventListener('click', () => {
       if(!pointLoadSelId) return;
       pointLoadsState = pointLoadsState.filter(x => String(x.id)!==pointLoadSelId);
       pointLoadSelId='';
       const el = document.getElementById('plSel'); if(el) el.textContent='-';
-      syncPl();
+      syncLoads();
     });
     document.getElementById('plClear')?.addEventListener('click', () => {
       if(!confirm('Clear all point loads?')) return;
       pointLoadsState = [];
       pointLoadSelId='';
       const el = document.getElementById('plSel'); if(el) el.textContent='-';
-      syncPl();
+      syncLoads();
     });
+
+    const syncPickToggles = () => {
+      const eq = document.getElementById('eqPick');
+      const pi = document.getElementById('pipePick');
+      const plm = document.getElementById('plToMember');
+      if(eq?.checked){ if(pi) pi.checked = false; if(plm) plm.checked = false; }
+      if(pi?.checked){ if(eq) eq.checked = false; if(plm) plm.checked = true; }
+      updatePlModeLabel();
+    };
 
     const updatePlModeLabel = () => {
       const toMember = !!document.getElementById('plToMember')?.checked;
       const el = document.getElementById('plMode');
       if(el) el.textContent = toMember ? 'member' : 'node';
     };
-    document.getElementById('plToMember')?.addEventListener('change', updatePlModeLabel);
-    updatePlModeLabel();
+    document.getElementById('plToMember')?.addEventListener('change', () => { if(document.getElementById('eqPick')?.checked) document.getElementById('plToMember').checked=false; syncPickToggles(); });
+    document.getElementById('eqPick')?.addEventListener('change', syncPickToggles);
+    document.getElementById('pipePick')?.addEventListener('change', syncPickToggles);
+    syncPickToggles();
+
+    // Equipment UI
+    function renderEqList(){
+      const host = document.getElementById('eqList');
+      if(!host) return;
+      if(!equipmentLoadsState.length){ host.innerHTML = '<div class="note" style="margin:0">(none)</div>'; return; }
+      host.innerHTML = equipmentLoadsState.map((pl) => {
+        const id = String(pl.id);
+        const sel = (id===equipSelId);
+        const label = escapeHtml(String(pl.label||''));
+        return `<div class="row" style="margin-top:6px; gap:8px; align-items:center; justify-content:space-between">
+          <button class="btn ${sel?'primary':''}" type="button" data-eq-sel="${escapeHtml(id)}">E${escapeHtml(pl.no)} @ node ${escapeHtml(pl.nodeId)}${label?` · ${label}`:''}</button>
+          <span class="mono" style="font-size:11px; opacity:.75">Fx ${Number(pl.Fx||0)} Fy ${Number(pl.Fy||0)} Fz ${Number(pl.Fz||0)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    function renderPipeList(){
+      const host = document.getElementById('pipeList');
+      if(!host) return;
+      if(!pipeLoadsState.length){ host.innerHTML = '<div class="note" style="margin:0">(none)</div>'; return; }
+      host.innerHTML = pipeLoadsState.map((pl) => {
+        const id = String(pl.id);
+        const sel = (id===pipeSelId);
+        const label = escapeHtml(String(pl.label||''));
+        return `<div class="row" style="margin-top:6px; gap:8px; align-items:center; justify-content:space-between">
+          <button class="btn ${sel?'primary':''}" type="button" data-pipe-sel="${escapeHtml(id)}">W${escapeHtml(pl.no)} @ mem ${escapeHtml(pl.memberId)}${label?` · ${label}`:''}</button>
+          <span class="mono" style="font-size:11px; opacity:.75">${escapeHtml(String(pl.dir||'GY'))} w ${Number(pl.w||0)}</span>
+        </div>`;
+      }).join('');
+    }
+
+    // Equipment presets (ton -> kN)
+    const setEqTon = (t) => {
+      const kN = -(Number(t)||0) * 9.80665;
+      const el = document.getElementById('eqFy');
+      if(el) el.value = kN.toFixed(3);
+    };
+    document.getElementById('eq1t')?.addEventListener('click', () => setEqTon(1));
+    document.getElementById('eq2t')?.addEventListener('click', () => setEqTon(2));
+    document.getElementById('eq5t')?.addEventListener('click', () => setEqTon(5));
+    document.getElementById('eq10t')?.addEventListener('click', () => setEqTon(10));
+
+    document.getElementById('eqList')?.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('button[data-eq-sel]');
+      if(!btn) return;
+      const id = btn.getAttribute('data-eq-sel');
+      if(!id) return;
+      equipSelId = String(id);
+      const pl = equipmentLoadsState.find(x => String(x.id)===equipSelId);
+      const el = document.getElementById('eqSel');
+      if(el) el.textContent = pl ? `E${pl.no} node ${pl.nodeId}` : '-';
+      if(pl){
+        const fx=document.getElementById('eqFx'); if(fx) fx.value = String(pl.Fx||0);
+        const fy=document.getElementById('eqFy'); if(fy) fy.value = String(pl.Fy||0);
+        const fz=document.getElementById('eqFz'); if(fz) fz.value = String(pl.Fz||0);
+        const lb=document.getElementById('eqLabel'); if(lb) lb.value = String(pl.label||'');
+      }
+      renderEqList();
+    });
+
+    document.getElementById('eqUpdate')?.addEventListener('click', () => {
+      if(!equipSelId) return;
+      const pl = equipmentLoadsState.find(x => String(x.id)===equipSelId);
+      if(!pl) return;
+      pl.label = String(document.getElementById('eqLabel')?.value||'');
+      pl.Fx = parseFloat(document.getElementById('eqFx')?.value||'0')||0;
+      pl.Fy = parseFloat(document.getElementById('eqFy')?.value||'0')||0;
+      pl.Fz = parseFloat(document.getElementById('eqFz')?.value||'0')||0;
+      syncLoads();
+    });
+    document.getElementById('eqDelete')?.addEventListener('click', () => {
+      if(!equipSelId) return;
+      equipmentLoadsState = equipmentLoadsState.filter(x => String(x.id)!==equipSelId);
+      equipSelId='';
+      const el = document.getElementById('eqSel'); if(el) el.textContent='-';
+      syncLoads();
+    });
+    document.getElementById('eqClear')?.addEventListener('click', () => {
+      if(!confirm('Clear all equipment loads?')) return;
+      equipmentLoadsState = [];
+      equipSelId='';
+      const el = document.getElementById('eqSel'); if(el) el.textContent='-';
+      syncLoads();
+    });
+
+    // Pipe list handlers
+    document.getElementById('pipeList')?.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('button[data-pipe-sel]');
+      if(!btn) return;
+      const id = btn.getAttribute('data-pipe-sel');
+      if(!id) return;
+      pipeSelId = String(id);
+      const pl = pipeLoadsState.find(x => String(x.id)===pipeSelId);
+      const el = document.getElementById('pipeSel');
+      if(el) el.textContent = pl ? `W${pl.no} mem ${pl.memberId}` : '-';
+      if(pl){
+        const w=document.getElementById('pipeW'); if(w) w.value = String(pl.w||0);
+        const d=document.getElementById('pipeDir'); if(d) d.value = String(pl.dir||'GY');
+        const lb=document.getElementById('pipeLabel'); if(lb) lb.value = String(pl.label||'');
+      }
+      renderPipeList();
+    });
+
+    document.getElementById('pipeUpdate')?.addEventListener('click', () => {
+      if(!pipeSelId) return;
+      const pl = pipeLoadsState.find(x => String(x.id)===pipeSelId);
+      if(!pl) return;
+      pl.label = String(document.getElementById('pipeLabel')?.value||'');
+      pl.dir = String(document.getElementById('pipeDir')?.value||'GY');
+      pl.w = parseFloat(document.getElementById('pipeW')?.value||'0')||0;
+      syncLoads();
+    });
+    document.getElementById('pipeDelete')?.addEventListener('click', () => {
+      if(!pipeSelId) return;
+      pipeLoadsState = pipeLoadsState.filter(x => String(x.id)!==pipeSelId);
+      pipeSelId='';
+      const el = document.getElementById('pipeSel'); if(el) el.textContent='-';
+      syncLoads();
+    });
+    document.getElementById('pipeClear')?.addEventListener('click', () => {
+      if(!confirm('Clear all piping loads?')) return;
+      pipeLoadsState = [];
+      pipeSelId='';
+      const el = document.getElementById('pipeSel'); if(el) el.textContent='-';
+      syncLoads();
+    });
 
     window.__onPointLoadPick = (nodeId) => {
-      // ignore node picks when in member mode
+      // Equipment pick has priority
+      if(document.getElementById('eqPick')?.checked === true){
+        const Fx = parseFloat(document.getElementById('eqFx')?.value||'0')||0;
+        const Fy = parseFloat(document.getElementById('eqFy')?.value||'0')||0;
+        const Fz = parseFloat(document.getElementById('eqFz')?.value||'0')||0;
+        const label = String(document.getElementById('eqLabel')?.value||'');
+        const id = `eq_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+        const rec = { id, no: loadNextNo++, nodeId: String(nodeId), Fx, Fy, Fz, label };
+        equipmentLoadsState.push(rec);
+        equipSelId = id;
+        const el = document.getElementById('eqSel'); if(el) el.textContent = `E${rec.no} node ${rec.nodeId}`;
+        syncLoads();
+        return;
+      }
+
+      // Point load node pick (ignore when in member mode)
       if(!!document.getElementById('plToMember')?.checked) return;
       const Fx = parseFloat(document.getElementById('plFx')?.value||'0')||0;
       const Fy = parseFloat(document.getElementById('plFy')?.value||'0')||0;
       const Fz = parseFloat(document.getElementById('plFz')?.value||'0')||0;
       const id = `pl_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
-      const rec = { id, no: pointLoadNextNo++, nodeId: String(nodeId), Fx, Fy, Fz };
+      const rec = { id, no: loadNextNo++, nodeId: String(nodeId), Fx, Fy, Fz };
       pointLoadsState.push(rec);
       pointLoadSelId = id;
       const el = document.getElementById('plSel'); if(el) el.textContent = `P${rec.no} node ${rec.nodeId}`;
-      syncPl();
+      syncLoads();
     };
 
     window.__onPointLoadPickMember = (memberId) => {
-      // ignore member picks when in node mode
+      // Piping pick has priority
+      if(document.getElementById('pipePick')?.checked === true){
+        const w = parseFloat(document.getElementById('pipeW')?.value||'0')||0;
+        const dir = String(document.getElementById('pipeDir')?.value||'GY');
+        const label = String(document.getElementById('pipeLabel')?.value||'');
+        const id = `pipe_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+        const rec = { id, no: loadNextNo++, memberId: String(memberId), w, dir, label };
+        pipeLoadsState.push(rec);
+        pipeSelId = id;
+        const el = document.getElementById('pipeSel');
+        if(el) el.textContent = `W${rec.no} mem ${rec.memberId}`;
+        syncLoads();
+        return;
+      }
+
+      // Point load member pick (ignore when in node mode)
       if(!(!!document.getElementById('plToMember')?.checked)) return;
       const Fx = parseFloat(document.getElementById('plFx')?.value||'0')||0;
       const Fy = parseFloat(document.getElementById('plFy')?.value||'0')||0;
       const Fz = parseFloat(document.getElementById('plFz')?.value||'0')||0;
       const distMm = parseFloat(document.getElementById('plDistMm')?.value||'0')||0;
       const id = `plm_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
-      const rec = { id, no: pointLoadNextNo++, memberId: String(memberId), distMm, Fx, Fy, Fz };
+      const rec = { id, no: loadNextNo++, memberId: String(memberId), distMm, Fx, Fy, Fz };
       pointLoadsState.push(rec);
       pointLoadSelId = id;
       const el = document.getElementById('plSel');
       if(el) el.textContent = `P${rec.no} mem ${rec.memberId} @ ${Math.round(rec.distMm)}mm`;
-      syncPl();
+      syncLoads();
     };
 
     renderPlList();
+    renderEqList();
+    renderPipeList();
 
     const setIf = (id, v) => { const el=document.getElementById(id); if(el!=null && v!=null && v!=='') el.value = String(v); };
     setIf('supportMode', saved.supportMode);
@@ -3787,14 +4122,24 @@ function renderAnalysis(projectId){
         const supportMode0 = (document.getElementById('supportMode')?.value||'PINNED').toString();
         const connCfg = loadConnSettings(p.id);
         const saved0 = loadAnalysisSettings(p.id);
-        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg, { pointLoads: (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]) });
+        const payload0 = buildAnalysisPayload(model, qLive0, supportMode0, connCfg, {
+          pointLoads: (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]),
+          equipmentLoads: (Array.isArray(saved0.equipmentLoads)?saved0.equipmentLoads:[]),
+          pipeLoads: (Array.isArray(saved0.pipeLoads)?saved0.pipeLoads:[]),
+        });
         const ids = curSupportIds();
         const fixed = supportMode0.toUpperCase()==='FIXED';
         payload0.supports = ids.map(id => ({ nodeId:id, fix:{ DX:true,DY:true,DZ:true,RX:fixed,RY:fixed,RZ:fixed } }));
         view.setSupportMarkers?.(payload0.supports, payload0.nodes, supportMode0);
         view.setBaseNodes?.(payload0.nodes, ids, supportMode0);
         view.setConnectionMarkers?.(members, connCfg);
-        view.setPointLoadMarkers?.(payload0.nodes, payload0.members, (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]));
+        view.setPointLoadMarkers?.(
+          payload0.nodes,
+          payload0.members,
+          (Array.isArray(saved0.pointLoads)?saved0.pointLoads:[]),
+          (Array.isArray(saved0.equipmentLoads)?saved0.equipmentLoads:[]),
+          (Array.isArray(saved0.pipeLoads)?saved0.pipeLoads:[]),
+        );
       }catch{}
     };
 
@@ -8821,7 +9166,7 @@ async function createThreeView(container){
     }
   }
 
-  function setPointLoadMarkers(nodes, engineMembers, pointLoads=[]){
+  function setPointLoadMarkers(nodes, engineMembers, pointLoads=[], equipmentLoads=[], pipeLoads=[]){
     while(plMarkGroup.children.length) plMarkGroup.remove(plMarkGroup.children[0]);
     if(!nodes) return;
     const nodeMap = new Map((nodes||[]).map(n => [String(n.id), n]));
@@ -8846,6 +9191,23 @@ async function createThreeView(container){
       return spr;
     };
 
+    const drawArrowAt = (x,y,z, tagText, dirKey='GY', color=0xff0000) => {
+      const dir = (String(dirKey).toUpperCase()==='GX') ? new THREE.Vector3(1,0,0)
+        : (String(dirKey).toUpperCase()==='GZ') ? new THREE.Vector3(0,0,1)
+        : new THREE.Vector3(0,-1,0);
+      const L = 1.2;
+      const origin = new THREE.Vector3(x, y + (dir.y<0?L:0), z);
+      const ah = new THREE.ArrowHelper(dir, origin, L, color, 0.40, 0.22);
+      ah.cone.material.depthTest = false;
+      ah.line.material.depthTest = false;
+      ah.renderOrder = 299;
+      plMarkGroup.add(ah);
+      const spr = makeTextSprite(tagText);
+      spr.position.set(x, y + L + 0.25, z);
+      plMarkGroup.add(spr);
+    };
+
+    // Point loads
     for(const pl of (pointLoads||[])){
       const no = pl?.no ?? pl?.id ?? '';
 
@@ -8854,17 +9216,7 @@ async function createThreeView(container){
       if(nid){
         const n = nodeMap.get(nid);
         if(!n) continue;
-        const dir = new THREE.Vector3(0,-1,0);
-        const L = 1.2;
-        const origin = new THREE.Vector3(n.x, n.y + L, n.z);
-        const ah = new THREE.ArrowHelper(dir, origin, L, 0xff0000, 0.40, 0.22);
-        ah.cone.material.depthTest = false;
-        ah.line.material.depthTest = false;
-        ah.renderOrder = 299;
-        plMarkGroup.add(ah);
-        const spr = makeTextSprite(`P${no}`);
-        spr.position.set(n.x, n.y + L + 0.25, n.z);
-        plMarkGroup.add(spr);
+        drawArrowAt(n.x, n.y, n.z, `P${no}`, 'GY', 0xff0000);
         continue;
       }
 
@@ -8884,17 +9236,40 @@ async function createThreeView(container){
       const px = a[0] + dx*t;
       const py = a[1] + dy*t;
       const pz = a[2] + dz*t;
-      const dir = new THREE.Vector3(0,-1,0);
-      const L = 1.2;
-      const origin = new THREE.Vector3(px, py + L, pz);
-      const ah = new THREE.ArrowHelper(dir, origin, L, 0xff0000, 0.40, 0.22);
-      ah.cone.material.depthTest = false;
-      ah.line.material.depthTest = false;
-      ah.renderOrder = 299;
-      plMarkGroup.add(ah);
-      const spr = makeTextSprite(`P${no}`);
-      spr.position.set(px, py + L + 0.25, pz);
-      plMarkGroup.add(spr);
+      drawArrowAt(px, py, pz, `P${no}`, 'GY', 0xff0000);
+    }
+
+    // Equipment loads
+    for(const el of (equipmentLoads||[])){
+      const no = el?.no ?? el?.id ?? '';
+      const nid = String(el?.nodeId||'');
+      if(!nid) continue;
+      const n = nodeMap.get(nid);
+      if(!n) continue;
+      // direction: use dominant component for display
+      const Fx = Number(el?.Fx||0)||0;
+      const Fy = Number(el?.Fy||0)||0;
+      const Fz = Number(el?.Fz||0)||0;
+      const ax = Math.abs(Fx), ay = Math.abs(Fy), az = Math.abs(Fz);
+      const dirKey = (ax>=ay && ax>=az) ? 'GX' : (az>=ay ? 'GZ' : 'GY');
+      const color = 0xf97316;
+      drawArrowAt(n.x, n.y, n.z, `E${no}`, dirKey, color);
+    }
+
+    // Piping loads (member UDL) — show at member midpoint
+    for(const wl of (pipeLoads||[])){
+      const no = wl?.no ?? wl?.id ?? '';
+      const mid = String(wl?.memberId||'');
+      if(!mid) continue;
+      const mem = memMap.get(mid);
+      const a = mem?.a, b = mem?.b;
+      if(!mem || !a || !b) continue;
+      const px = (a[0]+b[0])/2;
+      const py = (a[1]+b[1])/2;
+      const pz = (a[2]+b[2])/2;
+      const dirKey = String(wl?.dir||'GY');
+      const color = 0x0ea5e9;
+      drawArrowAt(px, py, pz, `W${no}`, dirKey, color);
     }
   }
 
