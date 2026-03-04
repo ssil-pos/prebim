@@ -1,5 +1,9 @@
 # RUNBOOK_PREBIM.md
 
+## Codes strategy
+
+- See `docs/CODES_STRATEGY_KDS_US.md` for the KDS(KR)+US(ASCE7/AISC) phased plan.
+
 ## Roadmap
 
 - UI route: `#/roadmap`
