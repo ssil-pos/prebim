@@ -1443,7 +1443,7 @@ function renderAnalysis(projectId){
 
             <button class="acc-btn" type="button" data-acc="loads">Loads <span class="chev" id="chevLoads">▾</span></button>
             <div class="acc-panel" id="panelLoads">
-              <div class="note" style="margin-top:0">Loads are applied to case <b>D</b> (kN, kN/m). MVP: piping member loads are converted to equivalent nodal forces.</div>
+              <div class="note" style="margin-top:0">Load cases: <b>Point loads → D</b>, <b>Equipment → EQUIP</b>, <b>Piping → PIPE</b>. Units: kN, kN/m.</div>
 
               <div class="note" style="margin-top:10px"><b>Mode</b></div>
               <label class="badge" style="margin-top:8px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
@@ -1467,6 +1467,7 @@ function renderAnalysis(projectId){
                 <div>
                   <div class="note" style="margin-top:0">Mode</div>
                   <div class="mono" id="plMode" style="font-size:12px; opacity:.75">node</div>
+                  <div class="note" style="margin-top:6px">Case: <b id="plCaseHint">D</b></div>
                 </div>
               </div>
               <div class="grid2">
@@ -1893,6 +1894,21 @@ function renderAnalysis(projectId){
       if(eq?.checked){ if(pi) pi.checked = false; if(plm) plm.checked = false; }
       if(pi?.checked){ if(eq) eq.checked = false; if(plm) plm.checked = true; }
       updatePlModeLabel();
+      updateLoadCaseHint();
+    };
+
+    const updateLoadCaseHint = () => {
+      const eqOn = (document.getElementById('eqPick')?.checked === true);
+      const piOn = (document.getElementById('pipePick')?.checked === true);
+      const toMember = (document.getElementById('plToMember')?.checked === true);
+      const el = document.getElementById('plCaseHint');
+      if(!el) return;
+      if(eqOn) el.textContent = 'EQUIP';
+      else if(piOn) el.textContent = 'PIPE';
+      else el.textContent = 'D';
+      // also reflect point-load member/node mode
+      const el2 = document.getElementById('plMode');
+      if(el2) el2.textContent = toMember ? 'member' : 'node';
     };
 
     const updatePlModeLabel = () => {
@@ -1904,6 +1920,7 @@ function renderAnalysis(projectId){
     document.getElementById('eqPick')?.addEventListener('change', syncPickToggles);
     document.getElementById('pipePick')?.addEventListener('change', syncPickToggles);
     syncPickToggles();
+    updateLoadCaseHint();
 
     // Equipment UI
     function renderEqList(){
