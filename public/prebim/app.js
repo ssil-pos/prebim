@@ -9139,38 +9139,67 @@ async function createThreeView(container){
     const nodeMap = new Map((nodes||[]).map(n => [String(n.id), n]));
     const memMap = new Map((engineMembers||[]).map(m => [String(m?.id), m]));
 
-    const makeTextSprite = (text) => {
+    // scale markers with model size
+    let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+    try{
+      for(const n of (nodes||[])){
+        minX=Math.min(minX,n.x); minY=Math.min(minY,n.y); minZ=Math.min(minZ,n.z);
+        maxX=Math.max(maxX,n.x); maxY=Math.max(maxY,n.y); maxZ=Math.max(maxZ,n.z);
+      }
+    }catch{}
+    const diag = Math.hypot(maxX-minX, maxY-minY, maxZ-minZ) || 10;
+    const arrowL = Math.max(0.9, diag * 0.06);
+    const headL = Math.max(0.22, arrowL * 0.33);
+    const headW = Math.max(0.12, headL * 0.55);
+
+    const makeTextSprite = (text, bg='rgba(2,6,23,0.75)') => {
       const canvas = document.createElement('canvas');
       canvas.width = 256; canvas.height = 128;
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle = 'rgba(2,6,23,0.75)';
-      ctx.fillRect(0,0,canvas.width,canvas.height);
+      // rounded rect
+      const r = 16;
+      ctx.fillStyle = bg;
+      ctx.beginPath();
+      ctx.moveTo(r,0);
+      ctx.lineTo(canvas.width-r,0);
+      ctx.quadraticCurveTo(canvas.width,0,canvas.width,r);
+      ctx.lineTo(canvas.width,canvas.height-r);
+      ctx.quadraticCurveTo(canvas.width,canvas.height,canvas.width-r,canvas.height);
+      ctx.lineTo(r,canvas.height);
+      ctx.quadraticCurveTo(0,canvas.height,0,canvas.height-r);
+      ctx.lineTo(0,r);
+      ctx.quadraticCurveTo(0,0,r,0);
+      ctx.closePath();
+      ctx.fill();
+
       ctx.fillStyle = 'white';
-      ctx.font = 'bold 48px ui-sans-serif';
+      ctx.font = 'bold 52px ui-sans-serif';
       ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.fillText(String(text), canvas.width/2, canvas.height/2);
+      ctx.fillText(String(text), canvas.width/2, canvas.height/2 + 2);
       const tex = new THREE.CanvasTexture(canvas);
       const mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthTest:false });
       const spr = new THREE.Sprite(mat);
-      spr.scale.set(0.9, 0.45, 1);
+      const s = Math.max(0.55, arrowL * 0.55);
+      spr.scale.set(s, s*0.55, 1);
       spr.renderOrder = 300;
       return spr;
     };
 
-    const drawArrowAt = (x,y,z, tagText, dirKey='GY', color=0xff0000) => {
-      const dir = (String(dirKey).toUpperCase()==='GX') ? new THREE.Vector3(1,0,0)
-        : (String(dirKey).toUpperCase()==='GZ') ? new THREE.Vector3(0,0,1)
+    const drawArrowAt = (x,y,z, tagText, dirKey='GY', color=0xff0000, bg=null) => {
+      const dk = String(dirKey).toUpperCase();
+      const dir = (dk==='GX') ? new THREE.Vector3(1,0,0)
+        : (dk==='GZ') ? new THREE.Vector3(0,0,1)
         : new THREE.Vector3(0,-1,0);
-      const L = 1.2;
+      const L = arrowL;
       const origin = new THREE.Vector3(x, y + (dir.y<0?L:0), z);
-      const ah = new THREE.ArrowHelper(dir, origin, L, color, 0.40, 0.22);
+      const ah = new THREE.ArrowHelper(dir, origin, L, color, headL, headW);
       ah.cone.material.depthTest = false;
       ah.line.material.depthTest = false;
       ah.renderOrder = 299;
       plMarkGroup.add(ah);
-      const spr = makeTextSprite(tagText);
-      spr.position.set(x, y + L + 0.25, z);
+      const spr = makeTextSprite(tagText, bg || 'rgba(2,6,23,0.75)');
+      spr.position.set(x, y + L + (arrowL*0.18), z);
       plMarkGroup.add(spr);
     };
 
@@ -9183,7 +9212,7 @@ async function createThreeView(container){
       if(nid){
         const n = nodeMap.get(nid);
         if(!n) continue;
-        drawArrowAt(n.x, n.y, n.z, `P${no}`, 'GY', 0xff0000);
+        drawArrowAt(n.x, n.y, n.z, `P${no}`, 'GY', 0xff0000, 'rgba(239,68,68,0.85)');
         continue;
       }
 
@@ -9203,7 +9232,7 @@ async function createThreeView(container){
       const px = a[0] + dx*t;
       const py = a[1] + dy*t;
       const pz = a[2] + dz*t;
-      drawArrowAt(px, py, pz, `P${no}`, 'GY', 0xff0000);
+      drawArrowAt(px, py, pz, `P${no}`, 'GY', 0xff0000, 'rgba(239,68,68,0.85)');
     }
 
     // Equipment loads
@@ -9220,7 +9249,7 @@ async function createThreeView(container){
       const ax = Math.abs(Fx), ay = Math.abs(Fy), az = Math.abs(Fz);
       const dirKey = (ax>=ay && ax>=az) ? 'GX' : (az>=ay ? 'GZ' : 'GY');
       const color = 0xf97316;
-      drawArrowAt(n.x, n.y, n.z, `E${no}`, dirKey, color);
+      drawArrowAt(n.x, n.y, n.z, `E${no}`, dirKey, color, 'rgba(249,115,22,0.85)');
     }
 
     // Piping loads (member UDL) — show at member midpoint
@@ -9236,7 +9265,7 @@ async function createThreeView(container){
       const pz = (a[2]+b[2])/2;
       const dirKey = String(wl?.dir||'GY');
       const color = 0x0ea5e9;
-      drawArrowAt(px, py, pz, `W${no}`, dirKey, color);
+      drawArrowAt(px, py, pz, `W${no}`, dirKey, color, 'rgba(14,165,233,0.80)');
     }
   }
 
