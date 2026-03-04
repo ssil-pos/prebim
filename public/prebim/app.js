@@ -1092,7 +1092,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 const ROADMAP_STORE_KEY = 'prebim_roadmap_v1';
 const ROADMAP_DEFAULT = {
   // Bump version when defaults change and you want clients to pick up updates.
-  version: 3,
+  version: 4,
   milestones: [
     {
       id: 'mvp-ship-v1',
@@ -1128,7 +1128,7 @@ const ROADMAP_DEFAULT = {
     {
       id: 'equipment-piping-loads',
       title: 'Equipment & piping loads (concept-level)',
-      status: 'planned',
+      status: 'done',
       details: [
         'Equipment: point loads with presets (kN/ton) + label',
         'Piping: line/distributed loads along members with simple rules',
@@ -1138,7 +1138,7 @@ const ROADMAP_DEFAULT = {
     {
       id: 'opening-frames',
       title: 'Opening frames (rule-based framing around opening)',
-      status: 'planned',
+      status: 'done',
       details: [
         'Define opening rectangle on slab/face',
         'Auto-generate trimmer/header members with configurable offsets',
