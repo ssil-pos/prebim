@@ -4170,7 +4170,7 @@ function renderEditor(projectId){
             <b>Opening</b>
             <button class="pill" id="btnPopOpenClose" type="button">Close</button>
           </div>
-          <div class="note" style="margin-top:8px">MVP: click bays on a level to define a rectangular opening (grid-aligned). Add opening creates perimeter framing members.</div>
+          <div class="note" style="margin-top:8px">MVP: click bays on a level to define a rectangular opening (grid-aligned). Add opening creates perimeter framing members. (Floor braces inside the opening are automatically ignored.)</div>
 
           <div class="grid2" style="margin-top:10px">
             <div>

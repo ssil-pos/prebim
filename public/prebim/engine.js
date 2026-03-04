@@ -396,6 +396,15 @@ export function generateMembers(model){
       const ix = parseInt(br.bayX,10)||0;
       const iy = parseInt(br.bayY,10)||0;
       if(ix < 0 || iy < 0 || ix >= nx-1 || iy >= ny-1) continue;
+      // skip braces inside opening bays at this level
+      try{
+        const ops = Array.isArray(m.openings) ? m.openings.filter(o => (Number(o.level)||0)===iz) : [];
+        let inOpening = false;
+        for(const o of ops){
+          if(ix >= o.ix0 && ix <= o.ix1 && iy >= o.iy0 && iy <= o.iy1){ inOpening = true; break; }
+        }
+        if(inOpening) continue;
+      }catch{}
       const y = levelsM[iz];
       const x0 = xs[ix], x1 = xs[ix+1];
       const z0 = ys[iy], z1 = ys[iy+1];
