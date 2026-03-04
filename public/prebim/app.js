@@ -2251,15 +2251,32 @@ function renderAnalysis(projectId){
         });
         const combos = Array.isArray(payload0?.combos) ? payload0.combos : [];
         const want = combos.map(c => String(c.name||'')).filter(Boolean);
-        const existing = new Set(Array.from(cm.options).map(o => String(o.value)));
+
+        // Rebuild options (avoid stale options when switching codeProfile/method)
+        const keep = [
+          { v:'ENVELOPE', t:'ENVELOPE (all combos)' },
+          { v:'D+L', t:'D+L (single)' },
+          { v:'D', t:'D (single)' },
+        ];
+        const prev = String(cm.value || 'ENVELOPE');
+        cm.innerHTML='';
+        for(const k of keep){
+          const o=document.createElement('option');
+          o.value=k.v; o.textContent=k.t;
+          if(k.v==='ENVELOPE') o.selected=true;
+          cm.appendChild(o);
+        }
         for(const name of want){
-          if(existing.has(name)) continue;
+          // skip duplicates of the static defaults
+          if(keep.some(k => k.v===name)) continue;
           const o = document.createElement('option');
           o.value = name;
           o.textContent = `${name} (single)`;
           cm.appendChild(o);
-          existing.add(name);
         }
+        // restore selection if still present
+        const hasPrev = Array.from(cm.options).some(o => String(o.value)===prev);
+        if(hasPrev) cm.value = prev;
       }catch{}
     };
 
@@ -3528,7 +3545,7 @@ function renderAnalysis(projectId){
         });
         const combos = payload?.combos || [];
         const html = `
-          <div class="note" style="margin-top:0">Design method: <b>${escapeHtml(designMethod)}</b></div>
+          <div class="note" style="margin-top:0">Code: <b>${escapeHtml(String(document.getElementById('codeProfile')?.value||'KDS'))}</b> · Method: <b>${escapeHtml(designMethod)}</b></div>
           <div style="overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; margin-top:10px">
             <table class="table" style="min-width:520px">
               <thead><tr><th>Combo</th><th>Factors</th></tr></thead>
