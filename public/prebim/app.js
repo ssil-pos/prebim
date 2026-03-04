@@ -953,13 +953,14 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
 
   // Load cases
   const caseD = { name:'D', selfweightY: -1.0, memberUDL: [], nodeLoads: [] };
+  const caseEQUIP = { name:'EQUIP', selfweightY: 0.0, memberUDL: [], nodeLoads: [] };
+  const casePIPE = { name:'PIPE', selfweightY: 0.0, memberUDL: [], nodeLoads: [] };
 
-  // Node helper
-  const addNodeTriplet = (nodeId, Fx, Fy, Fz) => {
+  const addNodeTriplet = (arr, nodeId, Fx, Fy, Fz) => {
     if(!nodeId) return;
-    if(Math.abs(Fx)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GX', F: Fx });
-    if(Math.abs(Fy)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GY', F: Fy });
-    if(Math.abs(Fz)>1e-9) caseD.nodeLoads.push({ nodeId, dir:'GZ', F: Fz });
+    if(Math.abs(Fx)>1e-9) arr.push({ nodeId, dir:'GX', F: Fx });
+    if(Math.abs(Fy)>1e-9) arr.push({ nodeId, dir:'GY', F: Fy });
+    if(Math.abs(Fz)>1e-9) arr.push({ nodeId, dir:'GZ', F: Fz });
   };
 
   // Point loads (kN) applied to Dead load case
@@ -970,7 +971,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       const Fz = Number(pl?.Fz||0)||0;
 
       const nodeId = String(pl?.nodeId||'');
-      if(nodeId){ addNodeTriplet(nodeId, Fx, Fy, Fz); continue; }
+      if(nodeId){ addNodeTriplet(caseD.nodeLoads, nodeId, Fx, Fy, Fz); continue; }
 
       // Member point load: look up precomputed split-point joint id
       const plId = String(pl?.id||'');
@@ -978,7 +979,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       if(!rec) continue;
       const nid = String(rec.nodeId||'');
       if(!nid) continue;
-      addNodeTriplet(nid, Fx, Fy, Fz);
+      addNodeTriplet(caseD.nodeLoads, nid, Fx, Fy, Fz);
     }
   }catch(e){ console.warn('pointLoads apply failed', e); }
 
@@ -990,7 +991,7 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
       const Fz = Number(el?.Fz||0)||0;
       const nodeId = String(el?.nodeId||'');
       if(!nodeId) continue;
-      addNodeTriplet(nodeId, Fx, Fy, Fz);
+      addNodeTriplet(caseEQUIP.nodeLoads, nodeId, Fx, Fy, Fz);
     }
   }catch(e){ console.warn('equipmentLoads apply failed', e); }
 
@@ -1036,8 +1037,8 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
           const Ftot = w * Lseg;
           const Fi = Ftot/2;
           const Fj = Ftot/2;
-          if(Math.abs(Fi)>1e-9) caseD.nodeLoads.push({ nodeId: String(jI), dir, F: Fi });
-          if(Math.abs(Fj)>1e-9) caseD.nodeLoads.push({ nodeId: String(jJ), dir, F: Fj });
+          if(Math.abs(Fi)>1e-9) casePIPE.nodeLoads.push({ nodeId: String(jI), dir, F: Fi });
+          if(Math.abs(Fj)>1e-9) casePIPE.nodeLoads.push({ nodeId: String(jJ), dir, F: Fj });
         }
       }
     }
@@ -1050,6 +1051,8 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const caseEQZ = { name:'EQZ', selfweightY: 0.0, memberUDL: [], nodeLoads: (hasEqStoryZ ? buildStoryNodeLoads(eqStoryZ,'GZ') : splitToTop(eqZ).map(x=>({ ...x, dir:'GZ' }))) };
 
   const cases = [caseD, caseL];
+  if(caseEQUIP.nodeLoads.length) cases.push(caseEQUIP);
+  if(casePIPE.nodeLoads.length) cases.push(casePIPE);
   if(snowLoads.length) cases.push(caseS);
   if(hasWindStoryX || Math.abs(windX)>1e-9) cases.push(caseWX);
   if(hasWindStoryZ || Math.abs(windZ)>1e-9) cases.push(caseWZ);
@@ -1061,6 +1064,8 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const combos = [];
 
   const hasS = snowLoads.length > 0;
+  const hasEQUIP = caseEQUIP.nodeLoads.length > 0;
+  const hasPIPE = casePIPE.nodeLoads.length > 0;
   const hasWX = hasWindStoryX || (Math.abs(windX) > 1e-9);
   const hasWZ = hasWindStoryZ || (Math.abs(windZ) > 1e-9);
   const hasEQX = hasEqStoryX || (Math.abs(eqX) > 1e-9);
@@ -1076,6 +1081,10 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     if(hasWZ) combos.push({ name:'D+WZ', factors:{ D:0.6, WZ:0.45 } });
     if(hasEQX) combos.push({ name:'D+EQX', factors:{ D:0.6, EQX:0.7 } });
     if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:0.6, EQZ:0.7 } });
+
+    // Extra (concept-level) combos
+    if(hasEQUIP || hasPIPE) combos.push({ name:'D+EQUIP+PIPE', factors:{ D:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+    if(hasEQUIP || hasPIPE) combos.push({ name:'D+L+EQUIP+PIPE', factors:{ D:1.0, L:0.75, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
   } else {
     // Strength table (page 5) - core combos we support.
     combos.push({ name:'D', factors:{ D:1.4 } });
@@ -1087,6 +1096,10 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:0.9, EQZ:1.0 } });
     if(hasS && hasWX) combos.push({ name:'D+L+WX+S', factors:{ D:1.2, L:1.6, WX:1.0, S:0.5 } });
     if(hasS && hasWZ) combos.push({ name:'D+L+WZ+S', factors:{ D:1.2, L:1.6, WZ:1.0, S:0.5 } });
+
+    // Extra (concept-level) combos
+    if(hasEQUIP || hasPIPE) combos.push({ name:'D+EQUIP+PIPE', factors:{ D:1.2, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+    if(hasEQUIP || hasPIPE) combos.push({ name:'D+L+EQUIP+PIPE', factors:{ D:1.2, L:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
   }
 
   return {
