@@ -1634,6 +1634,7 @@ function renderAnalysis(projectId){
                 <option value="ENVELOPE" selected>ENVELOPE (all combos)</option>
                 <option value="D+L">D+L (single)</option>
                 <option value="D">D (single)</option>
+                <!-- dynamic combos like D+EQUIP+PIPE are appended at runtime -->
               </select>
 
               <label class="badge" style="margin-top:10px; cursor:pointer; user-select:none; display:flex; gap:8px; align-items:center">
@@ -2125,8 +2126,49 @@ function renderAnalysis(projectId){
     renderEqList();
     renderPipeList();
 
+    const ensureComboOptions = () => {
+      try{
+        const cm = document.getElementById('comboMode');
+        if(!cm) return;
+        // Build a minimal payload to discover available combos.
+        const qLive = parseFloat((document.getElementById('qLive')?.value || saved.qLive || '3').toString()) || 0;
+        const qSnow = parseFloat((document.getElementById('qSnow')?.value || saved.qSnow || '0').toString()) || 0;
+        const windX = parseFloat((document.getElementById('windX')?.value || saved.windX || '0').toString()) || 0;
+        const windZ = parseFloat((document.getElementById('windZ')?.value || saved.windZ || '0').toString()) || 0;
+        const eqX = parseFloat((document.getElementById('eqX')?.value || saved.eqX || '0').toString()) || 0;
+        const eqZ = parseFloat((document.getElementById('eqZ')?.value || saved.eqZ || '0').toString()) || 0;
+        const designMethod = (document.getElementById('designMethod')?.value || saved.designMethod || 'STRENGTH').toString();
+        const supportMode = (document.getElementById('supportMode')?.value || saved.supportMode || 'PINNED').toString();
+        const connCfg = loadConnSettings(p.id);
+        const payload0 = buildAnalysisPayload(model, qLive, supportMode, connCfg, {
+          qSnow, windX, windZ, eqX, eqZ,
+          windStoryX: lateralStory.windStoryX,
+          windStoryZ: lateralStory.windStoryZ,
+          eqStoryX: lateralStory.eqStoryX,
+          eqStoryZ: lateralStory.eqStoryZ,
+          designMethod,
+          rigidDia: (document.getElementById('rigidDia')?.checked !== false),
+          pointLoads: pointLoadsState,
+          equipmentLoads: equipmentLoadsState,
+          pipeLoads: pipeLoadsState,
+        });
+        const combos = Array.isArray(payload0?.combos) ? payload0.combos : [];
+        const want = combos.map(c => String(c.name||'')).filter(Boolean);
+        const existing = new Set(Array.from(cm.options).map(o => String(o.value)));
+        for(const name of want){
+          if(existing.has(name)) continue;
+          const o = document.createElement('option');
+          o.value = name;
+          o.textContent = `${name} (single)`;
+          cm.appendChild(o);
+          existing.add(name);
+        }
+      }catch{}
+    };
+
     const setIf = (id, v) => { const el=document.getElementById(id); if(el!=null && v!=null && v!=='') el.value = String(v); };
     setIf('supportMode', saved.supportMode);
+    ensureComboOptions();
     setIf('comboMode', saved.comboMode);
     // restore live load preset / value
     const lp = document.getElementById('livePreset');
@@ -2184,6 +2226,7 @@ function renderAnalysis(projectId){
       const v = String(livePresetEl.value || 'custom');
       if(v !== 'custom') qLiveEl.value = v;
       saveAnalysisSettings(p.id, { livePreset: v, qLive: qLiveEl.value });
+      ensureComboOptions();
     };
     livePresetEl?.addEventListener('change', applyLivePreset);
     // If a preset value is selected on load, enforce it.
@@ -3441,6 +3484,8 @@ function renderAnalysis(projectId){
           autoKds,
           analysisScale,
           pointLoads: pointLoadsState,
+          equipmentLoads: equipmentLoadsState,
+          pipeLoads: pipeLoadsState,
         });
 
         const connCfg = loadConnSettings(p.id);
@@ -3453,6 +3498,8 @@ function renderAnalysis(projectId){
           designMethod,
           rigidDia,
           pointLoads: pointLoadsState,
+          equipmentLoads: equipmentLoadsState,
+          pipeLoads: pipeLoadsState,
         });
         // Keep helper fields (_engineIds/_kinds/_connModes) locally for UI computations.
         lastPayload = payload;
@@ -4065,8 +4112,8 @@ function renderAnalysis(projectId){
       saveAnalysisSettings(p.id, { supportMode, designMethod, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, supportNodes, analysisScale, editSupports, rigidDia, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, checks, ...patch });
     };
     ['supportMode','designMethod','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','rigidDia','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => persist());
-      document.getElementById(id)?.addEventListener('input', () => persist());
+      document.getElementById(id)?.addEventListener('change', () => { persist(); ensureComboOptions(); });
+      document.getElementById(id)?.addEventListener('input', () => { persist(); ensureComboOptions(); });
     });
     ['chkMain','chkSub','chkCol'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => persist());
