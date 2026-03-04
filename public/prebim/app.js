@@ -1076,29 +1076,49 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const pushUsCombos = () => {
     const asd = (designMethod === 'ASD');
     // Interpret designMethod as LRFD vs ASD when codeProfile=US.
+    // NOTE: Concept-level templates (not a full ASCE7 implementation).
+
     if(asd){
+      // Common ASD-style (simplified)
       combos.push({ name:'D', factors:{ D:1.0 } });
       combos.push({ name:'D+L', factors:{ D:1.0, L:1.0 } });
       if(hasS) combos.push({ name:'D+S', factors:{ D:1.0, S:1.0 } });
+      if(hasS) combos.push({ name:'D+0.75L+0.75S', factors:{ D:1.0, L:0.75, S:0.75 } });
+
       if(hasWX) combos.push({ name:'D+WX', factors:{ D:1.0, WX:1.0 } });
       if(hasWZ) combos.push({ name:'D+WZ', factors:{ D:1.0, WZ:1.0 } });
       if(hasEQX) combos.push({ name:'D+EQX', factors:{ D:1.0, EQX:1.0 } });
       if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:1.0, EQZ:1.0 } });
+
+      // With equipment/piping
       if(hasEQUIP || hasPIPE) combos.push({ name:'D+EQUIP+PIPE', factors:{ D:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
       if(hasEQUIP || hasPIPE) combos.push({ name:'D+L+EQUIP+PIPE', factors:{ D:1.0, L:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+      if(hasS && (hasEQUIP || hasPIPE)) combos.push({ name:'D+0.75L+0.75S+EQUIP+PIPE', factors:{ D:1.0, L:0.75, S:0.75, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
       return;
     }
 
-    // LRFD-ish
+    // LRFD-ish (simplified ASCE7 set)
     combos.push({ name:'1.4D', factors:{ D:1.4 } });
     combos.push({ name:'1.2D+1.6L', factors:{ D:1.2, L:1.6 } });
+    if(hasS) combos.push({ name:'1.2D+1.6S+0.5L', factors:{ D:1.2, S:1.6, L:0.5 } });
     if(hasS) combos.push({ name:'1.2D+1.6L+0.5S', factors:{ D:1.2, L:1.6, S:0.5 } });
+
+    // Wind / Seismic (directional)
+    if(hasWX) combos.push({ name:'1.2D+1.0WX+1.0L+0.5S', factors:{ D:1.2, WX:1.0, L:1.0, ...(hasS?{S:0.5}:{}) } });
+    if(hasWZ) combos.push({ name:'1.2D+1.0WZ+1.0L+0.5S', factors:{ D:1.2, WZ:1.0, L:1.0, ...(hasS?{S:0.5}:{}) } });
+    if(hasEQX) combos.push({ name:'1.2D+1.0EQX+1.0L+0.2S', factors:{ D:1.2, EQX:1.0, L:1.0, ...(hasS?{S:0.2}:{}) } });
+    if(hasEQZ) combos.push({ name:'1.2D+1.0EQZ+1.0L+0.2S', factors:{ D:1.2, EQZ:1.0, L:1.0, ...(hasS?{S:0.2}:{}) } });
+
+    // Stability
     if(hasWX) combos.push({ name:'0.9D+1.0WX', factors:{ D:0.9, WX:1.0 } });
     if(hasWZ) combos.push({ name:'0.9D+1.0WZ', factors:{ D:0.9, WZ:1.0 } });
     if(hasEQX) combos.push({ name:'0.9D+1.0EQX', factors:{ D:0.9, EQX:1.0 } });
     if(hasEQZ) combos.push({ name:'0.9D+1.0EQZ', factors:{ D:0.9, EQZ:1.0 } });
+
+    // With equipment/piping
     if(hasEQUIP || hasPIPE) combos.push({ name:'1.2D+EQUIP+PIPE', factors:{ D:1.2, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
     if(hasEQUIP || hasPIPE) combos.push({ name:'1.2D+1.6L+EQUIP+PIPE', factors:{ D:1.2, L:1.6, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+    if(hasS && (hasEQUIP || hasPIPE)) combos.push({ name:'1.2D+1.6S+0.5L+EQUIP+PIPE', factors:{ D:1.2, S:1.6, L:0.5, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
   };
 
   if(cp === 'US') pushUsCombos();
