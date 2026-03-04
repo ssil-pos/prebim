@@ -1041,22 +1041,24 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   const hasEQX = hasEqStoryX || (Math.abs(eqX) > 1e-9);
   const hasEQZ = hasEqStoryZ || (Math.abs(eqZ) > 1e-9);
 
-  if(designMethod === 'ASD'){
-    // From PDF ASD table (page 6) - we use the "W" row (not the separate KDS case row) and keep the core combos.
-    combos.push({ name:'D', factors:{ D:1.0 } });
-    combos.push({ name:'D+L', factors:{ D:1.0, L:0.75 } });
-    if(hasS) combos.push({ name:'D+S', factors:{ D:1.0, S:0.75 } });
-    if(hasS) combos.push({ name:'D+L+S', factors:{ D:1.0, L:0.75, S:0.75 } });
-    if(hasWX) combos.push({ name:'D+WX', factors:{ D:0.6, WX:0.45 } });
-    if(hasWZ) combos.push({ name:'D+WZ', factors:{ D:0.6, WZ:0.45 } });
-    if(hasEQX) combos.push({ name:'D+EQX', factors:{ D:0.6, EQX:0.7 } });
-    if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:0.6, EQZ:0.7 } });
+  const cp = String(extraLoads?.codeProfile || 'KDS').toUpperCase();
 
-    // Extra (concept-level) combos
-    if(hasEQUIP || hasPIPE) combos.push({ name:'D+EQUIP+PIPE', factors:{ D:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
-    if(hasEQUIP || hasPIPE) combos.push({ name:'D+L+EQUIP+PIPE', factors:{ D:1.0, L:0.75, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
-  } else {
-    // Strength table (page 5) - core combos we support.
+  // KDS combos (existing behavior)
+  const pushKdsCombos = () => {
+    if(designMethod === 'ASD'){
+      combos.push({ name:'D', factors:{ D:1.0 } });
+      combos.push({ name:'D+L', factors:{ D:1.0, L:0.75 } });
+      if(hasS) combos.push({ name:'D+S', factors:{ D:1.0, S:0.75 } });
+      if(hasS) combos.push({ name:'D+L+S', factors:{ D:1.0, L:0.75, S:0.75 } });
+      if(hasWX) combos.push({ name:'D+WX', factors:{ D:0.6, WX:0.45 } });
+      if(hasWZ) combos.push({ name:'D+WZ', factors:{ D:0.6, WZ:0.45 } });
+      if(hasEQX) combos.push({ name:'D+EQX', factors:{ D:0.6, EQX:0.7 } });
+      if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:0.6, EQZ:0.7 } });
+      if(hasEQUIP || hasPIPE) combos.push({ name:'D+EQUIP+PIPE', factors:{ D:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+      if(hasEQUIP || hasPIPE) combos.push({ name:'D+L+EQUIP+PIPE', factors:{ D:1.0, L:0.75, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+      return;
+    }
+
     combos.push({ name:'D', factors:{ D:1.4 } });
     combos.push({ name:'D+L', factors:{ D:1.2, L:1.0 } });
     if(hasS) combos.push({ name:'D+L+S', factors:{ D:1.2, L:1.0, S:1.6 } });
@@ -1066,11 +1068,41 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
     if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:0.9, EQZ:1.0 } });
     if(hasS && hasWX) combos.push({ name:'D+L+WX+S', factors:{ D:1.2, L:1.6, WX:1.0, S:0.5 } });
     if(hasS && hasWZ) combos.push({ name:'D+L+WZ+S', factors:{ D:1.2, L:1.6, WZ:1.0, S:0.5 } });
-
-    // Extra (concept-level) combos
     if(hasEQUIP || hasPIPE) combos.push({ name:'D+EQUIP+PIPE', factors:{ D:1.2, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
     if(hasEQUIP || hasPIPE) combos.push({ name:'D+L+EQUIP+PIPE', factors:{ D:1.2, L:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
-  }
+  };
+
+  // US combos (simplified ASCE7/AISC style)
+  const pushUsCombos = () => {
+    const asd = (designMethod === 'ASD');
+    // Interpret designMethod as LRFD vs ASD when codeProfile=US.
+    if(asd){
+      combos.push({ name:'D', factors:{ D:1.0 } });
+      combos.push({ name:'D+L', factors:{ D:1.0, L:1.0 } });
+      if(hasS) combos.push({ name:'D+S', factors:{ D:1.0, S:1.0 } });
+      if(hasWX) combos.push({ name:'D+WX', factors:{ D:1.0, WX:1.0 } });
+      if(hasWZ) combos.push({ name:'D+WZ', factors:{ D:1.0, WZ:1.0 } });
+      if(hasEQX) combos.push({ name:'D+EQX', factors:{ D:1.0, EQX:1.0 } });
+      if(hasEQZ) combos.push({ name:'D+EQZ', factors:{ D:1.0, EQZ:1.0 } });
+      if(hasEQUIP || hasPIPE) combos.push({ name:'D+EQUIP+PIPE', factors:{ D:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+      if(hasEQUIP || hasPIPE) combos.push({ name:'D+L+EQUIP+PIPE', factors:{ D:1.0, L:1.0, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+      return;
+    }
+
+    // LRFD-ish
+    combos.push({ name:'1.4D', factors:{ D:1.4 } });
+    combos.push({ name:'1.2D+1.6L', factors:{ D:1.2, L:1.6 } });
+    if(hasS) combos.push({ name:'1.2D+1.6L+0.5S', factors:{ D:1.2, L:1.6, S:0.5 } });
+    if(hasWX) combos.push({ name:'0.9D+1.0WX', factors:{ D:0.9, WX:1.0 } });
+    if(hasWZ) combos.push({ name:'0.9D+1.0WZ', factors:{ D:0.9, WZ:1.0 } });
+    if(hasEQX) combos.push({ name:'0.9D+1.0EQX', factors:{ D:0.9, EQX:1.0 } });
+    if(hasEQZ) combos.push({ name:'0.9D+1.0EQZ', factors:{ D:0.9, EQZ:1.0 } });
+    if(hasEQUIP || hasPIPE) combos.push({ name:'1.2D+EQUIP+PIPE', factors:{ D:1.2, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+    if(hasEQUIP || hasPIPE) combos.push({ name:'1.2D+1.6L+EQUIP+PIPE', factors:{ D:1.2, L:1.6, ...(hasEQUIP?{EQUIP:1.0}:{}) , ...(hasPIPE?{PIPE:1.0}:{}) } });
+  };
+
+  if(cp === 'US') pushUsCombos();
+  else pushKdsCombos();
 
   return {
     units: { length:'m', force:'kN' },
@@ -1590,6 +1622,12 @@ function renderAnalysis(projectId){
 
             <button class="acc-btn" type="button" data-acc="crit">Criteria <span class="chev" id="chevCrit">▾</span></button>
             <div class="acc-panel" id="panelCrit">
+              <label class="label">Code profile</label>
+              <select class="input" id="codeProfile">
+                <option value="KDS" selected>KDS (KR)</option>
+                <option value="US">US (ASCE7/AISC)</option>
+              </select>
+
               <label class="label">Design method</label>
               <select class="input" id="designMethod">
                 <option value="STRENGTH" selected>Strength (KDS factors)</option>
@@ -2172,6 +2210,7 @@ function renderAnalysis(projectId){
         const windZ = parseFloat((document.getElementById('windZ')?.value || saved.windZ || '0').toString()) || 0;
         const eqX = parseFloat((document.getElementById('eqX')?.value || saved.eqX || '0').toString()) || 0;
         const eqZ = parseFloat((document.getElementById('eqZ')?.value || saved.eqZ || '0').toString()) || 0;
+        const codeProfile = (document.getElementById('codeProfile')?.value || saved.codeProfile || 'KDS').toString();
         const designMethod = (document.getElementById('designMethod')?.value || saved.designMethod || 'STRENGTH').toString();
         const supportMode = (document.getElementById('supportMode')?.value || saved.supportMode || 'PINNED').toString();
         const connCfg = loadConnSettings(p.id);
@@ -2181,6 +2220,7 @@ function renderAnalysis(projectId){
           windStoryZ: lateralStory.windStoryZ,
           eqStoryX: lateralStory.eqStoryX,
           eqStoryZ: lateralStory.eqStoryZ,
+          codeProfile,
           designMethod,
           rigidDia: (document.getElementById('rigidDia')?.checked !== false),
           pointLoads: pointLoadsState,
@@ -2236,6 +2276,10 @@ function renderAnalysis(projectId){
       eqStoryZ: (Array.isArray(saved.eqStoryZ) ? saved.eqStoryZ.slice() : null),
     };
 
+    try{
+      const cp = document.getElementById('codeProfile');
+      if(cp && saved.codeProfile) cp.value = String(saved.codeProfile);
+    }catch{}
     try{
       const dm = document.getElementById('designMethod');
       if(dm && saved.designMethod) dm.value = String(saved.designMethod);
@@ -3497,6 +3541,7 @@ function renderAnalysis(projectId){
         const eqZ = parseFloat((document.getElementById('eqZ')?.value || '0').toString()) || 0;
         const livePreset = (document.getElementById('livePreset')?.value || '3.0').toString();
         const supportMode = (document.getElementById('supportMode')?.value || 'PINNED').toString();
+        const codeProfile = (document.getElementById('codeProfile')?.value || 'KDS').toString();
         const designMethod = (document.getElementById('designMethod')?.value || 'STRENGTH').toString();
         const comboMode = (document.getElementById('comboMode')?.value || 'ENVELOPE').toString();
         const supportNodesVal = (document.getElementById('supportNodes')?.value || '').toString();
@@ -3506,7 +3551,7 @@ function renderAnalysis(projectId){
         const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
 
         saveAnalysisSettings(p.id, {
-          supportMode, designMethod, comboMode,
+          supportMode, codeProfile, designMethod, comboMode,
           qLive, qSnow,
           windX, windZ, eqX, eqZ,
           windStoryX: lateralStory.windStoryX,
@@ -3530,6 +3575,7 @@ function renderAnalysis(projectId){
           windStoryZ: lateralStory.windStoryZ,
           eqStoryX: lateralStory.eqStoryX,
           eqStoryZ: lateralStory.eqStoryZ,
+          codeProfile,
           designMethod,
           rigidDia,
           pointLoads: pointLoadsState,
