@@ -1540,6 +1540,7 @@ function renderAnalysis(projectId){
               </div>
 
               <div class="note" style="margin-top:10px"><b>Equipment list</b></div>
+              <div class="mono" id="eqSummary" style="font-size:12px; opacity:.75">-</div>
               <div id="eqList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
 
               <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
@@ -1577,6 +1578,7 @@ function renderAnalysis(projectId){
               </div>
 
               <div class="note" style="margin-top:10px"><b>Piping list</b></div>
+              <div class="mono" id="pipeSummary" style="font-size:12px; opacity:.75">-</div>
               <div id="pipeList" style="max-height:140px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
 
               <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
@@ -1842,7 +1844,9 @@ function renderAnalysis(projectId){
       });
       renderPlList();
       renderEqList();
+      renderEqSummary();
       renderPipeList();
+      renderPipeSummary();
       try{ refreshSupportViz(); }catch{}
     };
 
@@ -1923,10 +1927,23 @@ function renderAnalysis(projectId){
     updateLoadCaseHint();
 
     // Equipment UI
+    const renderEqSummary = () => {
+      const el = document.getElementById('eqSummary');
+      if(!el) return;
+      if(!equipmentLoadsState.length){ el.textContent = 'sum: 0'; return; }
+      let sx=0, sy=0, sz=0;
+      for(const r of equipmentLoadsState){
+        sx += Number(r?.Fx||0)||0;
+        sy += Number(r?.Fy||0)||0;
+        sz += Number(r?.Fz||0)||0;
+      }
+      el.textContent = `sum Fx=${sx.toFixed(3)} kN, Fy=${sy.toFixed(3)} kN, Fz=${sz.toFixed(3)} kN`;
+    };
+
     function renderEqList(){
       const host = document.getElementById('eqList');
       if(!host) return;
-      if(!equipmentLoadsState.length){ host.innerHTML = '<div class="note" style="margin:0">(none)</div>'; return; }
+      if(!equipmentLoadsState.length){ host.innerHTML = '<div class="note" style="margin:0">(none)</div>'; renderEqSummary(); return; }
       host.innerHTML = equipmentLoadsState.map((pl) => {
         const id = String(pl.id);
         const sel = (id===equipSelId);
@@ -1938,10 +1955,41 @@ function renderAnalysis(projectId){
       }).join('');
     }
 
+    const renderPipeSummary = () => {
+      const el = document.getElementById('pipeSummary');
+      if(!el) return;
+      if(!pipeLoadsState.length){ el.textContent = 'sum: 0'; return; }
+
+      // Estimate total force by summing w*L for each selected member.
+      let sumGX=0, sumGY=0, sumGZ=0;
+      try{
+        const em = __engine.normalizeModel(p.data?.engineModel || p.data?.model || p.data?.engine || p.data || __engine.defaultModel());
+        const mems = __engine.generateMembers(em);
+        const memMap = new Map(mems.map(m => [String(m?.id), m]));
+        for(const r of pipeLoadsState){
+          const mem = memMap.get(String(r?.memberId||''));
+          if(!mem?.a || !mem?.b) continue;
+          const dx = mem.b[0]-mem.a[0];
+          const dy = mem.b[1]-mem.a[1];
+          const dz = mem.b[2]-mem.a[2];
+          const L = Math.hypot(dx,dy,dz) || 0;
+          if(!(L>1e-9)) continue;
+          const w = Number(r?.w||0)||0;
+          const F = w * L;
+          const d = String(r?.dir||'GY').toUpperCase();
+          if(d==='GX') sumGX += F;
+          else if(d==='GZ') sumGZ += F;
+          else sumGY += F;
+        }
+      }catch{}
+
+      el.textContent = `sum F: GX=${sumGX.toFixed(3)} kN, GY=${sumGY.toFixed(3)} kN, GZ=${sumGZ.toFixed(3)} kN (∑w·L)`;
+    };
+
     function renderPipeList(){
       const host = document.getElementById('pipeList');
       if(!host) return;
-      if(!pipeLoadsState.length){ host.innerHTML = '<div class="note" style="margin:0">(none)</div>'; return; }
+      if(!pipeLoadsState.length){ host.innerHTML = '<div class="note" style="margin:0">(none)</div>'; renderPipeSummary(); return; }
       host.innerHTML = pipeLoadsState.map((pl) => {
         const id = String(pl.id);
         const sel = (id===pipeSelId);
