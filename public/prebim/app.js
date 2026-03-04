@@ -997,6 +997,11 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
   // Piping loads (member UDL -> equivalent nodal)
   try{
     const lenM = (a,b) => Math.hypot((b[0]-a[0]),(b[1]-a[1]),(b[2]-a[2]));
+    const lerp = (a,b,t) => [ a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t ];
+    const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
+
+    const N_SEG = 4; // split into 4 equal segments (creates 3 interior nodes)
+
     for(const pl of pipeLoads){
       const memberId = String(pl?.memberId||'');
       if(!memberId) continue;
@@ -1009,13 +1014,31 @@ function buildAnalysisPayload(model, qLive=3.0, supportMode='PINNED', connCfg=nu
         const eid = String(mm.mem?.id ?? mm.id);
         const pid = String(mm.mem?.parentId || '');
         if(eid!==memberId && pid!==memberId) continue;
-        const L = lenM(mm.mem.a, mm.mem.b);
+        const A = mm.mem.a, B = mm.mem.b;
+        const L = lenM(A, B);
         if(!(L>1e-9)) continue;
-        const Ftot = w * L;
-        const Fi = Ftot/2;
-        const Fj = Ftot/2;
-        if(Math.abs(Fi)>1e-9) caseD.nodeLoads.push({ nodeId: String(mm.j1), dir, F: Fi });
-        if(Math.abs(Fj)>1e-9) caseD.nodeLoads.push({ nodeId: String(mm.j2), dir, F: Fj });
+
+        // Ensure interior joints exist (so we can distribute loads along the member)
+        // NOTE: this does NOT change stiffness because we are only adding joints (no extra members);
+        // but our analysis members list is already fixed. Therefore we approximate by splitting the
+        // load into N segments and applying nodal loads at existing end joints PLUS virtual joints
+        // that already exist due to other splits (member point loads / free nodes). If a joint
+        // does not exist, we fall back to end-only for that subpoint.
+        const pts = [];
+        for(let i=0;i<=N_SEG;i++) pts.push(lerp(A,B,i/N_SEG));
+        const jointIds = pts.map(pt => joints.get(keyOf(pt)) || null);
+
+        // For each sub-segment, apply w*Lseg as equivalent end nodal loads
+        for(let i=0;i<N_SEG;i++){
+          const jI = jointIds[i] || String(mm.j1);
+          const jJ = jointIds[i+1] || String(mm.j2);
+          const Lseg = L / N_SEG;
+          const Ftot = w * Lseg;
+          const Fi = Ftot/2;
+          const Fj = Ftot/2;
+          if(Math.abs(Fi)>1e-9) caseD.nodeLoads.push({ nodeId: String(jI), dir, F: Fi });
+          if(Math.abs(Fj)>1e-9) caseD.nodeLoads.push({ nodeId: String(jJ), dir, F: Fj });
+        }
       }
     }
   }catch(e){ console.warn('pipeLoads apply failed', e); }
