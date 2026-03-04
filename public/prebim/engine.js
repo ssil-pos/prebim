@@ -28,6 +28,8 @@ export function defaultModel(){
     braces: [],
     // horizontal (floor) bracing by bay
     floorBraces: [],
+    // openings by bay rectangle (grid-aligned)
+    openings: [],
     overrides: {},
     profiles: {
       stdAll: 'KS',
@@ -63,6 +65,7 @@ export function normalizeModel(m){
     if(m.options?.floorBracing) out.options.floorBracing = { ...out.options.floorBracing, ...m.options.floorBracing };
     if(Array.isArray(m.braces)) out.braces = m.braces.slice();
     if(Array.isArray(m.floorBraces)) out.floorBraces = structuredClone(m.floorBraces);
+    if(Array.isArray(m.openings)) out.openings = structuredClone(m.openings);
     if(m.overrides && typeof m.overrides === 'object') out.overrides = structuredClone(m.overrides);
     if(m.profiles && typeof m.profiles === 'object') out.profiles = { ...out.profiles, ...structuredClone(m.profiles) };
     if(Array.isArray(m.boxes)) out.boxes = structuredClone(m.boxes);
@@ -154,6 +157,25 @@ export function normalizeModel(m){
     }))
     // clamp to grid extents later in generateMembers
   ;
+
+  // openings normalization (grid-aligned bay rectangle)
+  if(!Array.isArray(out.openings)) out.openings = [];
+  out.openings = out.openings
+    .filter(o => o && typeof o === 'object')
+    .map((o, idx) => {
+      const level = Math.max(0, parseInt(o.level,10)||0);
+      let ix0 = Math.max(0, parseInt(o.ix0,10)||0);
+      let ix1 = Math.max(0, parseInt(o.ix1,10)||0);
+      let iy0 = Math.max(0, parseInt(o.iy0,10)||0);
+      let iy1 = Math.max(0, parseInt(o.iy1,10)||0);
+      if(ix0>ix1) [ix0,ix1]=[ix1,ix0];
+      if(iy0>iy1) [iy0,iy1]=[iy1,iy0];
+      return {
+        id: String(o.id || `op${idx+1}`),
+        level,
+        ix0, ix1, iy0, iy1,
+      };
+    });
 
   // overrides normalization (kept as-is; validated in UI)
   if(!out.overrides || typeof out.overrides !== 'object') out.overrides = {};
@@ -285,11 +307,21 @@ export function generateMembers(model){
       }
     }
 
+    // openings for this level (grid-aligned bay rectangles)
+    const openingsHere = Array.isArray(m.openings) ? m.openings.filter(o => (Number(o.level)||0)===iz) : [];
+    const inAnyOpeningBay = (bx, by) => {
+      for(const o of openingsHere){
+        if(bx >= o.ix0 && bx <= o.ix1 && by >= o.iy0 && by <= o.iy1) return true;
+      }
+      return false;
+    };
+
     // sub-beams inside each bay (parallel to X, subdividing Y) - simplistic
     if(m.options.subBeams.enabled && m.options.subBeams.countPerBay>0){
       const c = m.options.subBeams.countPerBay;
       for(let ix=0; ix<nx-1; ix++){
         for(let iy=0; iy<ny-1; iy++){
+          if(inAnyOpeningBay(ix, iy)) continue; // leave void
           for(let k=1;k<=c;k++){
             const t = k/(c+1);
             const y = ys[iy] + (ys[iy+1]-ys[iy]) * t;
@@ -305,11 +337,54 @@ export function generateMembers(model){
     if(m.options.joists.enabled){
       for(let ix=0; ix<nx-1; ix++){
         for(let iy=0; iy<ny-1; iy++){
+          if(inAnyOpeningBay(ix, iy)) continue; // leave void
           const x = xs[ix] + (xs[ix+1]-xs[ix]) * 0.5;
           const a = [x, levelsM[iz], ys[iy]];
           const b = [x, levelsM[iz], ys[iy+1]];
           members.push({ id:`joist:${ix},${iy},${iz}`, kind:'joist', a, b });
         }
+      }
+    }
+
+    // opening frames (perimeter members at this level)
+    for(const o of openingsHere){
+      const ix0 = Math.max(0, Math.min(nx-2, o.ix0));
+      const ix1 = Math.max(0, Math.min(nx-2, o.ix1));
+      const iy0 = Math.max(0, Math.min(ny-2, o.iy0));
+      const iy1 = Math.max(0, Math.min(ny-2, o.iy1));
+      const gx0 = ix0;
+      const gx1 = ix1 + 1;
+      const gy0 = iy0;
+      const gy1 = iy1 + 1;
+      // along X at z=gy0 and z=gy1
+      for(let ix=gx0; ix<gx1; ix++){
+        members.push({
+          id:`opx0:${o.id}:${iz}:${ix}:${gy0}`,
+          kind:'openingFrame',
+          a: pos(ix,gy0,iz),
+          b: pos(ix+1,gy0,iz),
+        });
+        members.push({
+          id:`opx1:${o.id}:${iz}:${ix}:${gy1}`,
+          kind:'openingFrame',
+          a: pos(ix,gy1,iz),
+          b: pos(ix+1,gy1,iz),
+        });
+      }
+      // along Y (grid Y axis, model z) at x=gx0 and x=gx1
+      for(let iy=gy0; iy<gy1; iy++){
+        members.push({
+          id:`opy0:${o.id}:${iz}:${gx0}:${iy}`,
+          kind:'openingFrame',
+          a: pos(gx0,iy,iz),
+          b: pos(gx0,iy+1,iz),
+        });
+        members.push({
+          id:`opy1:${o.id}:${iz}:${gx1}:${iy}`,
+          kind:'openingFrame',
+          a: pos(gx1,iy,iz),
+          b: pos(gx1,iy+1,iz),
+        });
       }
     }
   }

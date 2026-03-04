@@ -4016,6 +4016,7 @@ function renderEditor(projectId){
             <button class="pill" id="btnPopBr" type="button">Bracing</button>
             <button class="pill" id="btnPopOv" type="button">Override</button>
             <button class="pill" id="btnPopBox" type="button">Box Edit</button>
+            <button class="pill" id="btnPopOpen" type="button">Opening</button>
             <button class="pill" id="btnPopMember" type="button">Member</button>
             <button class="pill" id="btnPopDel" type="button">Delete</button>
             <button class="pill" id="btnPopFree" type="button" style="display:none">Free Edit</button>
@@ -4162,6 +4163,33 @@ function renderEditor(projectId){
           </div>
 
           <div class="note" id="freeHint" style="margin-top:10px">Tip: Add node → click. Add beam → click two nodes. Add column → click one node (to next level).</div>
+        </div></div>
+
+        <div class="popwrap" id="popOpen"><div class="popcard">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
+            <b>Opening</b>
+            <button class="pill" id="btnPopOpenClose" type="button">Close</button>
+          </div>
+          <div class="note" style="margin-top:8px">MVP: click bays on a level to define a rectangular opening (grid-aligned). Add opening creates perimeter framing members.</div>
+
+          <div class="grid2" style="margin-top:10px">
+            <div>
+              <label class="label">Level</label>
+              <select id="openLevel" class="input"></select>
+            </div>
+            <div>
+              <label class="label">Selected bays</label>
+              <div class="mono" id="openSelCount" style="font-size:12px; opacity:.75">0</div>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
+            <button class="btn" id="btnOpenAdd" type="button">Add opening</button>
+            <button class="btn" id="btnOpenClearSel" type="button">Clear selection</button>
+          </div>
+
+          <div class="note" style="margin-top:10px"><b>Openings</b></div>
+          <div id="openList" style="max-height:180px; overflow:auto; border:1px solid rgba(148,163,184,0.25); border-radius:12px; padding:8px"></div>
         </div></div>
 
         <div class="popwrap" id="popBox"><div class="popcard">
@@ -4323,6 +4351,8 @@ function renderEditor(projectId){
     // globals (so getForm can read them without threading)
     window.__prebimBraces = Array.isArray(engineModel.braces) ? engineModel.braces.slice() : [];
     window.__prebimFloorBraces = Array.isArray(engineModel.floorBraces) ? structuredClone(engineModel.floorBraces) : [];
+    window.__prebimOpenings = Array.isArray(engineModel.openings) ? structuredClone(engineModel.openings) : [];
+    window.__prebimOpenDraft = window.__prebimOpenDraft || { level: 1, selected: [] };
     window.__prebimOverrides = (engineModel.overrides && typeof engineModel.overrides === 'object') ? structuredClone(engineModel.overrides) : {};
     window.__prebimBoxes = Array.isArray(engineModel.boxes) ? structuredClone(engineModel.boxes) : [];
     window.__prebimFree = (engineModel.free && typeof engineModel.free === 'object') ? structuredClone(engineModel.free) : { enabled:false, nodes:[], members:[], lastKind:'beam', nextNodeId:1, nextMemId:1 };
@@ -4359,17 +4389,22 @@ function renderEditor(projectId){
       document.getElementById('floorBraceType').value = m.options.floorBracing?.type || 'X';
       // level options
       {
-        const el = document.getElementById('floorBraceLevel');
-        if(el){
+        const opts = (m.levels||[]);
+        const fill = (elId, val) => {
+          const el = document.getElementById(elId);
+          if(!el) return;
           el.innerHTML='';
-          (m.levels||[]).forEach((mm, idx) => {
+          opts.forEach((mm, idx) => {
             const o=document.createElement('option');
             o.value=String(idx);
             o.textContent=`L${idx+1} (${Math.round(mm)}mm)`;
             el.appendChild(o);
           });
-          el.value = String(m.options.floorBracing?.level ?? 0);
-        }
+          el.value = String(val ?? 0);
+        };
+        fill('floorBraceLevel', m.options.floorBracing?.level ?? 0);
+        // opening level uses same list; default to level 1 if exists
+        fill('openLevel', (window.__prebimOpenDraft?.level ?? (opts.length>1?1:0)));
       }
       // story selector removed; bracing panel pick works for all stories
       // brace selection mode is controlled by Bracing popup open/close
@@ -4438,6 +4473,7 @@ function renderEditor(projectId){
         // braces + overrides
         braces: (window.__prebimBraces || []),
         floorBraces: (window.__prebimFloorBraces || []),
+        openings: (window.__prebimOpenings || []),
         overrides: (window.__prebimOverrides || {}),
         boxes: (window.__prebimBoxes || []),
         free: (window.__prebimFree || { enabled:false, nodes:[], members:[] }),
@@ -5123,18 +5159,35 @@ function renderEditor(projectId){
     const popSection = document.getElementById('popSection');
     const popFree = document.getElementById('popFree');
     const popBox = document.getElementById('popBox');
+    const popOpen = document.getElementById('popOpen');
     const popMember = document.getElementById('popMember');
     const popDel = document.getElementById('popDel');
-    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); popSection?.classList.remove('open'); popFree?.classList.remove('open'); popBox?.classList.remove('open'); popMember?.classList.remove('open'); popDel?.classList.remove('open'); };
+    const closeAll = () => { popBr?.classList.remove('open'); popOv?.classList.remove('open'); popSection?.classList.remove('open'); popFree?.classList.remove('open'); popBox?.classList.remove('open'); popOpen?.classList.remove('open'); popMember?.classList.remove('open'); popDel?.classList.remove('open'); };
     document.getElementById('btnPopBr')?.addEventListener('click', () => {
+      popOv?.classList.remove('open');
+      popSection?.classList.remove('open');
+      popFree?.classList.remove('open');
+      popBox?.classList.remove('open');
+      popOpen?.classList.remove('open');
+      popMember?.classList.remove('open');
+      popDel?.classList.remove('open');
+      popBr?.classList.toggle('open');
+      updateBraceMode(popBr?.classList.contains('open'));
+      updateOpeningMode(false);
+      view?.setBoxEditMode?.(false, getForm());
+    });
+
+    document.getElementById('btnPopOpen')?.addEventListener('click', () => {
+      popBr?.classList.remove('open');
       popOv?.classList.remove('open');
       popSection?.classList.remove('open');
       popFree?.classList.remove('open');
       popBox?.classList.remove('open');
       popMember?.classList.remove('open');
       popDel?.classList.remove('open');
-      popBr?.classList.toggle('open');
-      updateBraceMode(popBr?.classList.contains('open'));
+      popOpen?.classList.toggle('open');
+      updateBraceMode(false);
+      updateOpeningMode(popOpen?.classList.contains('open'));
       view?.setBoxEditMode?.(false, getForm());
     });
     document.getElementById('btnPopOv')?.addEventListener('click', () => {
@@ -5142,10 +5195,12 @@ function renderEditor(projectId){
       popSection?.classList.remove('open');
       popFree?.classList.remove('open');
       popBox?.classList.remove('open');
+      popOpen?.classList.remove('open');
       popMember?.classList.remove('open');
       popDel?.classList.remove('open');
       popOv?.classList.toggle('open');
       updateBraceMode(false);
+      updateOpeningMode(false);
       view?.setBoxEditMode?.(false, getForm());
     });
     document.getElementById('btn3dSection')?.addEventListener('click', () => {
@@ -5153,10 +5208,12 @@ function renderEditor(projectId){
       popOv?.classList.remove('open');
       popFree?.classList.remove('open');
       popBox?.classList.remove('open');
+      popOpen?.classList.remove('open');
       popMember?.classList.remove('open');
       popDel?.classList.remove('open');
       popSection?.classList.toggle('open');
       updateBraceMode(false);
+      updateOpeningMode(false);
       view?.setBoxEditMode?.(false, getForm());
     });
 
@@ -5188,6 +5245,8 @@ function renderEditor(projectId){
       popOv?.classList.remove('open');
       popSection?.classList.remove('open');
       popFree?.classList.remove('open');
+      popOpen?.classList.remove('open');
+      updateOpeningMode(false);
 
       // pop visibility
       const show = (el, on) => { try{ if(!el) return; if(on){ el.classList.add('open'); el.style.display='block'; } else { el.classList.remove('open'); el.style.display='none'; } }catch{} };
@@ -5207,6 +5266,47 @@ function renderEditor(projectId){
       if(tool==='delete') window.__renderDelList?.();
       if(tool==='members') rebuildBoxMemSection();
     };
+
+    document.getElementById('btnPopOpenClose')?.addEventListener('click', () => { popOpen?.classList.remove('open'); updateOpeningMode(false); });
+
+    document.getElementById('btnOpenClearSel')?.addEventListener('click', () => {
+      window.__prebimOpenDraft = { level: parseInt(document.getElementById('openLevel')?.value||'1',10)||1, selected: [] };
+      updateOpeningMode(true);
+    });
+
+    document.getElementById('btnOpenAdd')?.addEventListener('click', () => {
+      const d = (window.__prebimOpenDraft && typeof window.__prebimOpenDraft==='object') ? window.__prebimOpenDraft : { level: 1, selected: [] };
+      const level = parseInt(document.getElementById('openLevel')?.value || String(d.level||0), 10) || 0;
+      const sel = Array.isArray(d.selected) ? d.selected : [];
+      if(!sel.length) return;
+      let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+      sel.forEach(k => {
+        const [x,y] = String(k).split(',').map(n=>parseInt(n,10));
+        if(Number.isFinite(x) && Number.isFinite(y)){
+          minX=Math.min(minX,x); maxX=Math.max(maxX,x);
+          minY=Math.min(minY,y); maxY=Math.max(maxY,y);
+        }
+      });
+      if(!Number.isFinite(minX) || !Number.isFinite(minY)) return;
+      const arr = Array.isArray(window.__prebimOpenings) ? window.__prebimOpenings : [];
+      const id = `op${Date.now().toString(36)}`;
+      arr.push({ id, level, ix0:minX, ix1:maxX, iy0:minY, iy1:maxY });
+      window.__prebimOpenings = arr;
+      window.__prebimOpenDraft = { level, selected: [] };
+      updateOpeningMode(true);
+      scheduleApply(0);
+    });
+
+    document.getElementById('openList')?.addEventListener('click', (ev) => {
+      const btn = ev.target?.closest?.('button[data-del-open]');
+      if(!btn) return;
+      const id = btn.getAttribute('data-del-open');
+      const arr = Array.isArray(window.__prebimOpenings) ? window.__prebimOpenings : [];
+      const idx = arr.findIndex(o => String(o.id)===String(id));
+      if(idx>=0){ arr.splice(idx,1); window.__prebimOpenings = arr; }
+      renderOpenList();
+      scheduleApply(0);
+    });
 
     // Member tool button
     const btnBoxMember = document.getElementById('btnPopMember');
@@ -6193,6 +6293,62 @@ function renderEditor(projectId){
       scheduleApply(0);
     };
 
+    const renderOpenList = () => {
+      const host = document.getElementById('openList');
+      if(!host) return;
+      const arr = Array.isArray(window.__prebimOpenings) ? window.__prebimOpenings : [];
+      if(!arr.length){ host.innerHTML = '<div class="note" style="margin:0">(no openings)</div>'; return; }
+      host.innerHTML = arr.map(o => {
+        const id = escapeHtml(String(o.id||''));
+        return `<div class="row" style="margin-top:6px; justify-content:space-between; gap:8px">
+          <div class="mono" style="font-size:12px; opacity:.85">${id} · L${Number(o.level||0)+1} · bays x:${o.ix0}-${o.ix1}, y:${o.iy0}-${o.iy1}</div>
+          <button class="btn smallbtn" data-del-open="${id}" type="button">Delete</button>
+        </div>`;
+      }).join('');
+    };
+
+    const toggleOpenBay = (pick) => {
+      const d = (window.__prebimOpenDraft && typeof window.__prebimOpenDraft==='object') ? window.__prebimOpenDraft : { level: 1, selected: [] };
+      const level = parseInt(document.getElementById('openLevel')?.value || String(d.level||0), 10) || 0;
+      d.level = level;
+      const sel = new Set(Array.isArray(d.selected) ? d.selected.map(String) : []);
+      const bayX = Number(pick?.bayX ?? pick?.ix ?? 0) || 0;
+      const bayY = Number(pick?.bayY ?? pick?.iy ?? 0) || 0;
+      const key = `${bayX},${bayY}`;
+      if(sel.has(key)) sel.delete(key); else sel.add(key);
+      d.selected = Array.from(sel);
+      window.__prebimOpenDraft = d;
+      try{
+        const el = document.getElementById('openSelCount');
+        if(el) el.textContent = String(d.selected.length);
+      }catch{}
+    };
+
+    const refreshOpeningOverlay = (on0) => {
+      const m = getForm();
+      const d = (window.__prebimOpenDraft && typeof window.__prebimOpenDraft==='object') ? window.__prebimOpenDraft : { level: 1, selected: [] };
+      const level = parseInt(document.getElementById('openLevel')?.value || String(d.level||0), 10) || 0;
+      d.level = level;
+      window.__prebimOpenDraft = d;
+      const selected = Array.isArray(d.selected) ? d.selected.map(String) : [];
+      view.setOpeningMode?.(!!on0, m, { level, selected }, (pickBay) => {
+        toggleOpenBay(pickBay);
+        refreshOpeningOverlay(true);
+        scheduleApply(0);
+      });
+    };
+
+    const updateOpeningMode = (on) => {
+      renderOpenList();
+      const d = (window.__prebimOpenDraft && typeof window.__prebimOpenDraft==='object') ? window.__prebimOpenDraft : { level: 1, selected: [] };
+      try{
+        const el = document.getElementById('openSelCount');
+        if(el) el.textContent = String(Array.isArray(d.selected)?d.selected.length:0);
+      }catch{}
+      refreshOpeningOverlay(!!on);
+      scheduleApply(0);
+    };
+
     // Apply buttons removed; everything is realtime
 
     // Realtime auto-apply
@@ -6206,7 +6362,7 @@ function renderEditor(projectId){
     // levels (list)
     document.getElementById('levelsList')?.addEventListener('input', () => scheduleApply());
     // toggles
-    ['optSub','subCount','optBrace','braceType','braceShape','braceSize','optFloorBrace','floorBraceType','floorBraceLevel'].forEach(id => wireRealtime(id, 'change'));
+    ['optSub','subCount','optBrace','braceType','braceShape','braceSize','optFloorBrace','floorBraceType','floorBraceLevel','openLevel'].forEach(id => wireRealtime(id, 'change'));
 
     // profiles
     ['stdAll','colShape','colSize','colStrongAxis','beamShape','beamSize','subShape','subSize'].forEach(id => wireRealtime(id, 'change'));
@@ -6471,6 +6627,10 @@ async function createThreeView(container){
   const bayGroup = new THREE.Group();
   scene.add(bayGroup);
 
+  // opening bay selection overlays
+  const openingGroup = new THREE.Group();
+  scene.add(openingGroup);
+
   // box edit overlays (faces/edges + outlines)
   const boxOutlineGroup = new THREE.Group();
   scene.add(boxOutlineGroup);
@@ -6617,6 +6777,11 @@ async function createThreeView(container){
   let floorBraceMode = false;
   let floorBraceCfg = { level: 0, selected: [] };
   let onBaySelect = null;
+
+  let openingMode = false;
+  let openingCfg = { level: 1, selected: [] };
+  let onOpeningBaySelect = null;
+
   let hot = null;
 
   // member selection
@@ -6872,6 +7037,53 @@ async function createThreeView(container){
     }
 
     bayGroup.visible = true;
+  }
+
+  function buildOpeningTiles(model){
+    while(openingGroup.children.length) openingGroup.remove(openingGroup.children[0]);
+    openingGroup.visible = false;
+    if(!openingMode || !model) return;
+
+    const spansX = model.grid?.spansXmm || [];
+    const spansY = model.grid?.spansYmm || [];
+    const xs=[0], zs=[0];
+    for(const s of spansX) xs.push(xs[xs.length-1] + (s/1000));
+    for(const s of spansY) zs.push(zs[zs.length-1] + (s/1000));
+    const nx=xs.length, ny=zs.length;
+
+    const levels = Array.isArray(model.levels) ? model.levels : [0,6000];
+    const iz = Math.max(0, Math.min(levels.length-1, parseInt(openingCfg?.level,10)||0));
+    const y = (Number(levels?.[iz]||0)/1000) + 0.03; // small lift
+
+    const selected = new Set(Array.isArray(openingCfg?.selected) ? openingCfg.selected.map(String) : []);
+
+    for(let ix=0; ix<nx-1; ix++){
+      for(let iy=0; iy<ny-1; iy++){
+        const x0=xs[ix], x1=xs[ix+1];
+        const z0=zs[iy], z1=zs[iy+1];
+        const w=x1-x0, d=z1-z0;
+        const g = new THREE.PlaneGeometry(w, d);
+        const key = `${ix},${iy}`;
+        const on = selected.has(key);
+        const mat = new THREE.MeshBasicMaterial({
+          color: on ? 0xf97316 : 0xfbbf24,
+          transparent:true,
+          opacity: on ? 0.24 : 0.10,
+          side: THREE.DoubleSide,
+          depthWrite:false,
+        });
+        const mesh = new THREE.Mesh(g, mat);
+        mesh.rotation.x = -Math.PI/2;
+        mesh.position.set(x0 + w/2, y, z0 + d/2);
+        mesh.userData.kind = 'openingBay';
+        mesh.userData.bayX = ix;
+        mesh.userData.bayY = iy;
+        mesh.userData.level = iz;
+        openingGroup.add(mesh);
+      }
+    }
+
+    openingGroup.visible = true;
   }
 
   function clearFreeNodes(){
@@ -7135,6 +7347,7 @@ async function createThreeView(container){
 
     if(braceMode) buildFacePlanes(model);
     if(floorBraceMode) buildBayTiles(model);
+    if(openingMode) buildOpeningTiles(model);
 
     buildBoxOutlines(model);
     if(boxEditMode) buildBoxEditTargets(model);
@@ -7525,6 +7738,7 @@ async function createThreeView(container){
     }
     // keep bay overlays up to date too
     if(floorBraceMode) buildBayTiles(model);
+    if(openingMode) buildOpeningTiles(model);
   }
 
   function setFloorBraceMode(on, model, cfg, cb){
@@ -7537,6 +7751,18 @@ async function createThreeView(container){
       return;
     }
     buildBayTiles(model);
+  }
+
+  function setOpeningMode(on, model, cfg, cb){
+    openingMode = !!on;
+    openingCfg = cfg || { level: 1, selected: [] };
+    onOpeningBaySelect = cb || null;
+    if(!openingMode){
+      while(openingGroup.children.length) openingGroup.remove(openingGroup.children[0]);
+      openingGroup.visible = false;
+      return;
+    }
+    buildOpeningTiles(model);
   }
 
   function nearestLevelY(model, yM){
@@ -7663,6 +7889,21 @@ async function createThreeView(container){
         const mid = obj?.userData?.memberId;
         if(mid && onPointLoadMember) onPointLoadMember(String(mid));
       }catch{}
+      return;
+    }
+
+    // Opening bay select mode
+    if(openingMode){
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(openingGroup.children, false);
+      if(hits.length){
+        const obj = hits[0].object;
+        const bayX = obj?.userData?.bayX;
+        const bayY = obj?.userData?.bayY;
+        if(Number.isFinite(bayX) && Number.isFinite(bayY) && onOpeningBaySelect){
+          onOpeningBaySelect({ bayX: Number(bayX), bayY: Number(bayY), level: obj?.userData?.level ?? 0 });
+        }
+      }
       return;
     }
 
@@ -8813,6 +9054,7 @@ async function createThreeView(container){
     setMembers,
     setBraceMode,
     setFloorBraceMode,
+    setOpeningMode,
     setBoxEditMode(on, model, api){
       boxEditMode = !!on;
       boxEditApi = api || null;
