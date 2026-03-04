@@ -6146,126 +6146,33 @@ function renderEditor(projectId){
 
     const exportStaad = () => {
       const m = getForm();
-      const members = __engine.generateMembers(m);
+      const saved = loadAnalysisSettings(p.id);
+      const connCfg = loadConnSettings(p.id);
 
-      const qLive = parseFloat(prompt('Live load (kN/m^2) for Story 1 beams/sub-beams', '3.0')||'3') || 0;
+      const qLive = parseFloat(prompt('Live load (kN/m^2) for Story 1 beams/sub-beams', String(saved?.qLive ?? '3.0'))||'3') || 0;
+      const designMethod = String(saved?.designMethod || 'STRENGTH');
 
-      // unique joints
-      const keyOf = (pt) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)},${pt[2].toFixed(6)}`;
-      const joints = new Map();
-      const jointList = [];
-      const ensureJoint = (pt) => {
-        const k = keyOf(pt);
-        if(joints.has(k)) return joints.get(k);
-        const id = jointList.length + 1;
-        joints.set(k, id);
-        jointList.push({ id, pt });
-        return id;
-      };
-
-      const memList = members.map((mem, idx) => {
-        const j1 = ensureJoint(mem.a);
-        const j2 = ensureJoint(mem.b);
-        return { id: idx+1, kind: mem.kind, j1, j2, mem };
+      const payload = buildAnalysisPayload(m, qLive, 'PINNED', connCfg, {
+        qSnow: (Number(saved?.qSnow)||0),
+        windX: (Number(saved?.windX)||0),
+        windZ: (Number(saved?.windZ)||0),
+        eqX: (Number(saved?.eqX)||0),
+        eqZ: (Number(saved?.eqZ)||0),
+        windStoryX: Array.isArray(saved?.windStoryX)?saved.windStoryX:null,
+        windStoryZ: Array.isArray(saved?.windStoryZ)?saved.windStoryZ:null,
+        eqStoryX: Array.isArray(saved?.eqStoryX)?saved.eqStoryX:null,
+        eqStoryZ: Array.isArray(saved?.eqStoryZ)?saved.eqStoryZ:null,
+        designMethod,
+        rigidDia: (saved?.rigidDia === true),
+        pointLoads: (Array.isArray(saved?.pointLoads)?saved.pointLoads:[]),
+        equipmentLoads: (Array.isArray(saved?.equipmentLoads)?saved.equipmentLoads:[]),
+        pipeLoads: (Array.isArray(saved?.pipeLoads)?saved.pipeLoads:[]),
       });
 
-      // grid helpers (for tributary widths)
-      const spansXmm = m.grid?.spansXmm || [];
-      const spansYmm = m.grid?.spansYmm || [];
-      const xs=[0], ys=[0];
-      for(const s of spansXmm) xs.push(xs[xs.length-1] + (s/1000));
-      for(const s of spansYmm) ys.push(ys[ys.length-1] + (s/1000));
-      const tol = 1e-6;
-
-      const findIdx = (arr, v) => {
-        for(let i=0;i<arr.length;i++) if(Math.abs(arr[i]-v) < 1e-5) return i;
-        return -1;
-      };
-
-      const tribWidthForBeamX = (z) => {
-        const j = findIdx(ys, z);
-        if(j < 0) return 0;
-        const wPrev = (j>0) ? (ys[j]-ys[j-1]) : 0;
-        const wNext = (j<ys.length-1) ? (ys[j+1]-ys[j]) : 0;
-        return 0.5*wPrev + 0.5*wNext;
-      };
-
-      const tribWidthForBeamY = (x) => {
-        const i = findIdx(xs, x);
-        if(i < 0) return 0;
-        const wPrev = (i>0) ? (xs[i]-xs[i-1]) : 0;
-        const wNext = (i<xs.length-1) ? (xs[i+1]-xs[i]) : 0;
-        return 0.5*wPrev + 0.5*wNext;
-      };
-
-      const getProfileDimsMm = (kind, memObj) => {
-        let profName = memberProfileName(kind, m, memObj.id);
-        if(kind==='brace' && memObj.profile && typeof memObj.profile==='object'){
-          const pr = memObj.profile;
-          profName = __profiles?.getProfile?.(pr.stdKey||m.profiles?.stdAll||'KS', pr.shapeKey||m.profiles?.braceShape||'L', pr.sizeKey||m.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
-        }
-        const d = parseProfileDimsMm(profName);
-        // d,d.b are mm
-        return { d: Math.max(30, d.d||150), b: Math.max(30, d.b||150) };
-      };
-
-      // group members by profile (approx PRIS YD ZD)
-      const propGroups = new Map(); // key -> {yd,zd, ids:[]}
-      const braceIds = [];
-      const supportJoints = new Set();
-      const liveLoads = []; // {ids, w} per member id
-
-      const story1m = (m.levels?.[1] ?? 0)/1000;
-      const subCount = m.options?.subBeams?.countPerBay || 0;
-
-      for(const mm of memList){
-        const mem = mm.mem;
-
-        // supports: base joints (y==0)
-        if(mem.kind==='column'){
-          const ya = mem.a[1], yb = mem.b[1];
-          const jLow = (ya<yb) ? mm.j1 : mm.j2;
-          const yLow = Math.min(ya,yb);
-          if(Math.abs(yLow - 0) < 1e-8) supportJoints.add(jLow);
-        }
-
-        // TRUSS braces
-        if(mem.kind==='brace') braceIds.push(mm.id);
-
-        // properties
-        const dims = getProfileDimsMm(mem.kind, mem);
-        const yd = dims.d; // mm
-        const zd = dims.b; // mm
-        const profKey = `${mem.kind}:${yd}x${zd}`;
-        const g = propGroups.get(profKey) || { kind: mem.kind, yd, zd, ids: [] };
-        g.ids.push(mm.id);
-        propGroups.set(profKey, g);
-
-        // live loads for story1 beams + subbeams
-        if(qLive > 0){
-          if(mem.kind==='beamX' || mem.kind==='beamY' || mem.kind==='subBeam'){
-            if(Math.abs(mem.a[1]-story1m) < 1e-6 && Math.abs(mem.b[1]-story1m) < 1e-6){
-              let trib = 0;
-              if(mem.kind==='beamX') trib = tribWidthForBeamX(mem.a[2]);
-              else if(mem.kind==='beamY') trib = tribWidthForBeamY(mem.a[0]);
-              else {
-                // subbeam inside a bay: tributary = bayWidth/(count+1)
-                const mId = String(mem.id||'');
-                const mSub = mId.match(/^sub:(\d+),(\d+),(\d+),(\d+)/);
-                if(mSub){
-                  const iy = parseInt(mSub[2],10) || 0;
-                  const bayW = (ys[iy+1]??ys[iy]) - (ys[iy]??0);
-                  trib = bayW / (Math.max(1, subCount)+1);
-                } else {
-                  trib = tribWidthForBeamX(mem.a[2]);
-                }
-              }
-              const w = qLive * trib; // kN/m
-              liveLoads.push({ id: mm.id, w });
-            }
-          }
-        }
-      }
+      const nodes = payload?.nodes || [];
+      const members = payload?.members || [];
+      const cases = payload?.cases || [];
+      const combos = payload?.combos || [];
 
       const lines = [];
       lines.push('* PreBIM-SteelStructure STAAD export');
@@ -6274,13 +6181,13 @@ function renderEditor(projectId){
       lines.push('UNIT METER KN');
 
       lines.push('JOINT COORDINATES');
-      for(const j of jointList){
-        lines.push(`${j.id} ${j.pt[0].toFixed(6)} ${j.pt[1].toFixed(6)} ${j.pt[2].toFixed(6)}`);
+      for(const n of nodes){
+        lines.push(`${n.id} ${Number(n.x).toFixed(6)} ${Number(n.y).toFixed(6)} ${Number(n.z).toFixed(6)}`);
       }
 
       lines.push('MEMBER INCIDENCES');
-      for(const mm of memList){
-        lines.push(`${mm.id} ${mm.j1} ${mm.j2}`);
+      for(const mm of members){
+        lines.push(`${mm.id} ${mm.i} ${mm.j}`);
       }
 
       // MATERIAL/CONSTANTS (steel)
@@ -6293,131 +6200,121 @@ function renderEditor(projectId){
       lines.push('CONSTANTS');
       lines.push('MATERIAL STEEL ALL');
 
-      const rectPropsMm = (w, h) => {
-        const A = w*h;
-        // Iy about local y-axis (uses z^2): h*w^3/12
-        const Iy = h*Math.pow(w,3)/12;
-        // Iz about local z-axis (uses y^2): w*h^3/12
-        const Iz = w*Math.pow(h,3)/12;
-        // torsion constant J (rectangle approximation)
-        const a = Math.max(w,h);
-        const b = Math.min(w,h);
-        const J = (a*Math.pow(b,3))*(1/3 - 0.21*(b/a)*(1 - Math.pow(b,4)/(12*Math.pow(a,4))));
-        return { A, Iy, Iz, J };
-      };
-
-      const iSectionPropsMm = (b, d, tw, tf) => {
-        // symmetric I/H about both centroid axes
-        const webH = Math.max(0, d - 2*tf);
-        const Af = b*tf;
-        const Aw = tw*webH;
-        const A = 2*Af + Aw;
-
-        // Iy: about y-axis (weak, uses width)
-        const IyFlange = tf*Math.pow(b,3)/12;
-        const IyWeb = webH*Math.pow(tw,3)/12;
-        const Iy = 2*IyFlange + IyWeb;
-
-        // Iz: about z-axis (strong, uses depth) + parallel axis for flanges
-        const IzFlangeLocal = b*Math.pow(tf,3)/12;
-        const yOff = (d/2 - tf/2);
-        const IzFlange = IzFlangeLocal + Af*Math.pow(yOff,2);
-        const IzWeb = tw*Math.pow(webH,3)/12;
-        const Iz = 2*IzFlange + IzWeb;
-
-        // J thin-walled approx: sum (b*t^3)/3 over plates
-        const J = (2*b*Math.pow(tf,3) + webH*Math.pow(tw,3))/3;
-
-        return { A, Iy, Iz, J };
-      };
-
-      const sectionPropsMmFromMember = (kind, memObj) => {
-        let profName = memberProfileName(kind, m, memObj.id);
-        if(kind==='brace' && memObj.profile && typeof memObj.profile==='object'){
-          const pr = memObj.profile;
-          profName = __profiles?.getProfile?.(pr.stdKey||m.profiles?.stdAll||'KS', pr.shapeKey||m.profiles?.braceShape||'L', pr.sizeKey||m.profiles?.braceSize||'')?.name || pr.sizeKey || profName;
-        }
-        const d = parseProfileDimsMm(profName);
-        const depth = Math.max(30, d.d||150);
-        const width = Math.max(30, d.b||150);
-        const tf = d.tf || d.t || 12;
-        const tw = d.tw || d.t || 8;
-
-        // Prefer I/H calc if we have tw/tf; else rectangle.
-        if((d.tf || d.tw) && depth > 2*tf + 1 && width > tw + 1){
-          return iSectionPropsMm(width, depth, tw, tf);
-        }
-        return rectPropsMm(width, depth);
-      };
-
-      // MEMBER PROPERTY using GENERAL (AX/IY/IZ/J) in METER units
+      // MEMBER PROPERTY (GENERAL) in METER units
       lines.push('MEMBER PROPERTY');
-      for(const g of propGroups.values()){
-        // Format member list as ranges
-        const ids = g.ids.slice().sort((a,b)=>a-b);
-        const parts = [];
-        let s = ids[0], prev = ids[0];
-        for(let i=1;i<=ids.length;i++){
-          const v = ids[i];
-          if(v === prev+1){ prev = v; continue; }
-          parts.push((s===prev) ? `${s}` : `${s} TO ${prev}`);
-          s = v; prev = v;
-        }
-        const memSel = parts.join(' ');
-
-        // Compute properties from the first member in this group (same dims key)
-        const mm0 = memList.find(x => x.id === ids[0]);
-        const Pmm = sectionPropsMmFromMember(mm0?.kind || g.kind, mm0?.mem || {});
-
-        // convert mm-based props -> meter
-        const AX = Pmm.A * 1e-6;   // mm^2 -> m^2
-        const IY = Pmm.Iy * 1e-12; // mm^4 -> m^4
-        const IZ = Pmm.Iz * 1e-12;
-        const J = Pmm.J * 1e-12;
-
-        lines.push(`PRIS GENERAL AX ${AX.toExponential(6)} IY ${IY.toExponential(6)} IZ ${IZ.toExponential(6)} J ${J.toExponential(6)} ${memSel}`);
+      const groupKey = (mm) => {
+        const A = Number(mm.A||0);
+        const Iy = Number(mm.Iy||0);
+        const Iz = Number(mm.Iz||0);
+        const J = Number(mm.J||0);
+        const t = String(mm.type||'frame');
+        const rel = mm.releases ? JSON.stringify(mm.releases) : '';
+        return `${t}|${A.toExponential(6)}|${Iy.toExponential(6)}|${Iz.toExponential(6)}|${J.toExponential(6)}|${rel}`;
+      };
+      const groups = new Map();
+      for(const mm of members){
+        const k = groupKey(mm);
+        if(!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(Number(mm.id));
       }
-
-      // BRACE TRUSS
-      if(braceIds.length){
-        const ids = braceIds.slice().sort((a,b)=>a-b);
-        const parts = [];
-        let s = ids[0], prev = ids[0];
-        for(let i=1;i<=ids.length;i++){
-          const v = ids[i];
-          if(v === prev+1){ prev = v; continue; }
-          parts.push((s===prev) ? `${s}` : `${s} TO ${prev}`);
-          s = v; prev = v;
-        }
-        lines.push('MEMBER TRUSS');
-        lines.push(parts.join(' '));
-      }
-
-      // SUPPORTS (base pinned)
-      if(supportJoints.size){
-        lines.push('SUPPORTS');
-        const ids = Array.from(supportJoints).sort((a,b)=>a-b);
+      const toRanges = (ids) => {
+        const a = ids.slice().sort((x,y)=>x-y);
+        if(!a.length) return '';
         const parts=[];
-        let s=ids[0], prev=ids[0];
-        for(let i=1;i<=ids.length;i++){
-          const v=ids[i];
-          if(v===prev+1){ prev=v; continue; }
-          parts.push((s===prev)?`${s}`:`${s} TO ${prev}`);
-          s=v; prev=v;
+        let s=a[0], p=a[0];
+        for(let i=1;i<=a.length;i++){
+          const v=a[i];
+          if(v===p+1){ p=v; continue; }
+          parts.push((s===p)?`${s}`:`${s} TO ${p}`);
+          s=v; p=v;
         }
-        lines.push(`${parts.join(' ')} PINNED`);
+        return parts.join(' ');
+      };
+
+      for(const [k, ids] of groups.entries()){
+        const [type,A,IY,IZ,J] = k.split('|');
+        const memSel = toRanges(ids);
+        lines.push(`PRIS GENERAL AX ${A} IY ${IY} IZ ${IZ} J ${J} ${memSel}`);
       }
 
-      // LOADS
-      lines.push('LOAD 1 DEAD');
-      lines.push('SELFWEIGHT Y -1');
-      if(qLive > 0 && liveLoads.length){
-        lines.push('LOAD 2 LIVE');
-        lines.push('MEMBER LOAD');
-        for(const ll of liveLoads){
-          // UDL in global -Y
-          lines.push(`${ll.id} UNI GY ${(-ll.w).toFixed(3)}`);
+      // TRUSS braces
+      try{
+        const braceIds = members.filter(m0 => String(m0.type||'')==='truss').map(m0 => Number(m0.id)).filter(Number.isFinite);
+        if(braceIds.length){
+          lines.push('MEMBER TRUSS');
+          lines.push(toRanges(braceIds));
         }
+      }catch{}
+
+      // SUPPORTS
+      const supports = payload?.supports || [];
+      if(supports.length){
+        lines.push('SUPPORTS');
+        // STAAD: PINNED / FIXED; we treat DX/DY/DZ locked always.
+        const pinnedIds=[];
+        const fixedIds=[];
+        for(const s of supports){
+          const id = Number(s?.nodeId);
+          if(!Number.isFinite(id)) continue;
+          const rx = !!s?.fix?.RX, ry = !!s?.fix?.RY, rz = !!s?.fix?.RZ;
+          if(rx||ry||rz) fixedIds.push(id); else pinnedIds.push(id);
+        }
+        if(pinnedIds.length) lines.push(`${toRanges(pinnedIds)} PINNED`);
+        if(fixedIds.length) lines.push(`${toRanges(fixedIds)} FIXED`);
+      }
+
+      // LOAD CASES
+      const caseNoByName = new Map();
+      let lcNo = 1;
+      const pushJointLoads = (nodeLoads) => {
+        if(!Array.isArray(nodeLoads) || !nodeLoads.length) return;
+        lines.push('JOINT LOAD');
+        for(const nl of nodeLoads){
+          const nid = nl.nodeId;
+          const dir = String(nl.dir||'GY').toUpperCase();
+          const F = Number(nl.F||0);
+          if(!(Math.abs(F)>1e-12)) continue;
+          lines.push(`${nid} ${dir} ${F.toFixed(6)}`);
+        }
+      };
+      const pushMemberLoads = (memberUDL) => {
+        if(!Array.isArray(memberUDL) || !memberUDL.length) return;
+        lines.push('MEMBER LOAD');
+        for(const ml of memberUDL){
+          const mid = ml.memberId;
+          const dir = String(ml.dir||'GY').toUpperCase();
+          const w = Number(ml.w||0);
+          if(!(Math.abs(w)>1e-12)) continue;
+          lines.push(`${mid} UNI ${dir} ${w.toFixed(6)}`);
+        }
+      };
+
+      for(const c of cases){
+        const name = String(c.name||`LC${lcNo}`);
+        caseNoByName.set(name, lcNo);
+        lines.push(`LOAD ${lcNo} ${name}`);
+        if(Number(c.selfweightY||0)) lines.push(`SELFWEIGHT Y ${Number(c.selfweightY).toFixed(6)}`);
+        pushMemberLoads(c.memberUDL);
+        pushJointLoads(c.nodeLoads);
+        lcNo++;
+      }
+
+      // LOAD COMBINATIONS
+      let combNo = 101;
+      for(const comb of (combos||[])){
+        const nm = String(comb?.name||'COMB');
+        const f = comb?.factors || {};
+        const parts=[];
+        for(const [caseName, fac] of Object.entries(f)){
+          const lc = caseNoByName.get(String(caseName));
+          if(!lc) continue;
+          parts.push(`${lc} ${Number(fac||0).toFixed(6)}`);
+        }
+        if(!parts.length) continue;
+        lines.push(`LOAD COMB ${combNo} ${nm}`);
+        // wrap pairs across lines (STAAD allows continuation)
+        lines.push(parts.join(' '));
+        combNo++;
       }
 
       lines.push('PERFORM ANALYSIS');
