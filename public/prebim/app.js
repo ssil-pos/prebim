@@ -1630,9 +1630,10 @@ function renderAnalysis(projectId){
 
               <label class="label">Design method</label>
               <select class="input" id="designMethod">
-                <option value="STRENGTH" selected>Strength (KDS factors)</option>
-                <option value="ASD">ASD (KDS factors)</option>
+                <option value="STRENGTH" selected>Strength</option>
+                <option value="ASD">ASD</option>
               </select>
+              <div class="note" id="designMethodHint" style="margin-top:6px">KDS: Strength/ASD combos (concept-level)</div>
 
               <div class="row" style="justify-content:space-between; align-items:flex-end; gap:8px; flex-wrap:wrap">
                 <div>
@@ -2199,6 +2200,27 @@ function renderAnalysis(projectId){
     renderEqList();
     renderPipeList();
 
+    const updateDesignMethodUi = () => {
+      try{
+        const cp = String(document.getElementById('codeProfile')?.value || 'KDS').toUpperCase();
+        const hint = document.getElementById('designMethodHint');
+        const dm = document.getElementById('designMethod');
+        if(dm){
+          const optS = dm.querySelector('option[value="STRENGTH"]');
+          const optA = dm.querySelector('option[value="ASD"]');
+          if(cp === 'US'){
+            if(optS) optS.textContent = 'LRFD (concept)';
+            if(optA) optA.textContent = 'ASD (concept)';
+            if(hint) hint.textContent = 'US: LRFD/ASD combo templates (concept-level)';
+          } else {
+            if(optS) optS.textContent = 'Strength';
+            if(optA) optA.textContent = 'ASD';
+            if(hint) hint.textContent = 'KDS: Strength/ASD combos (concept-level)';
+          }
+        }
+      }catch{}
+    };
+
     const ensureComboOptions = () => {
       try{
         const cm = document.getElementById('comboMode');
@@ -2243,6 +2265,7 @@ function renderAnalysis(projectId){
 
     const setIf = (id, v) => { const el=document.getElementById(id); if(el!=null && v!=null && v!=='') el.value = String(v); };
     setIf('supportMode', saved.supportMode);
+    updateDesignMethodUi();
     ensureComboOptions();
     setIf('comboMode', saved.comboMode);
     // restore live load preset / value
@@ -4192,9 +4215,9 @@ function renderAnalysis(projectId){
       const checks = { main: (document.getElementById('chkMain')?.checked !== false), sub: (document.getElementById('chkSub')?.checked !== false), col: (document.getElementById('chkCol')?.checked !== false) };
       saveAnalysisSettings(p.id, { supportMode, designMethod, comboMode, qLive, qSnow, windX, windZ, eqX, eqZ, supportNodes, analysisScale, editSupports, rigidDia, deflMain, deflSub, driftX, driftZ, colTop, failHighlightOn, checks, ...patch });
     };
-    ['supportMode','designMethod','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','rigidDia','deflMain','deflSub','driftX','driftZ','colTop'].forEach(id => {
-      document.getElementById(id)?.addEventListener('change', () => { persist(); ensureComboOptions(); });
-      document.getElementById(id)?.addEventListener('input', () => { persist(); ensureComboOptions(); });
+    ['supportMode','designMethod','comboMode','qLive','qSnow','windX','windZ','eqX','eqZ','supportNodes','rigidDia','deflMain','deflSub','driftX','driftZ','colTop','codeProfile'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', () => { persist(); updateDesignMethodUi(); ensureComboOptions(); });
+      document.getElementById(id)?.addEventListener('input', () => { persist(); updateDesignMethodUi(); ensureComboOptions(); });
     });
     ['chkMain','chkSub','chkCol'].forEach(id => {
       document.getElementById(id)?.addEventListener('change', () => persist());
