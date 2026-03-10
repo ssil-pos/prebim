@@ -41,19 +41,22 @@ async function loadDeps(){
   // CDN fallback strategy:
   // esm.sh can return 5xx for transitive deps (e.g. three-mesh-bvh). Prefer jsDelivr (+esm) first.
   const threeUrl = [
-    // Many corporate networks block jsDelivr; keep it but not first.
+    // Prefer same-origin vendor files to avoid corporate CDN blocks.
+    '/prebim/vendor/three@0.160.0/build/three.module.js',
     'https://unpkg.com/three@0.160.0/build/three.module.js',
     'https://esm.run/three@0.160.0',
     'https://esm.sh/three@0.160.0',
     'https://cdn.jsdelivr.net/npm/three@0.160.0/+esm',
   ];
   const controlsUrl = [
+    '/prebim/vendor/three@0.160.0/examples/jsm/controls/OrbitControls.js',
     'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js',
     'https://esm.run/three@0.160.0/examples/jsm/controls/OrbitControls.js',
     'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js',
     'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js',
   ];
   const utilsUrl = [
+    '/prebim/vendor/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
     'https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
     'https://esm.run/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
     'https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
@@ -137,6 +140,10 @@ function escapeHtml(s){
 // tiny toast helper (non-blocking UI feedback)
 window.__toast = (msg, ms=900) => {
   try{
+    // Allow clickable details in console when debugging
+    // (no-op in production)
+  }catch{}
+  try{
     let el = document.getElementById('toast');
     if(!el){
       el = document.createElement('div');
@@ -163,6 +170,24 @@ window.__toast = (msg, ms=900) => {
     window.__toastT = setTimeout(() => { try{ el.style.opacity='0'; }catch{} }, Math.max(300, ms|0));
   }catch{}
 };
+
+function setupGlobalErrorToasts(){
+  try{
+    window.addEventListener('error', (e) => {
+      try{
+        console.error('Global error', e.error || e.message || e);
+        window.__toast?.('JS error: 콘솔 확인 필요', 2000);
+      }catch{}
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      try{
+        console.error('Unhandled rejection', e.reason || e);
+        window.__toast?.('Load error: 네트워크/CDN 차단 가능', 2400);
+      }catch{}
+    });
+  }catch{}
+}
+setupGlobalErrorToasts();
 
 function download(filename, text, mime='application/json'){
   const blob = new Blob([text], {type:mime});
