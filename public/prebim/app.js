@@ -41,34 +41,49 @@ async function loadDeps(){
   // CDN fallback strategy:
   // esm.sh can return 5xx for transitive deps (e.g. three-mesh-bvh). Prefer jsDelivr (+esm) first.
   const threeUrl = [
-    'https://cdn.jsdelivr.net/npm/three@0.160.0/+esm',
+    // Many corporate networks block jsDelivr; keep it but not first.
+    'https://unpkg.com/three@0.160.0/build/three.module.js',
     'https://esm.run/three@0.160.0',
     'https://esm.sh/three@0.160.0',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/+esm',
   ];
   const controlsUrl = [
-    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+    'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js',
     'https://esm.run/three@0.160.0/examples/jsm/controls/OrbitControls.js',
     'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js',
   ];
   const utilsUrl = [
-    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
+    'https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
     'https://esm.run/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
     'https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
-  ];
-  const csgUrl = [
-    'https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.17/+esm',
-    'https://esm.run/three-bvh-csg@0.0.17?deps=three@0.160.0',
-    'https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
   ];
 
-  const [threeMod, controlsMod, utilsMod, csgMod, engineMod, profilesMod] = await Promise.all([
+  // CSG is only needed for some editing operations. Make it OPTIONAL so 3D can still load.
+  const csgUrl = [
+    'https://esm.run/three-bvh-csg@0.0.17?deps=three@0.160.0',
+    'https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0',
+    'https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.17/+esm',
+  ];
+
+  const [threeMod, controlsMod, utilsMod, engineMod, profilesMod] = await Promise.all([
     importWithFallback(threeUrl),
     importWithFallback(controlsUrl),
     importWithFallback(utilsUrl),
-    importWithFallback(csgUrl),
     import('/prebim/engine.js?v=' + BUILD),
     import('/prebim/app_profiles.js?v=' + BUILD),
   ]);
+
+  // Optional CSG
+  let csgMod = null;
+  try{
+    csgMod = await importWithFallback(csgUrl);
+  }catch(e){
+    csgMod = null;
+    window.__toast?.('CSG module load failed (network). 일부 편집 기능이 제한될 수 있어요.', 2400);
+    console.warn('CSG import failed', e);
+  }
 
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
