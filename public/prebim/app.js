@@ -26,16 +26,46 @@ function saveAnalysisSettings(projectId, patch){
   }catch{ return null; }
 }
 
+async function importWithFallback(urls){
+  let lastErr = null;
+  for(const u of urls){
+    try{ return await import(u); }
+    catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('Failed to import module (no URLs provided)');
+}
+
 async function loadDeps(){
   if(__three && __OrbitControls && __engine) return;
+
+  // CDN fallback strategy:
+  // esm.sh occasionally returns 5xx for transitive deps; esm.run is a compatible alternative.
+  const threeUrl = [
+    'https://esm.sh/three@0.160.0',
+    'https://esm.run/three@0.160.0',
+  ];
+  const controlsUrl = [
+    'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+    'https://esm.run/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+  ];
+  const utilsUrl = [
+    'https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
+    'https://esm.run/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
+  ];
+  const csgUrl = [
+    'https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0',
+    'https://esm.run/three-bvh-csg@0.0.17?deps=three@0.160.0',
+  ];
+
   const [threeMod, controlsMod, utilsMod, csgMod, engineMod, profilesMod] = await Promise.all([
-    import('https://esm.sh/three@0.160.0'),
-    import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js'),
-    import('https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js'),
-    import('https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0'),
+    importWithFallback(threeUrl),
+    importWithFallback(controlsUrl),
+    importWithFallback(utilsUrl),
+    importWithFallback(csgUrl),
     import('/prebim/engine.js?v=' + BUILD),
     import('/prebim/app_profiles.js?v=' + BUILD),
   ]);
+
   __three = threeMod;
   __OrbitControls = controlsMod.OrbitControls;
   __threeUtils = utilsMod;
