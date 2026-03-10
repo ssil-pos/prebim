@@ -39,22 +39,26 @@ async function loadDeps(){
   if(__three && __OrbitControls && __engine) return;
 
   // CDN fallback strategy:
-  // esm.sh occasionally returns 5xx for transitive deps; esm.run is a compatible alternative.
+  // esm.sh can return 5xx for transitive deps (e.g. three-mesh-bvh). Prefer jsDelivr (+esm) first.
   const threeUrl = [
-    'https://esm.sh/three@0.160.0',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/+esm',
     'https://esm.run/three@0.160.0',
+    'https://esm.sh/three@0.160.0',
   ];
   const controlsUrl = [
-    'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js',
     'https://esm.run/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+    'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js',
   ];
   const utilsUrl = [
-    'https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
+    'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
     'https://esm.run/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
+    'https://esm.sh/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js',
   ];
   const csgUrl = [
-    'https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0',
+    'https://cdn.jsdelivr.net/npm/three-bvh-csg@0.0.17/+esm',
     'https://esm.run/three-bvh-csg@0.0.17?deps=three@0.160.0',
+    'https://esm.sh/three-bvh-csg@0.0.17?deps=three@0.160.0',
   ];
 
   const [threeMod, controlsMod, utilsMod, csgMod, engineMod, profilesMod] = await Promise.all([
